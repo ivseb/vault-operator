@@ -21,6 +21,7 @@ const BASE_STATE = {
     maxRetries: 3,
     emergencyRetried: false,
     outputCapRetried: false,
+    effortToolsRetried: false,
     historyLength: 10,
     rateLimitBaseWaitMs: 30_000,
 };

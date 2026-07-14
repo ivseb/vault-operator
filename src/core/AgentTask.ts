@@ -45,7 +45,7 @@ import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInte
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay, parseOutputCapLimit } from '../api/retry';
 import { resolveOutputBudget, getModelContextWindow as registryContextWindow } from '../types/model-registry';
-import { learnOutputCap } from './agent/LearnedCapsStore';
+import { learnOutputCap, learnEffortToolsUnsupported } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
@@ -1754,6 +1754,7 @@ export class AgentTask {
                 maxRetries: RATE_LIMIT_MAX_RETRIES,
                 emergencyRetried: loopState.emergencyRetried,
                 outputCapRetried: loopState.outputCapRetried,
+                effortToolsRetried: loopState.effortToolsRetried,
                 historyLength: history.length,
                 rateLimitBaseWaitMs: RATE_LIMIT_BASE_WAIT_MS,
             });
@@ -1764,6 +1765,28 @@ export class AgentTask {
             // into resolveOutputBudget, so every later request (this task and
             // future ones) is clamped — then retry once.
             if (errorAction.action === 'corrective-retry') {
+                // FIX-54-10: the provider rejected function tools combined
+                // with reasoning_effort (gpt-5.6 platform generation on
+                // chat/completions). Learn the per-model flag — persisted and
+                // injected into the registry, so the OpenAI request builder
+                // forces reasoning_effort 'none' with tools from now on —
+                // then retry once. The provider names 'none' as the accepted
+                // escape; omitting the field is NOT equivalent (reasoning
+                // models default to a non-none effort server-side).
+                if (errorAction.cls === 'effort-tools-unsupported') {
+                    loopState.effortToolsRetried = true;
+                    const effortModelId = this.api.getModel().id;
+                    await learnEffortToolsUnsupported(effortModelId);
+                    console.warn(
+                        `[EffortTools] ${effortModelId}: provider rejected reasoning_effort combined with `
+                        + `function tools; learned effortWithToolsUnsupported -- retrying with effort 'none'`,
+                    );
+                    this.taskCallbacks.onText(
+                        `\n\n*${effortModelId} does not support reasoning effort together with tools -- `
+                        + `automatically retrying with effort 'none'...*\n\n`,
+                    );
+                    continue;
+                }
                 loopState.outputCapRetried = true;
                 const capModelId = this.api.getModel().id;
                 const parsed = parseOutputCapLimit(error);

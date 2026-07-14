@@ -14,7 +14,7 @@
  * and raising it again would just re-trigger the 400.
  */
 
-import { setLearnedOutputCaps, normalizeModelId } from '../../types/model-registry';
+import { setLearnedOutputCaps, setLearnedModelFlags, normalizeModelId, type LearnedModelFlags } from '../../types/model-registry';
 
 export const LEARNED_CAPS_FILE = 'learned-model-caps.json';
 
@@ -28,6 +28,12 @@ const MAX_LEARNED_ENTRIES = 1_000;
 
 interface LearnedCapsFile {
     caps: Record<string, number>;
+    /**
+     * FIX-54-10: per-model capability restrictions learned from provider
+     * 400s (currently only effortWithToolsUnsupported). Optional so files
+     * written before the field existed keep loading unchanged.
+     */
+    flags?: Record<string, LearnedModelFlags>;
 }
 
 export interface LearnedCapsFs {
@@ -54,8 +60,20 @@ export async function learnOutputCap(modelId: string, cap: number): Promise<numb
     return activeStore.learnCap(modelId, cap);
 }
 
+/**
+ * FIX-54-10: record that a model rejects function tools combined with
+ * reasoning_effort on chat/completions. No-op when no store is registered
+ * (unit tests, early boot) — same contract as learnOutputCap.
+ */
+export async function learnEffortToolsUnsupported(modelId: string): Promise<void> {
+    if (!activeStore) return;
+    await activeStore.learnEffortWithToolsUnsupported(modelId);
+}
+
 export class LearnedCapsStore {
     private caps: Record<string, number> = {};
+    /** FIX-54-10: learned per-model capability restrictions. */
+    private flags: Record<string, LearnedModelFlags> = {};
     private loaded = false;
 
     constructor(private fs: LearnedCapsFs) {}
@@ -80,12 +98,29 @@ export class LearnedCapsStore {
                         }
                     }
                 }
+                // FIX-54-10: flags share the caps file. Same INP-3/INP-4
+                // hardening: proto-chain keys are skipped, the entry count is
+                // bounded, and only a literal `true` on a known flag field is
+                // copied — flags can only ADD restrictions, so any other value
+                // (or an unknown field) is dropped rather than trusted.
+                if (typeof parsed?.flags === 'object' && parsed.flags !== null) {
+                    let flagCount = 0;
+                    for (const [id, entry] of Object.entries(parsed.flags)) {
+                        if (id === '__proto__' || id === 'constructor' || id === 'prototype') continue;
+                        if (++flagCount > MAX_LEARNED_ENTRIES) break;
+                        if (typeof entry === 'object' && entry !== null
+                            && entry.effortWithToolsUnsupported === true) {
+                            this.flags[id] = { effortWithToolsUnsupported: true };
+                        }
+                    }
+                }
             }
         } catch (e) {
             console.warn('[LearnedCaps] load failed (non-fatal):', e instanceof Error ? e.message : e);
         }
         this.loaded = true;
         setLearnedOutputCaps({ ...this.caps });
+        setLearnedModelFlags({ ...this.flags });
     }
 
     getCap(modelId: string): number | undefined {
@@ -104,12 +139,36 @@ export class LearnedCapsStore {
         if (effective !== existing) {
             this.caps[id] = effective;
             setLearnedOutputCaps({ ...this.caps });
-            try {
-                await this.fs.write(LEARNED_CAPS_FILE, JSON.stringify({ caps: this.caps } satisfies LearnedCapsFile));
-            } catch (e) {
-                console.warn('[LearnedCaps] persist failed (non-fatal):', e instanceof Error ? e.message : e);
-            }
+            await this.persist();
         }
         return effective;
+    }
+
+    /**
+     * FIX-54-10: record that this model rejects function tools combined with
+     * reasoning_effort on chat/completions ("Function tools with
+     * reasoning_effort are not supported ... set reasoning_effort to
+     * 'none'", gpt-5.6 platform generation). Persisted and injected into the
+     * registry, so the OpenAI request builder forces effort 'none' with
+     * tools from now on — this task's corrective retry AND every future
+     * session. Restriction-only: there is no unlearn path.
+     */
+    async learnEffortWithToolsUnsupported(modelId: string): Promise<void> {
+        const id = normalizeModelId(modelId);
+        if (this.flags[id]?.effortWithToolsUnsupported === true) return;
+        this.flags[id] = { ...this.flags[id], effortWithToolsUnsupported: true };
+        setLearnedModelFlags({ ...this.flags });
+        await this.persist();
+    }
+
+    private async persist(): Promise<void> {
+        try {
+            await this.fs.write(LEARNED_CAPS_FILE, JSON.stringify({
+                caps: this.caps,
+                flags: this.flags,
+            } satisfies LearnedCapsFile));
+        } catch (e) {
+            console.warn('[LearnedCaps] persist failed (non-fatal):', e instanceof Error ? e.message : e);
+        }
     }
 }

@@ -15,6 +15,7 @@ export type ProviderErrorClass =
     | 'network'
     | 'context-overflow'
     | 'output-cap'
+    | 'effort-tools-unsupported'
     | 'auth'
     | 'client'
     | 'abort'
@@ -42,6 +43,23 @@ const OUTPUT_CAP_ANTHROPIC_RE = /max_tokens\D{0,3}(\d+)\s*>\s*(\d+)/i;
 const OUTPUT_CAP_HINT_RE = /max_?tokens|maximum tokens|output tokens/i;
 const OUTPUT_CAP_VERB_RE = /exceed|greater than|maximum|too (?:high|large)/i;
 const BUDGET_TOKENS_RE = /budget_tokens/i;
+
+// FIX-54-10: the gpt-5.6 platform generation (gpt-5.6-sol/-terra/-luna)
+// rejects function tools combined with reasoning_effort on
+// /v1/chat/completions: "Function tools with reasoning_effort are not
+// supported for <model> in /v1/chat/completions. To use function tools, use
+// /v1/responses or set reasoning_effort to 'none'." Matched structurally
+// (an effort field + a tools mention + a rejection verb) so wording variants
+// and other OpenAI-compatible backends classify too.
+const EFFORT_FIELD_RE = /reasoning[._\s-]?effort/i;
+const EFFORT_TOOLS_RE = /\btools?\b|\bfunction.?call/i;
+const EFFORT_REJECT_RE = /not supported|unsupported|not compatible|incompatible|cannot be (?:used|combined|set)/i;
+
+function isEffortToolsUnsupportedMessage(message: string): boolean {
+    return EFFORT_FIELD_RE.test(message)
+        && EFFORT_TOOLS_RE.test(message)
+        && EFFORT_REJECT_RE.test(message);
+}
 
 function isOutputCapMessage(message: string): boolean {
     if (BUDGET_TOKENS_RE.test(message)) return false;
@@ -104,6 +122,7 @@ export function classifyProviderError(err: unknown): ProviderErrorClass {
         if (status === 401 || status === 403) return 'auth';
         if (status >= 500) return 'server';
         if (status >= 400) {
+            if (isEffortToolsUnsupportedMessage(message)) return 'effort-tools-unsupported';
             if (isOutputCapMessage(message)) return 'output-cap';
             return CONTEXT_OVERFLOW_RE.test(message) ? 'context-overflow' : 'client';
         }
@@ -112,6 +131,7 @@ export function classifyProviderError(err: unknown): ProviderErrorClass {
     if (typeof e.code === 'string' && NETWORK_CODES.has(e.code)) return 'network';
 
     // Message-level fallbacks for errors without structured fields.
+    if (isEffortToolsUnsupportedMessage(message)) return 'effort-tools-unsupported';
     if (CONTEXT_OVERFLOW_RE.test(message)) return 'context-overflow';
     if (RATE_LIMIT_RE.test(message)) return 'rate-limit';
     if (NETWORK_RE.test(message)) return 'network';
