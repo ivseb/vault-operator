@@ -49,7 +49,14 @@ class DynamicTool extends BaseTool {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         try {
-            const result = await this.sandboxExecutor.execute(this.compiledJs, input);
+            // FIX-44-45: bind the governance task for this execution, exactly
+            // like evaluate_expression / run_skill_script (FIX-44-04/44-43).
+            // Without it, SandboxBridge.snapshotBeforeWrite no-ops and vault
+            // writes from custom_* skill tools are unrecoverable via
+            // restore_checkpoint.
+            const result = await this.sandboxExecutor.execute(this.compiledJs, input, {
+                governanceTaskId: context.taskId,
+            });
             const output = typeof result === 'string'
                 ? result
                 : JSON.stringify(result, null, 2);
