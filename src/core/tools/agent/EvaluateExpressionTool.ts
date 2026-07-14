@@ -121,16 +121,14 @@ export async function execute(input: Record<string, unknown>, ctx: { vault: any;
             const compiledJs = (params.dependencies?.length)
                 ? await this.esbuildManager.build(wrappedSource, params.dependencies)
                 : await this.esbuildManager.transform(wrappedSource);
-            // FIX-44-04: bind the task so sandbox vault writes are checkpointed.
-            this.sandboxExecutor.setGovernanceContext?.(context.taskId);
-            let result: unknown;
-            try {
-                result = await this.sandboxExecutor.execute(compiledJs, {
-                    context: params.context ?? {},
-                });
-            } finally {
-                this.sandboxExecutor.setGovernanceContext?.(undefined);
-            }
+            // FIX-44-04 / FIX-44-43: the task travels with the execution so
+            // sandbox vault writes are checkpointed under exactly this task,
+            // even when another task's script overlaps on the shared sandbox.
+            const result: unknown = await this.sandboxExecutor.execute(
+                compiledJs,
+                { context: params.context ?? {} },
+                { governanceTaskId: context.taskId },
+            );
 
             let output = typeof result === 'string'
                 ? result

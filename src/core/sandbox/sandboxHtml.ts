@@ -44,21 +44,29 @@ function bridgeCall(type, payload) {
 // skill-creator skill "create folder" path threw "vault.mkdir is not
 // a function" on mobile. IframeSandboxExecutor now routes the new
 // vault-mkdir message type to bridge.vaultMkdir.
-var vault = {
-    read: function(path) { return bridgeCall('vault-read', { path: path }); },
-    readBinary: function(path) { return bridgeCall('vault-read-binary', { path: path }); },
-    list: function(path) { return bridgeCall('vault-list', { path: path }); },
-    mkdir: function(path) { return bridgeCall('vault-mkdir', { path: path }); },
-    write: function(path, content) { return bridgeCall('vault-write', { path: path, content: content }); },
-    writeBinary: function(path, content) { return bridgeCall('vault-write-binary', { path: path, content: content }); }
-};
+//
+// FIX-44-43: proxies are created PER EXECUTION and stamp the execution id
+// (execId) onto every bridge message, so the plugin can attribute vault
+// writes to the task whose approval let THAT execution run. The previous
+// script-global singleton proxies could not tell overlapping executions
+// apart. Frozen so sandbox code cannot swap the methods out.
+function makeVaultProxy(execId) {
+    return Object.freeze({
+        read: function(path) { return bridgeCall('vault-read', { path: path, execId: execId }); },
+        readBinary: function(path) { return bridgeCall('vault-read-binary', { path: path, execId: execId }); },
+        list: function(path) { return bridgeCall('vault-list', { path: path, execId: execId }); },
+        mkdir: function(path) { return bridgeCall('vault-mkdir', { path: path, execId: execId }); },
+        write: function(path, content) { return bridgeCall('vault-write', { path: path, content: content, execId: execId }); },
+        writeBinary: function(path, content) { return bridgeCall('vault-write-binary', { path: path, content: content, execId: execId }); }
+    });
+}
 
 // requestUrl (Bridge, URL-Allowlist auf Plugin-Seite)
-var requestUrl = function(url, options) { return bridgeCall('request-url', { url: url, options: options }); };
-
-// Freeze bridge proxies — prevent sandbox code from replacing them
-Object.freeze(vault);
-Object.freeze(requestUrl);
+function makeRequestUrlProxy(execId) {
+    return Object.freeze(function(url, options) {
+        return bridgeCall('request-url', { url: url, options: options, execId: execId });
+    });
+}
 
 // Message-Handler fuer Bridge-Responses und Execute-Befehle
 window.addEventListener('message', function(event) {
@@ -82,6 +90,9 @@ window.addEventListener('message', function(event) {
     // Execute-Befehl vom Plugin
     if (msg.type === 'execute') {
         Promise.resolve().then(function() {
+            // FIX-44-43: per-execution proxies bound to this run's id.
+            var vault = makeVaultProxy(msg.id);
+            var requestUrl = makeRequestUrlProxy(msg.id);
             var moduleExports = {};
             var moduleFunc = new Function('exports', 'vault', 'requestUrl', msg.code);
             moduleFunc(moduleExports, vault, requestUrl);
