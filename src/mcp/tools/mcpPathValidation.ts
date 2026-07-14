@@ -35,16 +35,21 @@ export function validateMcpVaultPath(
         return { allowed: false, reason: 'Invalid path: traversal or absolute path rejected' };
     }
 
-    // 2. configDir protection (writes only)
-    if (isWrite) {
-        const configDir = plugin.app.vault.configDir;
-        const normalized = path.replace(/\\/g, '/');
-        if (normalized.startsWith(`${configDir}/`) || normalized === configDir) {
-            return { allowed: false, reason: `Write blocked: ${configDir}/ is protected` };
-        }
+    // 2. configDir protection. H-2 (AUDIT 2026-07-14): the read-side of this
+    // block used to be missing here (writes only), which let a remote MCP client
+    // read `.obsidian/plugins/*/data.json` and the agent settings via read_file.
+    // The IgnoreService pass below now covers configDir and the agent secret
+    // zone symmetrically for reads and writes; this inline check stays as a
+    // case-insensitive first line for the config dir.
+    const configDir = plugin.app.vault.configDir;
+    const normalized = path.replace(/\\/g, '/').toLowerCase();
+    const cfgLower = configDir.toLowerCase();
+    if (normalized.startsWith(`${cfgLower}/`) || normalized === cfgLower) {
+        return { allowed: false, reason: `Blocked: ${configDir}/ is protected` };
     }
 
-    // 3. IgnoreService checks
+    // 3. IgnoreService checks (configDir + agent secret zone read+write, plus
+    // user ignore/protected patterns).
     const ignoreService = plugin.ignoreService;
     if (ignoreService) {
         if (ignoreService.isIgnored(path)) {

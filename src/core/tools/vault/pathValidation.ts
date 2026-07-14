@@ -21,6 +21,11 @@
  */
 export function validateVaultRelativePath(rawPath: unknown): string | null {
     if (typeof rawPath !== 'string' || rawPath.length === 0) return null;
+    // AUDIT 2026-07-14 L-4: reject drive-letter (`C:\`) and UNC (`\\server`)
+    // prefixes on the raw input, mirroring assertSafeVaultPath. Checked before
+    // normalisation strips the leading slashes.
+    if (/^[A-Za-z]:[/\\]/.test(rawPath)) return null;
+    if (rawPath.startsWith('\\\\') || rawPath.startsWith('//')) return null;
     const normalized = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
     if (normalized.split('/').some((seg) => seg === '..' || seg === '.')) return null;
     if (normalized.includes('\0')) return null;

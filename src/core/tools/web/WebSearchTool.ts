@@ -6,7 +6,7 @@
  * Adapted from Kilo Code's web search integration pattern.
  */
 
-import { BaseTool } from '../BaseTool';
+import { BaseTool, defangBoundaryTags, escapeXmlAttribute } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { searchBrave, searchTavily, type WebSearchResult } from './WebSearchProvider';
@@ -105,13 +105,17 @@ export class WebSearchTool extends BaseTool<'web_search'> {
                 return;
             }
 
+            // AUDIT 2026-07-14 M-2: web_search results (titles/snippets from
+            // third-party pages, SEO/content-poisoning controllable) are
+            // untrusted. Carry the trust marker like the other wrappers and
+            // defang each field so a snippet cannot pre-close <web_search>.
             const lines: string[] = [
-                `<web_search query="${query}" provider="${provider}" results="${results.length}">`,
+                `<web_search query="${escapeXmlAttribute(query)}" provider="${provider}" results="${results.length}" trust="user-data">`,
             ];
             results.forEach((r, i) => {
-                lines.push(`\n${i + 1}. **${r.title}**`);
-                lines.push(`   URL: ${r.url}`);
-                if (r.snippet) lines.push(`   ${r.snippet}`);
+                lines.push(`\n${i + 1}. **${defangBoundaryTags(r.title)}**`);
+                lines.push(`   URL: ${defangBoundaryTags(r.url)}`);
+                if (r.snippet) lines.push(`   ${defangBoundaryTags(r.snippet)}`);
             });
             lines.push('\n</web_search>');
 

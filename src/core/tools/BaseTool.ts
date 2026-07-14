@@ -136,8 +136,30 @@ export abstract class BaseTool<TName extends ToolName = ToolName> {
         const attrs = Object.entries(baseAttrs)
             .map(([key, value]) => `${key}="${escapeXmlAttribute(value)}"`)
             .join(' ');
-        return `<untrusted-content ${attrs}>\n${content}\n</untrusted-content>`;
+        return `<untrusted-content ${attrs}>\n${defangBoundaryTags(content)}\n</untrusted-content>`;
     }
+}
+
+/**
+ * Boundary-wrapper tag names the agent loop emits (see securityBoundary.ts).
+ * Kept in sync with that enumeration; `defangBoundaryTags` strips these from
+ * untrusted bodies so a crafted document cannot pre-close the wrapper.
+ */
+const BOUNDARY_TAG_RE =
+    /<\/?(?:untrusted-content|vault-content|vault_context|web_fetch|web_context|web_search|attached_document|attached_folder|mcp_response|history|selection)\b[^>]*>/gi;
+
+/**
+ * Neutralise literal boundary-wrapper tags inside untrusted content.
+ *
+ * AUDIT 2026-07-14 M-1: `formatUntrustedContent` only escaped attribute values,
+ * so a body containing `</untrusted-content>` (or any other wrapper's closing
+ * tag) could pre-close the trust boundary and inject fresh instructions into
+ * the trusted prompt scope. The inline-action path already defends against this
+ * (`escapeForPromptBlock`); this is the same defence for every tool-result path.
+ * Exported for the non-BaseTool emitters (wrapVaultContentForMcp, AttachmentHandler).
+ */
+export function defangBoundaryTags(content: string): string {
+    return content.replace(BOUNDARY_TAG_RE, '');
 }
 
 /**

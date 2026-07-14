@@ -26,6 +26,7 @@ import type { OperationLogger } from '../governance/OperationLogger';
 import { ResultExternalizer } from './ResultExternalizer';
 import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
+import { resolveOutputPath } from '../tools/vault/resolveOutputPath';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
 import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect, type ApprovalGrantKey } from '../tools/toolEffects';
@@ -945,7 +946,7 @@ export class ToolExecutionPipeline {
      * lists the input keys plus whether the key is read-only (only isIgnored
      * is enforced) or write-side (isIgnored + isProtected when isWrite).
      */
-    private static readonly PATH_INPUT_KEYS: Record<string, Array<{ key: string; write: boolean }>> = {
+    static readonly PATH_INPUT_KEYS: Record<string, Array<{ key: string; write: boolean; resolveOutput?: boolean }>> = {
         // single-path tools fall through to the default `path` handling below,
         // but listing them here keeps the contract explicit and is harmless.
         move_file: [
@@ -977,6 +978,47 @@ export class ToolExecutionPipeline {
         unmark_note_as_memory_source: [
             { key: 'note_path', write: true },
         ],
+        // AUDIT 2026-07-14 BYP-1: these tools address their paths via
+        // source_path/output_path/source_uri, none of which is `path`, so the
+        // default handler never ran isIgnored/isProtected for them. That let the
+        // agent read an .obsidian-agentignore'd note or write into an
+        // .obsidian-agentprotected folder, and re-opened the configDir/agent
+        // secret zone whenever a create tool's extension gate is absent. The
+        // pathInputKeysCompleteness test now pins this list against every tool
+        // schema so a new path-bearing tool cannot drift out of governance again.
+        ingest_document: [
+            { key: 'source_path', write: false },
+            { key: 'output_path', write: true, resolveOutput: true },
+        ],
+        // source_path is the READ source; the real writes go to
+        // defaultOutputFolder / the MOC file and are guarded inside the tool
+        // (BYP-3, AUDIT 2026-07-14 round 2).
+        ingest_deep: [
+            { key: 'source_path', write: false },
+        ],
+        ingest_triage: [
+            { key: 'source_uri', write: false },
+        ],
+        create_excalidraw: [
+            { key: 'output_path', write: true, resolveOutput: true },
+        ],
+        create_drawio: [
+            { key: 'output_path', write: true, resolveOutput: true },
+        ],
+        create_docx: [
+            { key: 'output_path', write: true, resolveOutput: true },
+        ],
+        create_xlsx: [
+            { key: 'output_path', write: true, resolveOutput: true },
+        ],
+        create_pptx: [
+            { key: 'output_path', write: true, resolveOutput: true },
+        ],
+        // read-side: a folder filter must not let semantic_search return
+        // vectors from an ignored folder.
+        semantic_search: [
+            { key: 'folder', write: false },
+        ],
     };
 
     /**
@@ -994,13 +1036,27 @@ export class ToolExecutionPipeline {
         const keys = ToolExecutionPipeline.PATH_INPUT_KEYS[toolCall.name];
         if (keys && keys.length > 0) {
             for (const entry of keys) {
-                const value = toolCall.input?.[entry.key];
-                if (typeof value !== 'string' || value.length === 0) continue;
-                if (ignoreService.isIgnored(value)) {
-                    return { allowed: false, reason: ignoreService.getDenialReason(value) };
-                }
-                if (entry.write && isWrite && ignoreService.isProtected(value)) {
-                    return { allowed: false, reason: ignoreService.getDenialReason(value) };
+                const raw = toolCall.input?.[entry.key];
+                if (typeof raw !== 'string' || raw.length === 0) continue;
+                // BYP-1: ingest_triage addresses vault notes as `vault://path`.
+                // Strip the scheme so the deny-zone check sees the real path;
+                // http(s)://file:// URIs are not vault paths and fall through
+                // (their own SSRF/fetch guards apply elsewhere).
+                const stripped = raw.startsWith('vault://') ? raw.slice('vault://'.length) : raw;
+                // BYP-4 round 2: create_* tools resolve a slash-less output_path
+                // against defaultOutputFolder before writing. Check the resolved
+                // target too, so a filename-only path cannot land the write in an
+                // ignored/protected folder the raw check never saw.
+                const candidates = entry.resolveOutput
+                    ? [stripped, resolveOutputPath(this.plugin, stripped)]
+                    : [stripped];
+                for (const value of candidates) {
+                    if (ignoreService.isIgnored(value)) {
+                        return { allowed: false, reason: ignoreService.getDenialReason(value) };
+                    }
+                    if (entry.write && isWrite && ignoreService.isProtected(value)) {
+                        return { allowed: false, reason: ignoreService.getDenialReason(value) };
+                    }
                 }
             }
             return { allowed: true };
@@ -1432,7 +1488,19 @@ export class ToolExecutionPipeline {
      * write via mark/unmark got no snapshot and left stale cached reads.
      */
     private writeTargetPath(toolCall: ToolUse): string | undefined {
-        const raw = toolCall.input?.path ?? toolCall.input?.note_path;
+        let raw = toolCall.input?.path ?? toolCall.input?.note_path;
+        if (typeof raw !== 'string' || raw.length === 0) {
+            // AUDIT 2026-07-14 round 2: tools that address their write target via
+            // a non-`path` key (output_path, destination, ...) had no pre-write
+            // checkpoint, so an overwrite of an existing file was not undoable.
+            // Use the first write-side registered key, resolved like the write.
+            const keys = ToolExecutionPipeline.PATH_INPUT_KEYS[toolCall.name];
+            const writeKey = keys?.find((e) => e.write);
+            const v = writeKey ? toolCall.input?.[writeKey.key] : undefined;
+            if (typeof v === 'string' && v.length > 0) {
+                raw = writeKey?.resolveOutput ? resolveOutputPath(this.plugin, v) : v;
+            }
+        }
         if (typeof raw !== 'string' || raw.length === 0) return undefined;
         // FIX-44-52: key checkpoint + cache on the path the write actually
         // lands on. The tools normalize via validateVaultRelativePath

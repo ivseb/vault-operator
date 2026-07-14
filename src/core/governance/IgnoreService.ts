@@ -12,7 +12,7 @@
 
 import type { Vault } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
-import { isProtectedAgentConfigPath } from './agentFolderGuard';
+import { isProtectedAgentConfigPath, isAgentSecretPath } from './agentFolderGuard';
 
 export class IgnoreService {
     private vault: Vault;
@@ -38,15 +38,16 @@ export class IgnoreService {
         '.obsidian-agentprotected',
     ];
 
+    /** Vault config dir (`.obsidian`), lower-cased once for case-safe matching. */
+    private readonly configDirLower: string;
+
     constructor(vault: Vault, agentRoot = '') {
         this.vault = vault;
         this.agentRoot = agentRoot;
         const configDir = vault.configDir;
+        this.configDirLower = configDir.toLowerCase();
         this.alwaysBlocked = [
             '.git/',
-            `${configDir}/workspace`,
-            `${configDir}/workspace.json`,
-            `${configDir}/cache`,
         ];
     }
 
@@ -72,6 +73,29 @@ export class IgnoreService {
     isIgnored(path: string): boolean {
         if (!this.loaded) return true; // fail-closed: deny all until rules are loaded
         const normalPath = this.normalize(path);
+
+        // BYP-2 (AUDIT 2026-07-14): normalize() does not collapse `..`, so a
+        // path like `Inbox/../.obsidian/...` would slip the deny-zone here while
+        // the adapter resolves it into configDir. Reject any `..` segment
+        // fail-closed rather than relying on each tool to strip traversal.
+        if (normalPath.split('/').some((seg) => seg === '..')) return true;
+
+        // H-1/H-2 (AUDIT 2026-07-14): configDir (.obsidian) is an absolute
+        // read+write deny-zone for vault tools and MCP. It holds every plugin's
+        // data.json (credentials) and main.js (arbitrary code executed on the
+        // next Obsidian reload); no agent tool has a legitimate reason to touch
+        // it. Case-insensitive so a `.Obsidian/...` variant cannot slip past on
+        // case-insensitive filesystems (H-3). This mirrors the sandbox bridge,
+        // which already blocks configDir symmetrically.
+        const lower = normalPath.toLowerCase();
+        if (lower === this.configDirLower || lower.startsWith(`${this.configDirLower}/`)) {
+            return true;
+        }
+
+        // H-2: the agent's own secret zone (settings.json, data/ DBs, cache,
+        // provenance manifest) is off-limits for reads as well as writes;
+        // skills/, skill-data/ and tmp/ stay accessible.
+        if (isAgentSecretPath(normalPath, this.agentRoot)) return true;
 
         // Always-blocked paths
         for (const blocked of this.alwaysBlocked) {

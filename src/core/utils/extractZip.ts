@@ -78,6 +78,10 @@ export class ExtractZipError extends Error {
 }
 
 const DEFAULT_MAX_UNCOMPRESSED = 100 * 1024 * 1024;
+// AUDIT 2026-07-14 M-3: cap the entry count so an archive with hundreds of
+// thousands of tiny (or zero-declared) entries cannot exhaust memory before the
+// per-byte guard trips.
+const MAX_ENTRIES = 10_000;
 
 export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResult> {
     const limit = input.maxUncompressedBytes ?? DEFAULT_MAX_UNCOMPRESSED;
@@ -106,6 +110,16 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
     const strippedRoot = input.stripRootFolder ? detectSingleRoot(zip) : null;
     const entries = collectFileEntries(zip, strippedRoot);
 
+    if (entries.length > MAX_ENTRIES) {
+        throw new ExtractZipError(
+            `Archive has ${entries.length} entries, exceeding the ${MAX_ENTRIES} limit.`,
+            'ZIP_BOMB',
+        );
+    }
+
+    // First line: the declared central-directory sizes. Cheap, but an attacker
+    // controls them and can declare 0 (AUDIT 2026-07-14 M-3), so the real
+    // decompressed bytes are counted again during extraction below.
     let total = 0;
     for (const entry of entries) {
         total += getUncompressedSize(entry.file);
@@ -124,6 +138,10 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
     const written: string[] = [];
     const skipped: string[] = [];
     const overwritten: string[] = [];
+    // AUDIT 2026-07-14 M-3: count the bytes we actually decompress, independent
+    // of the attacker-declared header sizes, and abort if the real total blows
+    // the limit (a header can lie; a 4 GB entry can declare uncompressedSize=0).
+    let realBytes = 0;
 
     for (const entry of entries) {
         const absPath = target ? `${target}/${entry.relPath}` : entry.relPath;
@@ -156,6 +174,13 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
         }
 
         const data = await entry.file.async('arraybuffer');
+        realBytes += data.byteLength;
+        if (realBytes > limit) {
+            throw new ExtractZipError(
+                `Archive real uncompressed size exceeds ${limit} bytes during extraction.`,
+                'ZIP_BOMB',
+            );
+        }
         await input.adapter.writeBinary(absPath, data);
         written.push(entry.relPath);
     }
@@ -247,7 +272,10 @@ function isDangerousPath(p: string): boolean {
     if (p.startsWith('/')) return true;
     if (/^[a-zA-Z]:[\\/]/.test(p)) return true;
     if (p.startsWith('\\\\')) return true;
-    const segments = p.split('/');
+    // BYP-4 (AUDIT 2026-07-14): normalise backslashes before splitting so a
+    // `..\.obsidian\x` entry is broken into real segments. On Windows `\` is a
+    // path separator; without this the `..` segment escapes detection.
+    const segments = p.replace(/\\/g, '/').split('/');
     if (segments.some((s) => s === '..')) return true;
     return false;
 }

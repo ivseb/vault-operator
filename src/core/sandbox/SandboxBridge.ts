@@ -454,8 +454,13 @@ export class SandboxBridge {
         // safeStorage-encrypted credentials) and exfiltrate it via
         // requestUrl(). Symmetric read+write block makes configDir an
         // absolute deny-zone for sandboxed skill code.
+        // H-3 (AUDIT 2026-07-14): case-insensitive so `.Obsidian/...` cannot slip
+        // past on case-insensitive filesystems. The IgnoreService pass below
+        // enforces the same zone; this inline check is the first line.
         const configDir = this.plugin.app.vault.configDir;
-        if (safe.startsWith(`${configDir}/`) || safe === configDir) {
+        const safeLower = safe.toLowerCase();
+        const cfgLower = configDir.toLowerCase();
+        if (safeLower.startsWith(`${cfgLower}/`) || safeLower === cfgLower) {
             throw new Error(`Sandbox ${isWrite ? 'write' : 'read'} blocked: ${configDir}/ is protected`);
         }
 

@@ -17,6 +17,7 @@ import { TOOLS, AGENT_INTERNAL_TOOLS, MCP_WRITE_TOOLS } from './toolDefinitions'
 import { RelayClient } from './RelayClient';
 import { buildPrompts } from './prompts/systemContext';
 import { validateMcpVaultPath } from './tools/mcpPathValidation';
+import { defangBoundaryTags } from '../core/tools/BaseTool';
 import * as safeFs from '../core/security/safeFs';
 import { spawnAllowed, spawnAllowedSync } from '../core/security/spawnAllowlist';
 
@@ -557,5 +558,7 @@ export function wrapVaultContentForMcp(path: string, content: string): string {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
-    return `<vault-content path="${safePath}" trust="user-data">\n${content}\n</vault-content>`;
+    // AUDIT 2026-07-14 M-1: strip literal boundary tags from the body so it
+    // cannot pre-close the <vault-content> wrapper.
+    return `<vault-content path="${safePath}" trust="user-data">\n${defangBoundaryTags(content)}\n</vault-content>`;
 }

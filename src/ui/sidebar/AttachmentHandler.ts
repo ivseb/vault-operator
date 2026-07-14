@@ -4,6 +4,7 @@ import type { Vault, FileSystemAdapter } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
 import { parseDocument } from '../../core/document-parsers/parseDocument';
+import { defangBoundaryTags } from '../../core/tools/BaseTool';
 import {
     BINARY_DOCUMENT_EXTENSIONS,
     MAX_FILE_SIZE,
@@ -196,7 +197,7 @@ export class AttachmentHandler {
                     vaultPath: resolvedVaultPath,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${safeName}" format="${ext}"${vaultPathAttr}${sourceAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${contextText}\n</attached_document>`,
+                        text: `<attached_document name="${safeName}" format="${ext}"${vaultPathAttr}${sourceAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${defangBoundaryTags(contextText)}\n</attached_document>`,
                     },
                 };
 
@@ -251,7 +252,7 @@ export class AttachmentHandler {
                     vaultPath: file.path,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${safePath}" format="${ext}" vault_path="${safePath}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${contextText}\n</attached_document>`,
+                        text: `<attached_document name="${safePath}" format="${ext}" vault_path="${safePath}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${defangBoundaryTags(contextText)}\n</attached_document>`,
                     },
                 };
 
@@ -273,7 +274,7 @@ export class AttachmentHandler {
                     extension: ext,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${escapeXmlAttr(file.path)}" format="${ext}">\n${contextText}\n</attached_document>`,
+                        text: `<attached_document name="${escapeXmlAttr(file.path)}" format="${ext}">\n${defangBoundaryTags(contextText)}\n</attached_document>`,
                     },
                 });
             } else {
@@ -320,7 +321,11 @@ export class AttachmentHandler {
         }
 
         const totalBytes = capped.reduce((sum, f) => sum + (f.stat?.size ?? 0), 0);
-        const pathList = capped.map((f) => f.path).join('\n');
+        // AUDIT 2026-07-14 L-1: escape child paths the same way as folder.path.
+        // A vault file named `evil</attached_folder> ...md` (`<`/`>` are legal on
+        // macOS/Linux) could otherwise break out of the manifest block and
+        // inject prompt instructions without the agent ever reading the file.
+        const pathList = capped.map((f) => escapeXmlAttr(f.path)).join('\n');
         const capNote = totalMatched > FOLDER_MANIFEST_MAX_FILES
             ? ` showing first ${FOLDER_MANIFEST_MAX_FILES} of ${totalMatched} files (cap)`
             : '';

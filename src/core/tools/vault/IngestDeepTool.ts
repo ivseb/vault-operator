@@ -195,6 +195,19 @@ export class IngestDeepTool extends BaseTool<'ingest_deep'> {
         // slash so path joins (`${folder}/${name}.md`) stay clean.
         const notesFolder = (this.plugin.settings.defaultOutputFolder ?? 'Inbox/').replace(/\/+$/, '') || 'Inbox';
 
+        // BYP-3 (AUDIT 2026-07-14 round 2): the real writes land in notesFolder
+        // (defaultOutputFolder), which validatePaths never sees because the tool
+        // is registered on its READ path (source_path). Honour the same
+        // ignore/protected governance here before writing anything.
+        const ignore = this.plugin.ignoreService;
+        if (ignore && (ignore.isIgnored(notesFolder) || ignore.isProtected(notesFolder))) {
+            ctx.callbacks.pushToolResult(this.formatError(
+                `Output folder "${notesFolder}" is ignored or write-protected. ` +
+                `Adjust the default output folder or the .obsidian-agentignore/-protected rules.`,
+            ));
+            return;
+        }
+
         // FEAT-19-29: PDF-Markdown-Mirror wenn Setting opt-in plus PDF.
         // Mirror landet im notesFolder (Inbox/) statt im PDF-Folder --
         // so wird die PDF im Attachments-Folder belassen, die Markdown-
@@ -346,6 +359,10 @@ export class IngestDeepTool extends BaseTool<'ingest_deep'> {
         const onMOCPageUpdated = async (clusterName: string) => {
             // Suche MOC-Page des Clusters und aktualisiere ihren Marker-Block
             const mocPath = `${clusterName}.md`;
+            // BYP-3: the MOC file name derives from the cluster label; keep it
+            // inside the ignore/protected governance even though the write only
+            // modifies an existing moc-header file.
+            if (ignore && (ignore.isIgnored(mocPath) || ignore.isProtected(mocPath))) return;
             const mocFile = this.plugin.app.vault.getAbstractFileByPath(mocPath);
             if (mocFile instanceof TFile) {
                 const { findAutoBlock, replaceOrInsertAutoBlock } = await import('../../ingest/MOCMaintainer');
