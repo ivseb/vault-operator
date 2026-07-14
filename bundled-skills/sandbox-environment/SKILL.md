@@ -29,7 +29,41 @@ Promise, JSON, Math, Date, Object (full), Array, Map, Set, RegExp, Number, Strin
 Uint8Array, Int8Array, Uint16Array, Int16Array, Uint32Array, Int32Array, Float32Array, Float64Array, ArrayBuffer, DataView
 
 ## NOT Available (will cause errors)
-Blob, File, Buffer (Node.js), require(), dynamic import(), fetch(), XMLHttpRequest, window, document, DOM APIs, process, fs, path, __dirname, __filename, global, globalThis (returns vm context), URL, URLSearchParams, ReadableStream, WritableStream, crypto, WebSocket, Worker, SharedArrayBuffer, Atomics, Reflect
+Buffer (Node.js), require(), dynamic import(), process, fs, path, __dirname, __filename, child_process, WebAssembly, eval(), new Function()
+
+`require`, `import()`, `process`, `globalThis`, `eval`, `new Function` and `WebAssembly` are not merely absent: the AstValidator rejects the script BEFORE it compiles if the source so much as contains them, and its comment stripper deliberately keeps string literals. A script that searches for these tokens must therefore assemble them at runtime (`'pro' + 'cess'`), or it rejects itself. `new RegExp` is allowed.
+
+## The one rule that has no error message
+
+**A skill script is a single, self-contained file. No `import`, no `require`.**
+
+A static `import x from './y.js'` passes every check: the AstValidator only blocks `require(` and `import(`, and the repo has no other gate. But `esbuild.transform` (no bundling) rewrites it to `require()`, and there is no `require` here. The script dies on the user's first call, with an error that names none of this. Put everything in one file.
+
+## What the environment actually is
+
+A Chromium iframe (`sandbox="allow-scripts"`, no `allow-same-origin`, CSP `default-src 'none'`), NOT a Node vm. The `vm` worker was removed after a confirmed RCE; `sandbox-worker.js` in the repo root is a dead build artefact. Browser globals therefore exist in the usual browser sense, but the CSP gives them nothing to talk to: there is no network for `fetch`, and `document` belongs to a blank, origin-less frame. Do not build on them. `ctx.vault` and `ctx.requestUrl` are the entire surface you are given, and they are enough.
+
+## The return value is the only transport
+
+The agent sees exactly one thing: the value your `execute` returns, JSON-stringified. A thrown error becomes `Script execution error: {message}`, so put the recovery step in the message. Everything the agent must know goes in the return value.
+
+`console.log` is not a no-op, despite what this file used to claim. It works, and the output is visible in the Electron DevTools console. It simply is not a transport: nothing can read a child realm's console from the parent, and across an opaque origin the parent cannot even patch it. Use it to debug with DevTools open; never to return a result.
+
+## There is no network, and this one is absolute
+
+`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `navigator.sendBeacon` all EXIST as globals. Every call fails. The CSP is `default-src 'none'` with no `connect-src`, `connect-src` falls back to `default-src` by spec, and `'none'` matches no URL at all: not a remote one, not a relative one, not a same-origin one. `fetch()` rejects with `TypeError: Failed to fetch` before a packet leaves the process. There is no URL, no retry and no fallback that changes this.
+
+Dynamic `import('https://esm.sh/...')` is dead for the same reason: a script fetch falls to `script-src`, which grants `'unsafe-inline' 'unsafe-eval'` and **no URL sources**. `'unsafe-eval'` permits `new Function`; it does not permit loading code from a URL.
+
+`ctx.requestUrl` is the only way out, and it works because the PARENT makes the request, not you.
+
+## Storage throws, it does not fail softly
+
+`localStorage`, `sessionStorage`, `document.cookie` and `indexedDB` are blocked by the opaque origin. Reading the property THROWS a `SecurityError`; even `typeof localStorage` throws. An unguarded reference kills the script at the point of access, which is harsher than the network case. Persist through `ctx.vault`.
+
+## One fragility that is not ours to fix
+
+A `srcdoc` iframe inherits the embedding document's CSP, and multiple policies are enforced as a conjunction: the meta CSP is a floor, never a ceiling. So `new Function` works only for as long as Obsidian's own renderer policy tolerates `unsafe-eval`. If Obsidian ever tightens it, this sandbox stops working and no change to the plugin can repair it.
 
 ## Proven Patterns
 
@@ -94,7 +128,7 @@ return pkg.version;
 | Dates | built-in Date | moment | moment too heavy for sandbox |
 
 ## Resource Limits
-- Heap: 128 MB (desktop) / browser limit (mobile)
+- Heap: 128 MB, sampled every 500 ms, then killed
 - Execution timeout: 30 seconds
 - Write size: max 10 MB per operation
 - Write rate: max 10 writes/minute

@@ -169,8 +169,22 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
         // FIX-44-04 / FIX-44-43: the task travels with the execution so
         // sandbox vault writes are checkpointed under exactly this task,
         // even when another task's script overlaps on the shared sandbox.
+        // A skill script cannot find its own folder: the sandbox has no __dirname,
+        // and the agent folder is a free-form user setting (settings.agentFolderPath),
+        // so no script can derive or guess it. Without this, scripts hardcode
+        // '.vault-operator/data/skills' and write into nothing the moment a user
+        // renames their agent folder. The host already resolved the path above, so
+        // it hands it over. Spread last: these keys are facts, not agent input.
+        const skillDataRoot = skillsDir.replace(/(^|\/)skills$/, '$1skill-data');
+        const scriptArgs = {
+            ...args,
+            skills_root: skillsDir,
+            skill_data_root: skillDataRoot,
+            skill_name: skillName,
+        };
+
         try {
-            const result = await sandbox.execute(compiled, args, {
+            const result = await sandbox.execute(compiled, scriptArgs, {
                 governanceTaskId: context.taskId,
             });
             callbacks.pushToolResult(this.formatSuccess(JSON.stringify(result, null, 2)));
