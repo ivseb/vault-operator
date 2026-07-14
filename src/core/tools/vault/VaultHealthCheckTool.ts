@@ -13,6 +13,8 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
+import type { BatchEditPreview } from '../editPreview';
+import { t } from '../../../i18n';
 
 export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
     readonly name = 'vault_health_check' as const;
@@ -30,6 +32,52 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
 
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+    }
+
+    /**
+     * FEAT-44-02b: the motivating card-fatigue case. A repair action mutates
+     * frontmatter across many notes INSIDE VaultHealthService -- the gate
+     * used to see only the tool name. previewBatch surfaces the planned
+     * target list (planRepairTargets shares the selection code with the
+     * repair itself, pinned by parity tests) so the user approves a defined
+     * scope in ONE card.
+     *
+     * scopeOnly: the exact per-note mutation is decided inside
+     * processFrontMatter at write time; a simulated diff that can drift from
+     * the write is worse than an honest path list. Because the scope card is
+     * all-or-nothing, this tool never receives approvedBatchPaths subsets.
+     *
+     * check / refresh / cleanup_edges return null: they write no vault
+     * files, the plain card stays honest for them.
+     */
+    async previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null> {
+        const action = (input.action as string) || 'check';
+        if (action !== 'fix_backlinks' && action !== 'cleanup' && action !== 'fix_categories') {
+            return null;
+        }
+        const healthService = this.plugin.vaultHealthService;
+        if (!healthService) return null;
+        try {
+            // Same property arguments the execute branches pass to the fix
+            // methods, so plan and repair select the same targets.
+            const targets = healthService.planRepairTargets(
+                action,
+                'Notizen',
+                this.plugin.settings.categoryProperty ?? 'Kategorie',
+            );
+            if (targets.length === 0) return null;
+            return {
+                entries: targets.map((path) => ({ path, before: '', after: '' })),
+                summary: t('ui.approval.scope.vaultHealth', {
+                    action,
+                    count: String(targets.length),
+                }),
+                scopeOnly: true,
+            };
+        } catch (err) {
+            console.warn('[VaultHealthCheck] previewBatch failed (card fallback):', err);
+            return null;
+        }
     }
 
     /**
