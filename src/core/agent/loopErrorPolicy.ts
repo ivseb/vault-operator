@@ -29,6 +29,8 @@ export interface LoopErrorState {
     emergencyRetried: boolean;
     /** ADR-148: one output-cap corrective retry per task. */
     outputCapRetried: boolean;
+    /** FIX-54-10: one effort-with-tools corrective retry per task. */
+    effortToolsRetried: boolean;
     historyLength: number;
     /**
      * Base backoff for rate-limit errors WITHOUT a Retry-After header. Kept at
@@ -51,6 +53,15 @@ export function decideLoopErrorAction(err: unknown, state: LoopErrorState): Loop
     // One corrective retry: the caller learns the cap (clamping all later
     // requests) and re-enters the loop.
     if (cls === 'output-cap' && !state.outputCapRetried) {
+        return { action: 'corrective-retry', cls };
+    }
+
+    // FIX-54-10: the provider rejected function tools combined with
+    // reasoning_effort (gpt-5.6 platform generation on chat/completions).
+    // One corrective retry: the caller learns the per-model flag (forcing
+    // reasoning_effort 'none' whenever tools are present, this task and all
+    // future sessions) and re-enters the loop.
+    if (cls === 'effort-tools-unsupported' && !state.effortToolsRetried) {
         return { action: 'corrective-retry', cls };
     }
 

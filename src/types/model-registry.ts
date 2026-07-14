@@ -237,6 +237,33 @@ function getLearnedOutputCap(normalizedId: string): number | undefined {
 }
 
 /**
+ * FIX-54-10 (ADR-148 layer 3): capability RESTRICTIONS learned at runtime
+ * from provider 400s, keyed by normalized model id. Injected by
+ * LearnedCapsStore on boot and after each learn event, same module-setter
+ * pattern as setLearnedOutputCaps. Flags only ever ADD restrictions (the
+ * mirror of "caps only lower"): a set flag reflects a provider rejection and
+ * there is no unlearn path.
+ *
+ * effortWithToolsUnsupported: the model rejects function tools combined with
+ * reasoning_effort on /v1/chat/completions (gpt-5.6 platform generation:
+ * gpt-5.6-sol/-terra/-luna). The request builder then forces
+ * reasoning_effort 'none' whenever tools are present.
+ */
+export interface LearnedModelFlags {
+    effortWithToolsUnsupported?: boolean;
+}
+
+let learnedModelFlags: Record<string, LearnedModelFlags> = {};
+
+export function setLearnedModelFlags(flags: Record<string, LearnedModelFlags>): void {
+    learnedModelFlags = flags;
+}
+
+export function isEffortWithToolsUnsupported(modelId: string): boolean {
+    return learnedModelFlags[normalizeModelId(modelId)]?.effortWithToolsUnsupported === true;
+}
+
+/**
  * ADR-148 layer 1: generation-based size inference for ids without an exact
  * registry entry. FIX-04-03-12 made the capability layer pattern-based; the
  * size layer kept exact keys, so every new model silently dropped onto the
