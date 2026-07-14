@@ -53,23 +53,33 @@ function bridgeCall(type: string, payload: Record<string, unknown>): Promise<unk
 // Bridge Proxies — frozen, same API as sandboxHtml.ts
 // ---------------------------------------------------------------------------
 
-const vault = Object.freeze({
-    read: (path: string) => bridgeCall('vault-read', { path }),
-    readBinary: (path: string) => bridgeCall('vault-read-binary', { path }),
-    list: (path: string) => bridgeCall('vault-list', { path }),
-    write: (path: string, content: string) => bridgeCall('vault-write', { path, content }),
-    writeBinary: (path: string, content: ArrayBuffer) =>
-        bridgeCall('vault-write-binary', { path, content }),
-    // FEAT-29-05: parent-folder creation. Obsidian's vault adapter does not
-    // auto-create parents on write, so init_skill needs an explicit mkdir
-    // call. Idempotent: silently succeeds when the folder already exists.
-    mkdir: (path: string) => bridgeCall('vault-mkdir', { path }),
-});
+// FIX-44-43: proxies are created PER EXECUTION and stamp the execution id
+// (`execId`) onto every bridge message. The plugin side resolves that id back
+// to the task whose approval let the script run, so vault writes are
+// checkpoint-attributed per execution instead of last-writer-wins. The
+// previous module-level singleton proxies could not tell two overlapping
+// executions apart.
+function makeVaultProxy(execId: string) {
+    return Object.freeze({
+        read: (path: string) => bridgeCall('vault-read', { path, execId }),
+        readBinary: (path: string) => bridgeCall('vault-read-binary', { path, execId }),
+        list: (path: string) => bridgeCall('vault-list', { path, execId }),
+        write: (path: string, content: string) => bridgeCall('vault-write', { path, content, execId }),
+        writeBinary: (path: string, content: ArrayBuffer) =>
+            bridgeCall('vault-write-binary', { path, content, execId }),
+        // FEAT-29-05: parent-folder creation. Obsidian's vault adapter does not
+        // auto-create parents on write, so init_skill needs an explicit mkdir
+        // call. Idempotent: silently succeeds when the folder already exists.
+        mkdir: (path: string) => bridgeCall('vault-mkdir', { path, execId }),
+    });
+}
 
-const requestUrlProxy = Object.freeze(
-    (url: string, options?: { method?: string; body?: string }) =>
-        bridgeCall('request-url', { url, options })
-);
+function makeRequestUrlProxy(execId: string) {
+    return Object.freeze(
+        (url: string, options?: { method?: string; body?: string }) =>
+            bridgeCall('request-url', { url, options, execId })
+    );
+}
 
 // ---------------------------------------------------------------------------
 // VM Context — isolated scope without process/require/fs/globalThis
@@ -77,9 +87,12 @@ const requestUrlProxy = Object.freeze(
 
 // WICHTIG (Audit M-4): Object.freeze() NACH createContext() anwenden!
 // createContext() muss das Objekt modifizieren koennen (interne V8-Slots).
+// FIX-44-43: vault/requestUrl are NOT vm globals anymore -- they are handed
+// to each module invocation as function parameters (and via ctx), bound to
+// the executing run's execId. A shared global proxy would lose the
+// per-execution attribution (and would let a script write outside its own
+// checkpoint chain on purpose).
 const contextGlobals: Record<string, unknown> = {
-    vault,
-    requestUrl: requestUrlProxy,
     console: Object.freeze({
         log: () => {}, debug: () => {}, warn: () => {}, error: () => {},
     }),
@@ -107,22 +120,35 @@ const vmContext = createContext(contextGlobals);
 
 async function executeInSandbox(id: string, code: string, input: Record<string, unknown>): Promise<void> {
     try {
+        // FIX-44-43: bridge proxies bound to THIS execution's id, so every
+        // bridge call this run makes is attributable to its governance task.
+        const vault = makeVaultProxy(id);
+        const requestUrlProxy = makeRequestUrlProxy(id);
+
         // L-4 + M-5: Code injection via JSON.stringify (safe string literal),
         // no template literals (backtick-safe), no context mutation (frozen).
         // new Function() inside vm inherits the vm-realm scope (no process/require).
+        // FIX-44-43: the wrapped code evaluates to a FACTORY taking the
+        // per-execution proxies as parameters (they shadow any global lookup
+        // inside the module body, mirroring sandboxHtml.ts where vault and
+        // requestUrl have always been function parameters).
         const escapedCode = JSON.stringify(code);
-        const wrappedCode = '(function() {'
+        const wrappedCode = '(function(vault, requestUrl) {'
             + '\n    var exports = {};'
-            + '\n    var __fn = new Function("exports", ' + escapedCode + ');'
-            + '\n    __fn(exports);'
+            + '\n    var __fn = new Function("exports", "vault", "requestUrl", ' + escapedCode + ');'
+            + '\n    __fn(exports, vault, requestUrl);'
             + '\n    return exports;'
-            + '\n})()';
+            + '\n})';
 
-        const moduleExports = runInNewContext(wrappedCode, vmContext, {
+        const factory = runInNewContext(wrappedCode, vmContext, {
             timeout: 30000,
             filename: 'sandbox-module.js',
-        }) as { execute: (input: Record<string, unknown>, ctx: Record<string, unknown>) => Promise<unknown> };
+        }) as (
+            vaultArg: unknown,
+            requestUrlArg: unknown,
+        ) => { execute: (input: Record<string, unknown>, ctx: Record<string, unknown>) => Promise<unknown> };
 
+        const moduleExports = factory(vault, requestUrlProxy);
         const result = await moduleExports.execute(input, { vault, requestUrl: requestUrlProxy });
         process.send!({ type: 'result', id, value: result });
     } catch (e: unknown) {

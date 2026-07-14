@@ -152,15 +152,17 @@ describe('SandboxBridge governance (FIX-44-04 / 44-22 / 44-24)', () => {
     });
 
     describe('checkpoint before write', () => {
-        it('snapshots the target path before an ordinary vault write when a task is set', async () => {
+        it('snapshots the target path before an ordinary vault write when a task travels with it', async () => {
+            // FIX-44-43: the taskId is a per-operation parameter now, not
+            // bridge state (setGovernanceContext was last-writer-wins across
+            // overlapping executions).
             const snapshot = vi.fn(async (..._a: unknown[]) => ({ commitOid: 'abc' }));
             const fakeTFile = Object.create(TFile.prototype) as TFile;
             const { bridge } = makeBridge({
                 checkpointService: { snapshot },
                 tFiles: { 'Notes/ok.md': fakeTFile },
             });
-            bridge.setGovernanceContext('task-42');
-            await bridge.vaultWrite('Notes/ok.md', 'hello');
+            await bridge.vaultWrite('Notes/ok.md', 'hello', 'task-42');
             expect(snapshot).toHaveBeenCalledTimes(1);
             expect(snapshot.mock.calls[0][0]).toBe('task-42');
             expect(snapshot.mock.calls[0][1]).toEqual(['Notes/ok.md']);
@@ -185,8 +187,7 @@ describe('SandboxBridge governance (FIX-44-04 / 44-22 / 44-24)', () => {
                 enableCheckpoints: false,
                 tFiles: { 'Notes/ok.md': fakeTFile },
             });
-            bridge.setGovernanceContext('task-42');
-            await bridge.vaultWrite('Notes/ok.md', 'hello');
+            await bridge.vaultWrite('Notes/ok.md', 'hello', 'task-42');
             expect(snapshot).not.toHaveBeenCalled();
         });
     });

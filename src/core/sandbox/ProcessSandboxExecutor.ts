@@ -13,7 +13,7 @@
 
 import type { ChildProcess } from 'child_process';
 import type ObsidianAgentPlugin from '../../main';
-import type { ISandboxExecutor } from './ISandboxExecutor';
+import type { ISandboxExecutor, SandboxExecutionOptions } from './ISandboxExecutor';
 import { SandboxBridge } from './SandboxBridge';
 import * as safeFs from '../security/safeFs';
 import { spawnAllowed, spawnAllowedSync } from '../security/spawnAllowlist';
@@ -37,17 +37,20 @@ interface PendingExecution {
 }
 
 /** Messages FROM the worker TO the plugin (typed union) */
+// FIX-44-43: bridge requests carry the execution id (`execId`) of the script
+// run that issued them, so writes can be checkpoint-attributed to the task
+// whose approval let THAT execution run (per-execution, not last-writer-wins).
 type WorkerToPluginMessage =
     | { type: 'sandbox-ready' }
     | { type: 'result'; id: string; value: unknown }
     | { type: 'error'; id: string; message: string }
-    | { type: 'vault-read'; callId: string; path: string }
-    | { type: 'vault-read-binary'; callId: string; path: string }
-    | { type: 'vault-list'; callId: string; path: string }
-    | { type: 'vault-write'; callId: string; path: string; content: string }
-    | { type: 'vault-write-binary'; callId: string; path: string; content: ArrayBuffer }
-    | { type: 'vault-mkdir'; callId: string; path: string }
-    | { type: 'request-url'; callId: string; url: string; options?: { method?: string; body?: string } };
+    | { type: 'vault-read'; callId: string; path: string; execId?: string }
+    | { type: 'vault-read-binary'; callId: string; path: string; execId?: string }
+    | { type: 'vault-list'; callId: string; path: string; execId?: string }
+    | { type: 'vault-write'; callId: string; path: string; content: string; execId?: string }
+    | { type: 'vault-write-binary'; callId: string; path: string; content: ArrayBuffer; execId?: string }
+    | { type: 'vault-mkdir'; callId: string; path: string; execId?: string }
+    | { type: 'request-url'; callId: string; url: string; options?: { method?: string; body?: string }; execId?: string };
 
 // ---------------------------------------------------------------------------
 // ProcessSandboxExecutor
@@ -67,10 +70,11 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
         this.bridge = new SandboxBridge(plugin);
     }
 
-    /** FIX-44-04: forward the governance task to the bridge for checkpointing. */
-    setGovernanceContext(taskId: string | undefined): void {
-        this.bridge.setGovernanceContext(taskId);
-    }
+    // FIX-44-43: governance task per execution id. The worker echoes the
+    // execId on every bridge request; a write resolves back to the taskId
+    // that was passed to execute() for exactly that run, so overlapping
+    // executions from different tasks keep their own checkpoint attribution.
+    private execGovernance = new Map<string, string>();
 
     /**
      * Build the minimal env for the sandbox worker process. The
@@ -116,13 +120,23 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
         return this.readyPromise;
     }
 
-    async execute(compiledJs: string, input: Record<string, unknown>): Promise<unknown> {
+    async execute(
+        compiledJs: string,
+        input: Record<string, unknown>,
+        options?: SandboxExecutionOptions,
+    ): Promise<unknown> {
         await this.ensureReady();
         const id = this.generateId();
+        // FIX-44-43: remember which task this execution runs for, keyed by the
+        // execution id the worker echoes on every bridge request.
+        if (options?.governanceTaskId) {
+            this.execGovernance.set(id, options.governanceTaskId);
+        }
 
         return new Promise<unknown>((resolve, reject) => {
             const timeout = window.setTimeout(() => {
                 this.pending.delete(id);
+                this.execGovernance.delete(id);
                 reject(new Error('Sandbox execution timeout (30s)'));
             }, 30000);
 
@@ -144,6 +158,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
             p.reject(new Error('Sandbox destroyed'));
         }
         this.pending.clear();
+        this.execGovernance.clear();
     }
 
     // -----------------------------------------------------------------------
@@ -210,6 +225,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
                 p.reject(new Error('Worker process exited unexpectedly'));
             }
             this.pending.clear();
+            this.execGovernance.clear();
         });
 
         // Wait for sandbox-ready with 10s timeout
@@ -255,6 +271,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
         // Execution result/error
         if (msg.type === 'result' || msg.type === 'error') {
             const id = msg.id;
+            this.execGovernance.delete(id);
             const p = this.pending.get(id);
             if (!p) return;
             window.clearTimeout(p.timeout);
@@ -272,6 +289,10 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
 
         // Bridge requests from the worker — route through SandboxBridge
         const bridgeMsg = msg;
+        // FIX-44-43: resolve the issuing execution back to its governance task.
+        const governanceTaskId = bridgeMsg.execId !== undefined
+            ? this.execGovernance.get(bridgeMsg.execId)
+            : undefined;
 
         try {
             let result: unknown;
@@ -282,10 +303,10 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
             } else if (bridgeMsg.type === 'vault-list') {
                 result = await this.bridge.vaultList(bridgeMsg.path);
             } else if (bridgeMsg.type === 'vault-write') {
-                await this.bridge.vaultWrite(bridgeMsg.path, bridgeMsg.content);
+                await this.bridge.vaultWrite(bridgeMsg.path, bridgeMsg.content, governanceTaskId);
                 result = true;
             } else if (bridgeMsg.type === 'vault-write-binary') {
-                await this.bridge.vaultWriteBinary(bridgeMsg.path, bridgeMsg.content);
+                await this.bridge.vaultWriteBinary(bridgeMsg.path, bridgeMsg.content, governanceTaskId);
                 result = true;
             } else if (bridgeMsg.type === 'vault-mkdir') {
                 await this.bridge.vaultMkdir(bridgeMsg.path);

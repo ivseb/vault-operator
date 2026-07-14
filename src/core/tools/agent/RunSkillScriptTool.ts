@@ -166,10 +166,13 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
         }
 
         // Execute in sandbox
-        // FIX-44-04: bind the task so sandbox vault writes are checkpointed.
-        sandbox.setGovernanceContext?.(context.taskId);
+        // FIX-44-04 / FIX-44-43: the task travels with the execution so
+        // sandbox vault writes are checkpointed under exactly this task,
+        // even when another task's script overlaps on the shared sandbox.
         try {
-            const result = await sandbox.execute(compiled, args);
+            const result = await sandbox.execute(compiled, args, {
+                governanceTaskId: context.taskId,
+            });
             callbacks.pushToolResult(this.formatSuccess(JSON.stringify(result, null, 2)));
             callbacks.log(`Executed skill-script: ${skillName}/${scriptName}`);
         } catch (e) {
@@ -177,8 +180,6 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
             callbacks.pushToolResult(
                 this.formatError(new Error(`Script execution error: ${msg}`)),
             );
-        } finally {
-            sandbox.setGovernanceContext?.(undefined);
         }
     }
 }

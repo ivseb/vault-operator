@@ -48,37 +48,13 @@ export class SandboxBridge {
 
     constructor(private plugin: ObsidianAgentPlugin) {}
 
-    // FIX-44-04: the task whose approval let this script run. Set by the sandbox
-    // tools before execution so every bridge write can snapshot a checkpoint
-    // under the right task, and cleared afterwards. Undefined means "no task in
-    // scope" -- e.g. a bare unit test -- in which case writes are not snapshotted.
-    private governanceTaskId?: string;
-    // FIX-44-04 concurrency: this bridge is a warm singleton shared by every
-    // task. If two task loops run sandbox scripts that overlap (multiple sidebar
-    // leaves, a background job over a foreground run), a naive set/clear-to-
-    // undefined would let one script's finally null the context out from under
-    // the other -- its next write would then go un-snapshotted (unrecoverable).
-    // Reference-count instead: the context stays bound while ANY execution is
-    // active, so no in-flight write is ever left without a checkpoint task.
-    private governanceDepth = 0;
-
-    /**
-     * FIX-44-04: bind (or release) the governance context for the current run.
-     * The sandbox tools call this with `context.taskId` right before executing a
-     * script and with `undefined` in their finally block. Without it, sandbox
-     * writes would be the one write path in the plugin with no recovery snapshot.
-     */
-    setGovernanceContext(taskId: string | undefined): void {
-        if (taskId) {
-            this.governanceTaskId = taskId;
-            this.governanceDepth++;
-        } else if (this.governanceDepth > 0) {
-            this.governanceDepth--;
-            // Only drop the id once the LAST active execution has released, so an
-            // overlapping script never loses its checkpoint task mid-run.
-            if (this.governanceDepth === 0) this.governanceTaskId = undefined;
-        }
-    }
+    // FIX-44-04 / FIX-44-43: this bridge is a warm singleton shared by every
+    // task, so the governance taskId is NOT bridge state. It travels with each
+    // write operation (executor resolves the execution's taskId and passes it
+    // per call). The predecessor design -- a single mutable slot plus a
+    // refcount -- was last-writer-wins: with two overlapping sandbox
+    // executions from different tasks, the earlier task's writes were
+    // checkpointed under the wrong taskId and restore_checkpoint missed them.
 
     async vaultRead(path: string): Promise<string> {
         this.checkCircuitBreaker();
@@ -179,7 +155,12 @@ export class SandboxBridge {
         }
     }
 
-    async vaultWrite(path: string, content: string): Promise<void> {
+    /**
+     * @param governanceTaskId FIX-44-43: the task of the execution that issued
+     * this write (threaded per operation by the executor). Snapshot attribution
+     * only -- validation and rate limits apply regardless.
+     */
+    async vaultWrite(path: string, content: string, governanceTaskId?: string): Promise<void> {
         this.checkCircuitBreaker();
         this.validateVaultPath(path, true);
         // M-2: Write-Size-Limit
@@ -187,7 +168,7 @@ export class SandboxBridge {
             throw new Error(`Write too large: ${content.length} bytes (max ${SandboxBridge.MAX_WRITE_SIZE})`);
         }
         this.checkWriteRateLimit();
-        await this.snapshotBeforeWrite(path);
+        await this.snapshotBeforeWrite(path, governanceTaskId);
         this.logBridgeOp('vault-write', `${path} (${content.length} chars)`);
         // FEAT-29-05: adapter.write for hidden folders (Vault.create skips them).
         // FIX-01-07-04 parity: atomic temp+rename so a skill bug or crash
@@ -234,7 +215,8 @@ export class SandboxBridge {
         }
     }
 
-    async vaultWriteBinary(path: string, content: ArrayBuffer): Promise<void> {
+    /** @param governanceTaskId FIX-44-43: see {@link vaultWrite}. */
+    async vaultWriteBinary(path: string, content: ArrayBuffer, governanceTaskId?: string): Promise<void> {
         this.checkCircuitBreaker();
         this.validateVaultPath(path, true);
         // M-2: Write-Size-Limit
@@ -242,7 +224,7 @@ export class SandboxBridge {
             throw new Error(`Write too large: ${content.byteLength} bytes (max ${SandboxBridge.MAX_WRITE_SIZE})`);
         }
         this.checkWriteRateLimit();
-        await this.snapshotBeforeWrite(path);
+        await this.snapshotBeforeWrite(path, governanceTaskId);
         this.logBridgeOp('vault-write-binary', `${path} (${content.byteLength} bytes)`);
         if (this.isHiddenPath(path)) {
             // FIX-01-07-04 parity: see vaultWrite above.
@@ -540,11 +522,11 @@ export class SandboxBridge {
     /**
      * FIX-44-04: snapshot the target before a sandbox write, so a bad script is
      * recoverable via restore_checkpoint just like a bad tool write. No-op when
-     * no task is bound (setGovernanceContext was not called) or checkpoints are
+     * no task travelled with the write (FIX-44-43: the executor resolves the
+     * issuing execution's taskId and passes it per operation) or checkpoints are
      * off. Never throws -- a failed snapshot must not block the write path.
      */
-    private async snapshotBeforeWrite(path: string): Promise<void> {
-        const taskId = this.governanceTaskId;
+    private async snapshotBeforeWrite(path: string, taskId: string | undefined): Promise<void> {
         if (!taskId) return;
         if (this.plugin.settings?.enableCheckpoints === false) return;
         try {
