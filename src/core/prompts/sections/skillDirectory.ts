@@ -13,8 +13,18 @@
  * FEAT-24-02) like any other tool result.
  */
 
+import { defangBoundaryTags } from '../../tools/BaseTool';
+
 export function getSkillDirectorySection(directory?: string): string {
     if (!directory?.trim()) return '';
+
+    // AUDIT 2026-07-14 (Codex re-review, M-1): this is the single chokepoint all
+    // three buildSkillDirectory assemblies flow through before the wrapper is
+    // added (sidebar, inline-chat AgentRuntimeContext, mode ModesTab). A final
+    // reconstruction-safe defang here neutralises any boundary tag that survived
+    // per-field sanitisation on a raw assembly path OR was reassembled across the
+    // ", " / "\n" joins between two independently-sanitised fields.
+    const safeDirectory = defangBoundaryTags(directory.trim());
 
     return [
         '',
@@ -31,7 +41,7 @@ export function getSkillDirectorySection(directory?: string): string {
         'task. If no skill applies, proceed with normal tools and capabilities.',
         '',
         '<available_skills>',
-        directory.trim(),
+        safeDirectory,
         '</available_skills>',
     ].join('\n');
 }

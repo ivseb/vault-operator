@@ -197,12 +197,18 @@ export class OperationLogger {
         return lowerKey === 'content' || lowerKey === 'new_str' || lowerKey === 'old_str';
     }
 
-    private scrubAndTruncateString(value: string): string {
-        const MAX_VALUE_LEN = 500;
+    /** Replace credential-shaped tokens with the redaction marker. */
+    private scrubTokens(value: string): string {
         let scrubbed = value;
         for (const pattern of VALUE_TOKEN_PATTERNS) {
             scrubbed = scrubbed.replace(pattern, REDACTED);
         }
+        return scrubbed;
+    }
+
+    private scrubAndTruncateString(value: string): string {
+        const MAX_VALUE_LEN = 500;
+        const scrubbed = this.scrubTokens(value);
         if (scrubbed.length > MAX_VALUE_LEN) {
             return scrubbed.slice(0, MAX_VALUE_LEN) + '…';
         }
@@ -217,10 +223,15 @@ export class OperationLogger {
         try {
             const today = this.getToday();
             const logPath = `${this.logDir}/${today}.jsonl`;
-            const sanitizedResult = entry.result
-                ? (entry.result.length > this.MAX_RESULT_LEN
-                    ? entry.result.slice(0, this.MAX_RESULT_LEN) + '...[truncated]'
-                    : entry.result)
+            // AUDIT 2026-07-14 (Codex) M-4: scrub credential tokens from the
+            // result BEFORE truncation. Previously the result was only
+            // length-capped, so a tool result echoing a Bearer/sk- token
+            // persisted it in clear text to the 30-day log.
+            const scrubbedResult = entry.result ? this.scrubTokens(entry.result) : undefined;
+            const sanitizedResult = scrubbedResult
+                ? (scrubbedResult.length > this.MAX_RESULT_LEN
+                    ? scrubbedResult.slice(0, this.MAX_RESULT_LEN) + '...[truncated]'
+                    : scrubbedResult)
                 : undefined;
             const sanitized = {
                 ...entry,

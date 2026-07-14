@@ -10,6 +10,8 @@
  * into the system prompt and updated automatically via the extraction pipeline.
  */
 
+import { defangBoundaryTags } from '../../tools/BaseTool';
+
 /** Cap on injected memory chars. ADR-080 Lever 8: was unbounded (~16k chars / 4k tokens). */
 const MAX_MEMORY_CHARS = 4000;
 
@@ -52,10 +54,18 @@ function redactCredentials(text: string): string {
 export function getMemorySection(memoryContext?: string): string {
     if (!memoryContext?.trim()) return '';
 
+    // AUDIT 2026-07-14 (Codex) M-2: facts and session excerpts (some of which
+    // can originate from externally auto-extracted conversations) are rendered
+    // here as authoritative PERSISTENT MEMORY. Neutralise any boundary wrapper
+    // an injected fact tries to smuggle in, so it cannot forge/close a trust
+    // wrapper around the memory block. Legitimate memory sub-tags
+    // (<agent_identity>, <user_profile>, <session>) are not boundary tags and
+    // survive untouched. The external write path itself is gated by FIX-44-57.
+    //
     // Truncate to keep the per-call memory budget under ~1k tokens. The
     // extraction pipeline can store more, but the prompt only carries the
     // most relevant slice (the MemoryRetriever is responsible for ranking).
-    let body = redactCredentials(memoryContext.trim());
+    let body = defangBoundaryTags(redactCredentials(memoryContext.trim()));
     if (body.length > MAX_MEMORY_CHARS) {
         body = body.slice(0, MAX_MEMORY_CHARS) + `\n\n[Memory truncated to ${MAX_MEMORY_CHARS} chars. Use recall_memory to query specific facts.]`;
     }

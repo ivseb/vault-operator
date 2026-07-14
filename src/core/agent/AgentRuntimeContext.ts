@@ -24,6 +24,7 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { ModeConfig } from '../../types/settings';
+import { sanitizeDirectoryEntry } from '../tools/BaseTool';
 import { MemoryRetriever } from '../memory/MemoryRetriever';
 import { OnboardingService } from '../memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../onboarding-status';
@@ -131,7 +132,11 @@ async function buildSkillDirectory(plugin: ObsidianAgentPlugin): Promise<string 
 
     const userLines = filteredUserSkills
         .filter(s => selfAuthoredNames.has(s.name) === false)
-        .map(s => `- ${s.name}: ${s.description}`);
+        // AUDIT 2026-07-14 (Codex re-review, M-1): mirror the sidebar path -- user
+        // skill name/description are untrusted frontmatter. The final defang in
+        // getSkillDirectorySection is the security backstop; sanitising here also
+        // caps length and flattens newlines for the inline-chat prompt.
+        .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
 
     const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(b => b.length > 0);
     if (blocks.length === 0) return undefined;

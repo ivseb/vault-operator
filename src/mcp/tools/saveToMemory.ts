@@ -19,7 +19,7 @@ import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { FactStore } from '../../core/memory/FactStore';
 import {
-    validateSourceInterface,
+    resolveExternalSourceInterface,
 } from '../../core/memory/SourceInterface';
 import type { FactKind } from '../../core/memory/FactStore';
 
@@ -46,7 +46,10 @@ export async function handleSaveToMemory(
         return errorResult('Memory database is not available');
     }
 
-    const sourceInterface = validateSourceInterface(args.source_interface);
+    // AUDIT 2026-07-14 (Codex review, H-1 write-side): coerce a client-supplied
+    // 'obsilo' to 'unknown' so an external client cannot write a fact into the
+    // plugin-internal partition.
+    const sourceInterface = resolveExternalSourceInterface(args.source_interface);
     const tags = Array.isArray(args.tags)
         ? args.tags.filter((t): t is string => typeof t === 'string').slice(0, 5)
         : [];

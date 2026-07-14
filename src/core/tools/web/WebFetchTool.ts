@@ -15,6 +15,11 @@ import https from 'https';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
+// AUDIT 2026-07-14 (Codex) M-7: response body cap shared with SandboxBridge.
+import { MAX_RESPONSE_BYTES, parseContentLength, readCappedResponseBody } from '../../utils/httpBodyCap';
+
+// Re-export so existing importers (and the M-7 test) keep resolving these here.
+export { MAX_RESPONSE_BYTES, parseContentLength, readCappedResponseBody };
 
 /**
  * Strict IPv4 dotted-quad regex: exactly four 0-255 octets, no leading zeros beyond a single 0.
@@ -435,28 +440,38 @@ export class WebFetchTool extends BaseTool<'web_fetch'> {
                         );
                         return;
                     }
-                    const chunks: Buffer[] = [];
-                    res.on('data', (chunk: Buffer) => chunks.push(chunk));
-                    res.on('end', () => {
-                        const body = Buffer.concat(chunks).toString('utf8');
-                        const headers: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(res.headers)) {
-                            if (typeof v === 'string') headers[k] = v;
-                            else if (Array.isArray(v)) headers[k] = v.join(', ');
-                        }
-                        resolve({
-                            status: res.statusCode ?? 0,
-                            headers,
-                            text: body,
-                        });
-                    });
-                    res.on('error', (err) => reject(err));
+                    // AUDIT 2026-07-14 (Codex) M-7: cap the buffered body while
+                    // streaming instead of after Buffer.concat.
+                    readCappedResponseBody(res, () => req.destroy(), MAX_RESPONSE_BYTES)
+                        .then((body) => {
+                            const headers: Record<string, string> = {};
+                            for (const [k, v] of Object.entries(res.headers)) {
+                                if (typeof v === 'string') headers[k] = v;
+                                else if (Array.isArray(v)) headers[k] = v.join(', ');
+                            }
+                            resolve({
+                                status: res.statusCode ?? 0,
+                                headers,
+                                text: body,
+                            });
+                        })
+                        .catch(reject);
                 },
             );
             req.on('error', (err) => reject(err));
+            // Idle timeout: fires when no socket activity for timeoutMs.
             req.setTimeout(timeoutMs, () => {
                 req.destroy(new Error(`Request timed out after ${timeoutMs / 1000}s`));
             });
+            // AUDIT 2026-07-14 (Codex) M-7: absolute ceiling independent of idle
+            // activity, so a server that dribbles bytes just under the idle
+            // timeout cannot hold the request open indefinitely.
+            const absoluteBudgetMs = Math.max(timeoutMs * 3, 45_000);
+            const hardDeadline = setTimeout(() => {
+                req.destroy(new Error(`Request exceeded absolute time budget of ${absoluteBudgetMs / 1000}s`));
+            }, absoluteBudgetMs);
+            if (typeof hardDeadline === 'object' && 'unref' in hardDeadline) hardDeadline.unref();
+            req.on('close', () => clearTimeout(hardDeadline));
             req.end();
         });
     }

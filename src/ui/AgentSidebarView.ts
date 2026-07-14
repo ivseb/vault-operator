@@ -12,6 +12,7 @@ import { ModeService } from '../core/modes/ModeService';
 // ADR-153: the approval card consumes the same effect registry as the Pipeline.
 // No second, drifting copy of the group mapping.
 import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
+import { sanitizeDirectoryEntry } from '../core/tools/BaseTool';
 import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
@@ -1613,7 +1614,10 @@ export class AgentSidebarView extends ItemView {
 
         const userLines = filteredUserSkills
             .filter(s => !selfAuthoredNames.has(s.name))
-            .map(s => `- ${s.name}: ${s.description}`);
+            // AUDIT 2026-07-14 (Codex) M-1: user/imported skill names and
+            // descriptions are untrusted; sanitise before they enter the cached
+            // <available_skills> prompt block (defang boundary tags + one line).
+            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
 
         const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
         if (blocks.length === 0) return undefined;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     SOURCE_INTERFACES,
     validateSourceInterface,
+    resolveExternalSourceInterface,
     resolveSyncMode,
     DEFAULT_CROSS_SURFACE_SETTINGS,
 } from '../SourceInterface';
@@ -26,6 +27,26 @@ describe('SourceInterface (BA-26 / ADR-108)', () => {
             expect(validateSourceInterface('chatgpt-plus')).toBe('unknown');
             expect(validateSourceInterface('CLAUDE-AI')).toBe('unknown'); // case-sensitive
             expect(validateSourceInterface('')).toBe('unknown');
+        });
+    });
+
+    // AUDIT 2026-07-14 (Codex) H-1: 'obsilo' is the plugin-internal trust anchor
+    // and must never be claimable by an external MCP client.
+    describe('resolveExternalSourceInterface', () => {
+        it('coerces a client-supplied "obsilo" to "unknown"', () => {
+            expect(resolveExternalSourceInterface('obsilo')).toBe('unknown');
+        });
+
+        it('keeps every other whitelisted surface', () => {
+            expect(resolveExternalSourceInterface('claude-ai')).toBe('claude-ai');
+            expect(resolveExternalSourceInterface('chatgpt')).toBe('chatgpt');
+            expect(resolveExternalSourceInterface('perplexity')).toBe('perplexity');
+        });
+
+        it('maps unknown / non-string input to "unknown"', () => {
+            expect(resolveExternalSourceInterface(undefined)).toBe('unknown');
+            expect(resolveExternalSourceInterface('nope')).toBe('unknown');
+            expect(resolveExternalSourceInterface(42)).toBe('unknown');
         });
     });
 

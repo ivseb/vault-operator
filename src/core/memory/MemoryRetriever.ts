@@ -13,10 +13,26 @@
  * Budget: 4000 chars total (shared between sessions and episodes).
  */
 
+import { stripToFixpoint } from '../tools/BaseTool';
 import type { FileAdapter } from '../storage/types';
 import type { SemanticIndexService } from '../semantic/SemanticIndexService';
 import type { MemoryService } from './MemoryService';
 import type { MemoryDB } from '../knowledge/MemoryDB';
+
+/**
+ * AUDIT 2026-07-14 (Codex review, M-2): session/episode excerpts are wrapped in
+ * <session>/<episode> structural tags. A retrieved excerpt (which can originate
+ * from an externally auto-extracted conversation) that literally contains
+ * </session> or </episode> would prematurely close its own wrapper. These tags
+ * are not boundary tags (defangBoundaryTags leaves them, correctly, since we
+ * emit them ourselves), so neutralise them inside the excerpt body specifically.
+ */
+const STRUCTURAL_TAG_RE = /<\/?(?:session|episode|relevant_sessions|past_task_episodes)\b[^>]*>/gi;
+function neutralizeStructuralTags(s: string): string {
+    // AUDIT 2026-07-14 (Codex review): iterate to a fixpoint, otherwise a nested
+    // payload like `</ses<session>sion>` reassembles `</session>` after one pass.
+    return stripToFixpoint(s, STRUCTURAL_TAG_RE);
+}
 
 // ---------------------------------------------------------------------------
 // MemoryRetriever
@@ -88,7 +104,8 @@ export class MemoryRetriever {
         if (excerpts.length > 0) {
             lines.push('<relevant_sessions>');
             for (const { id, excerpt } of excerpts) {
-                const truncated = excerpt.length > 600 ? excerpt.slice(0, 600) + '...' : excerpt;
+                const capped = excerpt.length > 600 ? excerpt.slice(0, 600) + '...' : excerpt;
+                const truncated = neutralizeStructuralTags(capped);
                 if (charCount + truncated.length > BUDGET) break;
                 lines.push(`<session id="${id}">`);
                 lines.push(truncated);
@@ -103,7 +120,8 @@ export class MemoryRetriever {
         if (episodeExcerpts.length > 0 && charCount < BUDGET) {
             lines.push('<past_task_episodes>');
             for (const { id, excerpt } of episodeExcerpts) {
-                const truncated = excerpt.length > 400 ? excerpt.slice(0, 400) + '...' : excerpt;
+                const capped = excerpt.length > 400 ? excerpt.slice(0, 400) + '...' : excerpt;
+                const truncated = neutralizeStructuralTags(capped);
                 if (charCount + truncated.length > BUDGET) break;
                 lines.push(`<episode id="${id}">`);
                 lines.push(truncated);

@@ -146,7 +146,7 @@ export abstract class BaseTool<TName extends ToolName = ToolName> {
  * untrusted bodies so a crafted document cannot pre-close the wrapper.
  */
 const BOUNDARY_TAG_RE =
-    /<\/?(?:untrusted-content|vault-content|vault_context|web_fetch|web_context|web_search|attached_document|attached_folder|mcp_response|history|selection)\b[^>]*>/gi;
+    /<\/?(?:untrusted-content|vault-content|vault_context|web_fetch|web_context|web_search|attached_document|attached_file|attached_folder|available_skills|mcp_response|history|selection)\b[^>]*>/gi;
 
 /**
  * Neutralise literal boundary-wrapper tags inside untrusted content.
@@ -158,8 +158,51 @@ const BOUNDARY_TAG_RE =
  * (`escapeForPromptBlock`); this is the same defence for every tool-result path.
  * Exported for the non-BaseTool emitters (wrapVaultContentForMcp, AttachmentHandler).
  */
+/**
+ * Strip every match of `re` from `content`, iterating to a fixpoint.
+ *
+ * AUDIT 2026-07-14 (Codex review): a single `String.replace` pass is NOT
+ * reconstruction-safe. A nested payload such as
+ * `</available_<available_skills>skills>` becomes `</available_skills>` after the
+ * inner tag is stripped, re-forming a live tag. Any tag-stripping sanitiser must
+ * loop until the string stops changing (bounded). Shared so sibling sanitisers
+ * (e.g. MemoryRetriever's structural-tag strip) cannot reintroduce the bug.
+ */
+export function stripToFixpoint(content: string, re: RegExp): string {
+    // Each changing pass deletes at least one whole tag, so a TRUE fixpoint is
+    // reached in at most content.length passes. Bounding by length (not a
+    // constant) is essential: a deeply nested payload could otherwise out-run a
+    // constant cap and leave a reassembled live tag in the returned string
+    // (Codex review 2026-07-14). A tag-free input matches nothing on the first
+    // pass and the loop body never runs, so legitimate content stays O(n).
+    let prev = content;
+    let out = content.replace(re, '');
+    let guard = content.length;
+    while (out !== prev && guard-- > 0) {
+        prev = out;
+        out = out.replace(re, '');
+    }
+    return out;
+}
+
 export function defangBoundaryTags(content: string): string {
-    return content.replace(BOUNDARY_TAG_RE, '');
+    return stripToFixpoint(content, BOUNDARY_TAG_RE);
+}
+
+/**
+ * Sanitise a single directory-entry field (skill name/description, MCP tool
+ * description) before it goes into the cached system-prompt prefix.
+ *
+ * AUDIT 2026-07-14 (Codex) M-1: imported skill names/descriptions and MCP tool
+ * descriptions were rendered raw between `<available_skills>` / tool-listing
+ * wrappers. A crafted description could pre-close the wrapper and inject a
+ * fresh instruction, or add extra list lines. This neutralises boundary tags,
+ * collapses newlines to a single space (one entry = one line), and caps length.
+ */
+export function sanitizeDirectoryEntry(text: string, maxLen: number): string {
+    const flat = defangBoundaryTags(text).replace(/[\r\n]+/g, ' ').trim();
+    if (flat.length <= maxLen) return flat;
+    return flat.slice(0, maxLen).trimEnd() + '...';
 }
 
 /**

@@ -78,6 +78,16 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
     private execGovernance = new Map<string, string>();
 
     /**
+     * AUDIT 2026-07-14 (Codex) M-5: a bridge request is only served while its
+     * issuing execution is still live. Fail closed on a missing or unknown
+     * execId (untrusted sandbox code can post to the parent channel directly
+     * and omit/forge the field). Exported for tests via a cast.
+     */
+    private isLiveBridgeRequest(execId: string | undefined): boolean {
+        return execId !== undefined && this.pending.has(execId);
+    }
+
+    /**
      * Lazy initialization — iframe is created only when first needed (~50ms).
      */
     async ensureReady(): Promise<void> {
@@ -271,6 +281,26 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
 
         // Bridge requests from the iframe — all have callId
         const bridgeMsg = msg;
+
+        // AUDIT 2026-07-14 (Codex) M-5 + review: the iframe is a warm singleton
+        // that keeps running delayed code (setTimeout/Promise) after execute()
+        // resolved. Serving a bridge request from a finished execution would let
+        // post-completion code read/write/fetch and lose checkpoint attribution.
+        // Every LEGITIMATE bridge request is stamped with an execId by the
+        // sandbox proxies (sandboxHtml makeVaultProxy/makeRequestUrlProxy), and
+        // result/error/sandbox-ready are handled above. So a request that is
+        // missing an execId, or whose execId is no longer active, is either a
+        // hand-crafted parent.postMessage from untrusted code or a stale delayed
+        // call. Fail closed: reject unless the issuing execution is still live.
+        if (!this.isLiveBridgeRequest(bridgeMsg.execId)) {
+            const stale: PluginToSandboxMessage = {
+                callId: bridgeMsg.callId,
+                error: 'Sandbox execution is no longer active; bridge request rejected.',
+            };
+            this.iframe?.contentWindow?.postMessage(stale, '*');
+            return;
+        }
+
         // FIX-44-43: resolve the issuing execution back to its governance task.
         const governanceTaskId = bridgeMsg.execId !== undefined
             ? this.execGovernance.get(bridgeMsg.execId)

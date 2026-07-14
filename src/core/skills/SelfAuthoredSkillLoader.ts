@@ -15,6 +15,7 @@
 
 import { TFile, TFolder } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
+import { sanitizeDirectoryEntry } from '../tools/BaseTool';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import { AstValidator } from '../sandbox/AstValidator';
 import { validateSkillFrontmatter } from './SkillFrontmatterValidator';
@@ -427,11 +428,16 @@ export class SelfAuthoredSkillLoader {
     private renderSkillSummary(s: SelfAuthoredSkill): string {
         // FEAT-24-09: trigger removed from the head -- in the on-demand model
         // the LLM picks a skill by description, not by regex match.
+        // AUDIT 2026-07-14 (Codex review, M-1): code-module names are
+        // attacker-controlled frontmatter (see loadCodeModules) and were
+        // interpolated raw into the head. Sanitise them like name/description.
         const codeBadge = s.codeModules.length > 0
-            ? ` [code: ${s.codeModuleInfos.map(m => m.name).join(', ')}]`
+            ? ` [code: ${s.codeModuleInfos.map(m => sanitizeDirectoryEntry(m.name, 60)).join(', ')}]`
             : '';
         const coordinatorBadge = s.isCoordinator ? ' (coordinator)' : '';
-        const head = `- ${s.name}${coordinatorBadge}: ${s.description}${codeBadge}`;
+        // AUDIT 2026-07-14 (Codex) M-1: sanitise name/description before they
+        // enter the cached <available_skills> block (defang boundary tags).
+        const head = `- ${sanitizeDirectoryEntry(s.name, 80)}${coordinatorBadge}: ${sanitizeDirectoryEntry(s.description, 300)}${codeBadge}`;
         const inventoryLines = this.renderInventoryLines(s);
         return inventoryLines.length === 0 ? head : [head, ...inventoryLines].join('\n');
     }
@@ -440,26 +446,33 @@ export class SelfAuthoredSkillLoader {
         const { scripts, references, assets, subRoles } = s.inventory;
         const lines: string[] = [];
 
+        // AUDIT 2026-07-14 (Codex review, M-1): these fields (paths, sub-role
+        // role/description from free-form frontmatter) render RAW into the same
+        // <available_skills> block as the sanitised head. A coordinator sub-role
+        // description carrying `</available_skills>` would break the wrapper
+        // without any reassembly. Sanitise every interpolated field.
         if (scripts.length > 0) {
             const rendered = scripts.map(sc => {
                 const execTag = sc.language === 'ts' || sc.language === 'js'
                     ? 'sandbox-executable'
-                    : `${sc.language}, reference-only`;
-                return `${sc.path} (${execTag})`;
+                    : `${sanitizeDirectoryEntry(sc.language, 20)}, reference-only`;
+                return `${sanitizeDirectoryEntry(sc.path, 120)} (${execTag})`;
             }).join(', ');
             lines.push(`  Scripts: ${rendered}`);
         }
 
         if (references.length > 0) {
-            lines.push(`  References (on-demand via read_file): ${references.join(', ')}`);
+            lines.push(`  References (on-demand via read_file): ${references.map(r => sanitizeDirectoryEntry(r, 120)).join(', ')}`);
         }
 
         if (assets.length > 0) {
-            lines.push(`  Assets: ${assets.join(', ')}`);
+            lines.push(`  Assets: ${assets.map(a => sanitizeDirectoryEntry(a, 120)).join(', ')}`);
         }
 
         if (s.isCoordinator && subRoles.length > 0) {
-            const rendered = subRoles.map(r => `${r.filePath} (${r.role}: ${r.description})`).join(', ');
+            const rendered = subRoles.map(r =>
+                `${sanitizeDirectoryEntry(r.filePath, 120)} (${sanitizeDirectoryEntry(r.role, 60)}: ${sanitizeDirectoryEntry(r.description, 200)})`,
+            ).join(', ');
             lines.push(`  Sub-roles (read on demand): ${rendered}`);
         }
 

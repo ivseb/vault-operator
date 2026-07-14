@@ -221,7 +221,7 @@ export class AttachmentHandler {
             this.pending.push({
                 name: displayName,
                 vaultPath,
-                block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(displayName)}">\n${contextText}\n</attached_file>` },
+                block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(displayName)}">\n${defangBoundaryTags(contextText)}\n</attached_file>` },
             });
         } else {
             new Notice(t('ui.attachment.unsupported', { name: file.name }));
@@ -286,7 +286,7 @@ export class AttachmentHandler {
                 this.pending.push({
                     name: file.path,
                     extension: ext,
-                    block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(file.path)}">\n${contextText}\n</attached_file>` },
+                    block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(file.path)}">\n${defangBoundaryTags(contextText)}\n</attached_file>` },
                 });
             }
             this.renderChips();

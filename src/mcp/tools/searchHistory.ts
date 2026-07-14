@@ -11,7 +11,7 @@ import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { wrapVaultContentForMcp } from '../McpBridge';
 import {
-    validateSourceInterface,
+    resolveExternalSourceInterface,
     type SourceInterface,
 } from '../../core/memory/SourceInterface';
 
@@ -32,8 +32,10 @@ export async function handleSearchHistory(
     const roleFilter = typeof args.role === 'string'
         && ['user', 'assistant', 'system', 'tool'].includes(args.role)
             ? args.role : undefined;
+    // AUDIT 2026-07-14 (Codex) H-1: a provided 'obsilo' is coerced to 'unknown'
+    // so an external client cannot read the plugin-internal history partition.
     const sourceFilter: SourceInterface | undefined = args.source_interface !== undefined
-        ? validateSourceInterface(args.source_interface)
+        ? resolveExternalSourceInterface(args.source_interface)
         : undefined;
 
     // AUDIT-015 M-3: strictSourceIsolation erzwingt source_interface
