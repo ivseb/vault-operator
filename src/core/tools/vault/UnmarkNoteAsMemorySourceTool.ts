@@ -16,14 +16,12 @@ import type { EditPreview } from '../editPreview';
 import { resolveFrontmatterUpdate } from './frontmatterEdit';
 import { checkFrontmatterIntegrity } from '../../utils/frontmatterGuard';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
+import { MEMORY_SOURCE_MARKER_KEYS as MARKER_KEYS } from './memorySourceMarker';
 
 interface Input {
     note_path: string;
     clear_frontmatter?: boolean;
 }
-
-/** Every spelling of the marker that has ever been written or hand-typed. */
-const MARKER_KEYS = ['memory-source', 'memory_source', 'memorySource'];
 
 export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memory_source'> {
     readonly name = 'unmark_note_as_memory_source' as const;
@@ -78,6 +76,28 @@ export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memor
             // A preview is a courtesy, never a gate. Fall back to the plain card.
             return null;
         }
+    }
+
+    /**
+     * FIX-44-50: the user edited the previewed diff and approved -- the
+     * Pipeline wrote THEIR version and skipped execute(). The file was only
+     * the secondary effect; the primary one (revoking the MemorySourceStore
+     * registration, i.e. stopping memory extraction of this note) happens
+     * here. Without it the approved unmark left the note registered forever.
+     */
+    applyNonFileEffects(input: Record<string, unknown>): Promise<void> {
+        const { note_path } = input as unknown as Input;
+        const safe = validateVaultRelativePath(note_path);
+        if (!safe) return Promise.resolve();
+        const store = this.plugin.memorySourceStore;
+        if (!store) {
+            return Promise.reject(new Error(
+                'MemorySourceStore not available -- the note is STILL registered as memory-source. '
+                + 'Re-run unmark_note_as_memory_source once memory.db is open.',
+            ));
+        }
+        store.remove(safe);
+        return Promise.resolve();
     }
 
     async execute(input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<void> {

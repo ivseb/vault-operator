@@ -20,6 +20,7 @@ import type { EditPreview } from '../editPreview';
 import { resolveFrontmatterUpdate } from './frontmatterEdit';
 import { checkFrontmatterIntegrity } from '../../utils/frontmatterGuard';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
+import { contentCarriesMemorySourceMarker } from './memorySourceMarker';
 
 interface Input {
     note_path: string;
@@ -81,6 +82,38 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
         } catch {
             // A preview is a courtesy, never a gate. Fall back to the plain card.
             return null;
+        }
+    }
+
+    /**
+     * FIX-44-50: the user edited the previewed diff and approved -- the
+     * Pipeline wrote THEIR version and skipped execute(). The store
+     * registration and the immediate extraction pass happen here, but ONLY
+     * when the user's edited content still carries a truthy marker: an edit
+     * that strips `memory-source: true` is a veto of the registration itself,
+     * not just of the diff cosmetics.
+     */
+    async applyNonFileEffects(input: Record<string, unknown>, finalContent: string): Promise<void> {
+        const { note_path } = input as unknown as Input;
+        const safe = validateVaultRelativePath(note_path);
+        if (!safe) return;
+        if (!contentCarriesMemorySourceMarker(finalContent)) return;
+        const store = this.plugin.memorySourceStore;
+        if (!store) {
+            throw new Error(
+                'MemorySourceStore not available (memory.db not open) -- the note is NOT registered '
+                + 'as memory-source despite the frontmatter marker. The indexer will pick it up once '
+                + 'the store is open.',
+            );
+        }
+        store.upsert(safe, 'agent-tool');
+        const file = this.plugin.app.vault.getAbstractFileByPath(safe);
+        if (file instanceof TFile) {
+            try {
+                await this.plugin.frontmatterIndexer?.indexNote(file);
+            } catch (e) {
+                console.debug(`[mark_note_as_memory_source] indexer pass failed for ${safe}:`, e);
+            }
         }
     }
 

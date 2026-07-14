@@ -46,8 +46,34 @@ export interface EditPreview {
  */
 export interface EditPreviewProvider {
     previewEdit(input: Record<string, unknown>): Promise<EditPreview | null>;
+
+    /**
+     * FIX-44-50: deliver the tool's NON-FILE effects after a user-edited
+     * approval.
+     *
+     * When the user rewrites the previewed diff and approves, the Pipeline
+     * writes their version via safeNoteWrite and skips `execute()` entirely --
+     * re-running it would overwrite the user's content. For most preview tools
+     * the file IS the whole effect and this hook is not needed. Tools whose
+     * primary effect lives elsewhere (the memory-source pair: the
+     * MemorySourceStore registration) MUST implement it, otherwise the edited
+     * branch silently drops that effect: the approved unmark diff lands in the
+     * note while the registration keeps extracting it into memory forever.
+     *
+     * `finalContent` is the user's version exactly as written, so the tool can
+     * respect edits that change the effect itself (e.g. the user stripped the
+     * marker line from a mark diff). Throwing is allowed: the Pipeline reports
+     * the failure in the tool result instead of pretending success.
+     */
+    applyNonFileEffects?(input: Record<string, unknown>, finalContent: string): Promise<void>;
 }
 
 export function hasEditPreview(tool: unknown): tool is EditPreviewProvider {
     return typeof (tool as EditPreviewProvider)?.previewEdit === 'function';
+}
+
+export function hasNonFileEffects(tool: unknown): tool is EditPreviewProvider & {
+    applyNonFileEffects: (input: Record<string, unknown>, finalContent: string) => Promise<void>;
+} {
+    return typeof (tool as EditPreviewProvider)?.applyNonFileEffects === 'function';
 }

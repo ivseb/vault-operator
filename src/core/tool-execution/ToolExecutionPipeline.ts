@@ -29,8 +29,9 @@ import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
 import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect } from '../tools/toolEffects';
-import { hasEditPreview, type EditPreview } from '../tools/editPreview';
+import { hasEditPreview, hasNonFileEffects, type EditPreview } from '../tools/editPreview';
 import { safeNoteWrite } from '../utils/safeNoteWrite';
+import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import type { AutoApprovalConfig } from '../../types/settings';
 import { scanUnreadSources } from '../quality-gates';
 import { computeReadBudgetChars } from '../../types/model-registry';
@@ -608,6 +609,25 @@ export class ToolExecutionPipeline {
                 if (!written.ok) {
                     return this.errorResult(toolCall.id, `Approved edit was refused: ${written.reason}`);
                 }
+                // FIX-44-50: for tools whose effect is not purely the file
+                // (memory-source pair: the store registration), skipping
+                // execute() must not skip that effect. unmark is the sharp
+                // case: the approved diff removed the marker from the note,
+                // but without store.remove the note stayed registered and
+                // kept being extracted into memory -- after the user approved
+                // revoking exactly that. Failures are reported, not swallowed:
+                // the gate just showed this change as done.
+                let effectsWarning = '';
+                if (hasNonFileEffects(tool)) {
+                    try {
+                        await tool.applyNonFileEffects(toolCall.input, approval.finalContent);
+                    } catch (e) {
+                        console.warn(`[Pipeline] applyNonFileEffects failed for ${toolCall.name}:`, e);
+                        effectsWarning =
+                            ` WARNING: the file write landed, but the tool's non-file effect FAILED: `
+                            + `${e instanceof Error ? e.message : String(e)}`;
+                    }
+                }
                 this.logOperation(toolCall, true, 0);
                 return {
                     type: 'tool_result',
@@ -615,7 +635,7 @@ export class ToolExecutionPipeline {
                     content:
                         `<success>Applied the user's edited version of ${editedPath}. `
                         + `They changed the content you proposed, so the file now holds THEIR version, not yours. `
-                        + `Re-read it before your next edit.</success>`,
+                        + `Re-read it before your next edit.${effectsWarning}</success>`,
                     is_error: false,
                 };
             }
@@ -821,6 +841,17 @@ export class ToolExecutionPipeline {
         ],
         restore_checkpoint: [
             { key: 'path', write: true },
+        ],
+        // FIX-44-51: the memory-source pair addresses its note via `note_path`,
+        // which is neither `path` nor was it listed here -- ignore/protected
+        // rules never ran for them, so a note under an ignored folder could be
+        // frontmatter-tagged AND registered for memory extraction entirely
+        // outside governance. Write-side: both tools modify the note.
+        mark_note_as_memory_source: [
+            { key: 'note_path', write: true },
+        ],
+        unmark_note_as_memory_source: [
+            { key: 'note_path', write: true },
         ],
     };
 
@@ -1058,7 +1089,15 @@ export class ToolExecutionPipeline {
      */
     private writeTargetPath(toolCall: ToolUse): string | undefined {
         const raw = toolCall.input?.path ?? toolCall.input?.note_path;
-        return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
+        if (typeof raw !== 'string' || raw.length === 0) return undefined;
+        // FIX-44-52: key checkpoint + cache on the path the write actually
+        // lands on. The tools normalize via validateVaultRelativePath
+        // (backslashes -> '/', leading '/' stripped); snapshotting the raw
+        // string ('Notes\\N.md') snapshots a file that does not exist while
+        // the real one changes unprotected. Fall back to the raw string when
+        // validation rejects -- such a call is denied downstream anyway, and
+        // invalidating whatever was cached under the raw key stays harmless.
+        return validateVaultRelativePath(raw) ?? raw;
     }
 
     /**
