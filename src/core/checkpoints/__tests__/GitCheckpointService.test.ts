@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import git from 'isomorphic-git';
-import { App, Vault } from 'obsidian';
+import { App, TFile, Vault } from 'obsidian';
 import { GitCheckpointService } from '../GitCheckpointService';
 
 async function seedCommit(repo: string, message: string): Promise<string> {
@@ -184,5 +184,69 @@ describe('GitCheckpointService rehydration', () => {
             expect(list).toHaveLength(1);
             expect(list[0]?.newFiles).toEqual(['fresh-note.md']);
         });
+    });
+});
+
+/**
+ * FEAT-44-02b: restore() takes an optional pathFilter so the approved subset
+ * of a batch gate (per-entry Skip on the restore preview) is honoured. Both
+ * loops (restore filesChanged, trash newFiles) must respect it.
+ */
+describe('GitCheckpointService restore pathFilter (FEAT-44-02b)', () => {
+    let tmpdir: string;
+
+    beforeEach(async () => {
+        tmpdir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gccs-filter-'));
+    });
+
+    afterEach(async () => {
+        await fs.promises.rm(tmpdir, { recursive: true, force: true });
+    });
+
+    function makeWorld() {
+        const contents: Record<string, string> = { 'a.md': 'A1', 'b.md': 'B1' };
+        const written: Record<string, string> = {};
+        const trashed: string[] = [];
+        const newFile = Object.assign(new TFile(), { path: 'c.md', extension: 'md' });
+        const vault = {
+            // Restored files count as deleted-on-disk so restore() goes through
+            // adapter.write; the new file exists so task-restore would trash it.
+            getAbstractFileByPath: (p: string) => (p === 'c.md' ? newFile : null),
+            adapter: {
+                exists: (p: string) => Promise.resolve(p in contents),
+                read: (p: string) => Promise.resolve(written[p] ?? contents[p] ?? ''),
+                write: (p: string, c: string) => { written[p] = c; return Promise.resolve(); },
+            },
+        } as unknown as Vault;
+        const app = {
+            fileManager: { trashFile: (f: TFile) => { trashed.push(f.path); return Promise.resolve(); } },
+        } as unknown as App;
+        return { vault, app, written, trashed };
+    }
+
+    it('restores and trashes ONLY the paths the filter admits', async () => {
+        const { vault, app, written, trashed } = makeWorld();
+        const svc = new GitCheckpointService(app, vault, tmpdir);
+        // a.md + b.md exist (snapshotted), c.md is new (restore = trash).
+        const cp = await svc.snapshot('task-filter', ['a.md', 'b.md', 'c.md'], 'test');
+
+        const result = await svc.restore(cp, (p) => p === 'a.md');
+
+        expect(result.restored).toEqual(['a.md']);
+        expect(Object.keys(written)).toEqual(['a.md']);
+        expect(written['a.md']).toBe('A1');
+        expect(trashed).toEqual([]);
+    });
+
+    it('without a filter the whole checkpoint is restored (unchanged behaviour)', async () => {
+        const { vault, app, written, trashed } = makeWorld();
+        const svc = new GitCheckpointService(app, vault, tmpdir);
+        const cp = await svc.snapshot('task-nofilter', ['a.md', 'b.md', 'c.md'], 'test');
+
+        const result = await svc.restore(cp);
+
+        expect(result.restored.sort()).toEqual(['a.md', 'b.md', 'c.md']);
+        expect(Object.keys(written).sort()).toEqual(['a.md', 'b.md']);
+        expect(trashed).toEqual(['c.md']);
     });
 });

@@ -364,8 +364,13 @@ export class GitCheckpointService {
 
     /**
      * Restore files from a checkpoint back into the vault.
+     *
+     * FEAT-44-02b: `pathFilter` narrows the restore to an approved subset
+     * (per-entry Skip in the batch approval gate). Applies to BOTH loops --
+     * restoring filesChanged and trashing newFiles -- so a skipped path is
+     * neither rewritten nor deleted. Absent filter = full restore.
      */
-    async restore(checkpoint: CheckpointInfo): Promise<RestoreResult> {
+    async restore(checkpoint: CheckpointInfo, pathFilter?: (path: string) => boolean): Promise<RestoreResult> {
         console.debug(`[Checkpoints] restore() called: commitOid=${checkpoint.commitOid} files=${checkpoint.filesChanged.join(',')} newFiles=${checkpoint.newFiles?.join(',') ?? 'none'}`);
         await this.ensureInit();
         if (checkpoint.commitOid === 'empty') {
@@ -379,6 +384,8 @@ export class GitCheckpointService {
         // Restore existing files from shadow repo
         if (checkpoint.commitOid !== 'none') {
             for (const vaultRelPath of checkpoint.filesChanged) {
+                // FEAT-44-02b: not part of the approved subset -- untouched.
+                if (pathFilter && !pathFilter(vaultRelPath)) continue;
                 // AUDIT-030 M-1: mirror the snapshot path-traversal guard at
                 // every restore boundary. `filesChanged` originates from
                 // either the in-memory map (checked at snapshot time) or
@@ -454,6 +461,8 @@ export class GitCheckpointService {
         // Delete files that were newly created (undo = remove them)
         if (checkpoint.newFiles) {
             for (const vaultRelPath of checkpoint.newFiles) {
+                // FEAT-44-02b: not part of the approved subset -- not trashed.
+                if (pathFilter && !pathFilter(vaultRelPath)) continue;
                 if (!isVaultRelative(vaultRelPath)) {
                     console.warn(`[Checkpoints] Rejected non-vault-relative new-file path on restore: ${JSON.stringify(vaultRelPath)}`);
                     errors.push(`${JSON.stringify(vaultRelPath)} (delete): rejected (unsafe path)`);

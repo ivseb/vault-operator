@@ -1105,6 +1105,7 @@ export const en = {
     'ui.approval.scope.extractZipSkipped': '{{count}} existing file(s) will be skipped.',
     'ui.approval.scope.vaultHealth': '{{action}} will modify {{count}} note(s).',
     'ui.approval.scope.ingestDocument': 'Create {{path}} from {{source}}.',
+    'ui.approval.scope.chatAttachment': 'chat attachment #{{index}}',
     'ui.approval.scope.ingestDeep': 'Deep-ingest source pass on {{source}}: sets block anchors and updates counters. A listed MOC page only gets its marker block refreshed.',
     'ui.approval.scope.restoreCheckpoint': 'Restore {{count}} file(s) from checkpoint {{oid}}.',
     'ui.approval.notEnabled': 'Approve {{group}}: {{tool}}',
