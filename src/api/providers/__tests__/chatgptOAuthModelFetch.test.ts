@@ -32,6 +32,7 @@ vi.mock('obsidian', () => ({
 
 import {
     CODEX_CLIENT_VERSION,
+    fetchChatGptOAuthModelLineup,
     fetchChatGptOAuthModels,
     getLastChatGptOAuthModelFetch,
     listKnownChatGptOAuthModels,
@@ -132,5 +133,40 @@ describe('fetchChatGptOAuthModels fallback visibility (FIX-55-03)', () => {
         expect(status.source).toBe('fallback');
         expect(status.reason).toBe('exception');
         expect(debugSpy).toHaveBeenCalled();
+    });
+});
+
+/**
+ * Review finding AL1 (2026-07-14): the discovery service must know whether a
+ * lineup came from the live endpoint or the static fallback, IN-BAND with the
+ * models. The getLastChatGptOAuthModelFetch side channel stays for the modal
+ * Notice, but the persistence decision needs provenance carried on the fetch
+ * result itself so concurrent fetches cannot mis-stamp each other.
+ */
+describe('fetchChatGptOAuthModelLineup in-band provenance (review finding AL1)', () => {
+    it('returns source live together with the fetched models', async () => {
+        authState.token = 'tok';
+        authState.accountId = 'acc';
+        requestUrlMock.mockResolvedValue({
+            status: 200,
+            json: { models: [{ slug: 'gpt-5.6', display_name: 'GPT-5.6' }] },
+        });
+        const lineup = await fetchChatGptOAuthModelLineup();
+        expect(lineup.source).toBe('live');
+        expect(lineup.models).toEqual([{ id: 'gpt-5.6', label: 'GPT-5.6' }]);
+    });
+
+    it('returns source fallback together with the static lineup when not signed in', async () => {
+        const lineup = await fetchChatGptOAuthModelLineup();
+        expect(lineup.source).toBe('fallback');
+        expect(lineup.models).toEqual(listKnownChatGptOAuthModels());
+    });
+
+    it('returns source fallback on an http error', async () => {
+        authState.token = 'tok';
+        requestUrlMock.mockResolvedValue({ status: 500, json: {} });
+        const lineup = await fetchChatGptOAuthModelLineup();
+        expect(lineup.source).toBe('fallback');
+        expect(lineup.models).toEqual(listKnownChatGptOAuthModels());
     });
 });

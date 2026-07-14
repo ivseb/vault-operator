@@ -17,7 +17,7 @@ import { InflightStore } from './core/agent/InflightStore';
 import { LearnedCapsStore, registerLearnedCapsStore } from './core/agent/LearnedCapsStore';
 import { BackgroundTaskRunner } from './core/background/BackgroundTaskRunner';
 import { createBackgroundTaskExecutor } from './core/background/backgroundTaskExecutor';
-import { fetchProviderModels } from './ui/settings/testModelConnection';
+import { fetchProviderModelLineup } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
@@ -839,7 +839,11 @@ export default class ObsidianAgentPlugin extends Plugin {
                     sessionToken: provider.awsSessionToken,
                     region: provider.awsRegion,
                 } : undefined;
-                const raw = await fetchProviderModels(
+                // Review finding AL1 (2026-07-14): the lineup variant carries
+                // its provenance in-band so ModelDiscoveryService can refuse
+                // to persist a static fallback lineup (chatgpt-oauth) over
+                // previously discovered live data on the auto-refresh paths.
+                const lineup = await fetchProviderModelLineup(
                     provider.type,
                     provider.apiKey ?? '',
                     provider.baseUrl,
@@ -851,7 +855,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // (OpenRouter ships them inline with /v1/models); other
                 // providers leave them undefined and ModelDiscoveryService
                 // falls back to its built-in heuristics.
-                return raw.map((r): RawDiscoveredModel => ({
+                const models = lineup.models.map((r): RawDiscoveredModel => ({
                     id: r.id,
                     displayName: r.label,
                     contextWindow: r.contextWindow,
@@ -859,6 +863,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                     pricingPromptUsd: r.pricingPromptUsd,
                     pricingCompletionUsd: r.pricingCompletionUsd,
                 }));
+                return { models, source: lineup.source };
             },
         );
         // Refresh stale provider lists in the background -- non-blocking.

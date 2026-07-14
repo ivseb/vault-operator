@@ -33,6 +33,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import { buildApiHandlerForModel } from '../../api/index';
 import { getModelKey } from '../../types/settings';
+import { resolveTierModel } from '../routing/tierResolution';
 
 /** AUDIT-024 M-1: hard cap on bytes shipped to the external provider. */
 export const MAX_TRANSLATION_INPUT_BYTES = 4096;
@@ -92,18 +93,28 @@ export function makeTemplateTranslator(plugin: ObsidianAgentPlugin) {
  * that handles the translation call. Returns null when no enabled
  * model is configured (FirstRun wizard then keeps the EN source).
  *
- * AUDIT-024 L-3: the "first enabled" fallback is intentional so the
- * wizard works before the user has picked an active key. Callers that
- * want a strict-active behaviour should check `activeModelKey` before
- * invoking the translator.
+ * Review finding B1 (2026-07-14): the canonical providerConfigs[] store
+ * is read first, via the same tier slot initApiHandler resolves
+ * (`defaultMainModelTier`, default `mid`, mid -> fast cascade). The
+ * first-run wizard writes only providerConfigs[] (FIX-26-99-03), so the
+ * legacy activeModels[] read alone was model-blind right after a wizard
+ * install and silently kept the EN source.
+ *
+ * AUDIT-024 L-3: the legacy "first enabled" fallback is intentional so
+ * pre-migration setups work before the user has picked an active key.
+ * Callers that want a strict-active behaviour should check
+ * `activeModelKey` before invoking the translator.
  */
 function pickActiveModel(plugin: ObsidianAgentPlugin) {
-    const key = plugin.settings.activeModelKey;
+    const settings = plugin.settings;
+    const canonical = resolveTierModel(settings, settings.defaultMainModelTier ?? 'mid');
+    if (canonical) return canonical;
+    const key = settings.activeModelKey;
     if (key) {
-        const found = plugin.settings.activeModels.find((m) => getModelKey(m) === key);
+        const found = settings.activeModels.find((m) => getModelKey(m) === key);
         if (found?.enabled !== false) return found ?? null;
     }
-    return plugin.settings.activeModels.find((m) => m.enabled !== false) ?? null;
+    return settings.activeModels.find((m) => m.enabled !== false) ?? null;
 }
 
 function buildTranslationPrompt(lang: string, name: string, source: string): string {

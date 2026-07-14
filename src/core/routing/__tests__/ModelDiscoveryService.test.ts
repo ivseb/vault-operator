@@ -253,3 +253,77 @@ describe('ModelDiscoveryService', () => {
         expect(harness.store[0].tierMapping).toEqual({});
     });
 });
+
+/**
+ * Review finding AL1 (2026-07-14): FIX-55-03 made the static-fallback
+ * discovery visible only on the modal Refresh path. The auto-refresh paths
+ * (refreshOnStartup, maybeAutoRefresh, 24h tick) silently persisted the
+ * static fallback lineup and stamped lastRefreshAt=now, overwriting a
+ * previously discovered live lineup with frozen data that then masqueraded
+ * as fresh for 24h. The fetch result now carries its provenance in-band.
+ */
+describe('fallback lineup persistence guard (review finding AL1)', () => {
+    const liveLineup = [{ id: 'gpt-5.6-live', autoTier: 'flagship' as const }];
+    const fallbackRaw: RawDiscoveredModel[] = [{ id: 'gpt-5.5' }, { id: 'gpt-5.4' }];
+
+    it('does not persist a fallback lineup over a previously discovered one', async () => {
+        const fetcher: ModelFetcher = vi.fn().mockResolvedValue({
+            models: fallbackRaw,
+            source: 'fallback',
+        });
+        const harness = makeHost([
+            makeProvider({ discoveredModels: liveLineup, lastRefreshAt: 111 }),
+        ]);
+        const svc = new ModelDiscoveryService(harness.host, fetcher, () => 999_999);
+
+        const result = await svc.refreshProvider('anthropic-main');
+
+        expect(result).toEqual(liveLineup);
+        expect(harness.store[0].discoveredModels).toEqual(liveLineup);
+        expect(harness.store[0].lastRefreshAt).toBe(111);
+    });
+
+    it('persists a fallback lineup on first-ever discovery so the picker is not empty', async () => {
+        const fetcher: ModelFetcher = vi.fn().mockResolvedValue({
+            models: fallbackRaw,
+            source: 'fallback',
+        });
+        const harness = makeHost([makeProvider()]);
+        const svc = new ModelDiscoveryService(harness.host, fetcher, () => 555);
+
+        const result = await svc.refreshProvider('anthropic-main');
+
+        expect(result.map((m) => m.id)).toEqual(['gpt-5.5', 'gpt-5.4']);
+        expect(harness.store[0].discoveredModels.map((m) => m.id)).toEqual(['gpt-5.5', 'gpt-5.4']);
+        expect(harness.store[0].lastRefreshAt).toBe(555);
+    });
+
+    it('a live result keeps persisting over an existing lineup', async () => {
+        const fetcher: ModelFetcher = vi.fn().mockResolvedValue({
+            models: [{ id: 'gpt-5.7-new' }],
+            source: 'live',
+        });
+        const harness = makeHost([
+            makeProvider({ discoveredModels: liveLineup, lastRefreshAt: 111 }),
+        ]);
+        const svc = new ModelDiscoveryService(harness.host, fetcher, () => 222);
+
+        const result = await svc.refreshProvider('anthropic-main');
+
+        expect(result.map((m) => m.id)).toEqual(['gpt-5.7-new']);
+        expect(harness.store[0].lastRefreshAt).toBe(222);
+    });
+
+    it('a plain-array fetch result is treated as live (legacy fetcher contract)', async () => {
+        const fetcher: ModelFetcher = vi.fn().mockResolvedValue([{ id: 'gpt-5.7-new' }]);
+        const harness = makeHost([
+            makeProvider({ discoveredModels: liveLineup, lastRefreshAt: 111 }),
+        ]);
+        const svc = new ModelDiscoveryService(harness.host, fetcher, () => 333);
+
+        const result = await svc.refreshProvider('anthropic-main');
+
+        expect(result.map((m) => m.id)).toEqual(['gpt-5.7-new']);
+        expect(harness.store[0].lastRefreshAt).toBe(333);
+    });
+});

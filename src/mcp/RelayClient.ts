@@ -215,16 +215,57 @@ export class RelayClient {
                 // computePollDelayMs can tell long-poll from legacy workers.
                 const pollStartedAt = Date.now();
 
+                // Review 2026-07-14: pin the connection identity this poll
+                // was issued under. connect() overwrites relayUrl/token
+                // BEFORE bumping the generation, so at resolve time the
+                // instance fields may already describe a different endpoint
+                // or a rotated credential.
+                const pollRelayUrl = this.relayUrl;
+                const pollToken = this.token;
+
                 // H-4: Token in Authorization header, not URL
                 const response = await requestUrl({
-                    url: `${this.relayUrl}/poll`,
+                    url: `${pollRelayUrl}/poll`,
                     method: 'GET',
-                    headers: { 'Authorization': `Bearer ${this.token}` },
+                    headers: { 'Authorization': `Bearer ${pollToken}` },
                 });
+
+                // M-1: Runtime validation of relay response.
+                // Processed BEFORE the stale-generation exit: the Durable
+                // Object already spliced this batch off its queue when it
+                // answered the poll, so a superseded loop must still hand
+                // the work to handleRequest (answering via /respond is
+                // generation-independent; the DO keeps the pending entries
+                // until the response arrives). Only the loop-continuation
+                // decision below belongs to the generation guard.
+                //
+                // Review 2026-07-14: that handoff is only safe when the
+                // reconnect kept the SAME relay + token (bridge restart,
+                // FIX-44-C2). If either changed, this batch was delivered
+                // under a superseded endpoint or a rotated (possibly
+                // revoked) credential; executing it and answering the NEW
+                // relay with the OLD relay's correlation id would be wrong
+                // on both ends. Drop it instead (pre-FIX-44-C2 behaviour
+                // for the cross-relay case).
+                const data = response.json as { requests?: unknown[] };
+                let requestCount = 0;
+                if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
+                    requestCount = data.requests.length;
+                    const sameConnection =
+                        pollRelayUrl === this.relayUrl && pollToken === this.token;
+                    if (sameConnection) {
+                        for (const reqBody of data.requests) {
+                            if (typeof reqBody === 'string') {
+                                void this.handleRequest(reqBody, pollRelayUrl, pollToken);
+                            }
+                        }
+                    }
+                }
 
                 // FIX-23-04-14: stale loop (superseded by a reconnect while
                 // this poll was parked at the relay) must exit here instead
-                // of re-entering the loop next to the new one.
+                // of re-entering the loop next to the new one. It must not
+                // touch the shared connection state either.
                 if (generation !== this.pollGeneration) return;
 
                 // First successful poll means we're connected
@@ -236,18 +277,6 @@ export class RelayClient {
                 }
                 this.consecutivePollFailures = 0;
                 this.noticeShownForCurrentOutage = false;
-
-                // M-1: Runtime validation of relay response
-                const data = response.json as { requests?: unknown[] };
-                let requestCount = 0;
-                if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
-                    requestCount = data.requests.length;
-                    for (const reqBody of data.requests) {
-                        if (typeof reqBody === 'string') {
-                            void this.handleRequest(reqBody);
-                        }
-                    }
-                }
 
                 // FIX-23-04-11: re-poll immediately after a long-poll response
                 // or delivered work; only a fast empty response (legacy worker)
@@ -300,7 +329,14 @@ export class RelayClient {
         this._connecting = false;
     }
 
-    private async handleRequest(reqBody: string): Promise<void> {
+    /**
+     * Review 2026-07-14: relayUrl/token are passed in from the poll that
+     * delivered the batch instead of read from the instance fields, so the
+     * response always goes back to the relay (and under the credential) the
+     * request actually came from, even when a reconnect swaps the fields
+     * mid-dispatch.
+     */
+    private async handleRequest(reqBody: string, relayUrl: string, token: string): Promise<void> {
         try {
             const request = JSON.parse(reqBody) as {
                 jsonrpc?: string;
@@ -330,9 +366,9 @@ export class RelayClient {
             // Send response back to relay using correlation ID
             const responseBody = { jsonrpc: '2.0', id: correlationId, result };
             await requestUrl({
-                url: `${this.relayUrl}/respond`,
+                url: `${relayUrl}/respond`,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.token}` },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify(responseBody),
             });
         } catch {
@@ -344,9 +380,9 @@ export class RelayClient {
                     const rawId = parsed.__correlationId ?? parsed.id;
                     const correlationId = typeof rawId === 'string' ? rawId : JSON.stringify(rawId ?? '');
                     await requestUrl({
-                        url: `${this.relayUrl}/respond`,
+                        url: `${relayUrl}/respond`,
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.token}` },
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify({
                             jsonrpc: '2.0',
                             id: correlationId,

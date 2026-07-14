@@ -455,7 +455,7 @@ export interface AutoApprovalConfig {
     /** Master toggle: when false, all write operations require manual approval */
     enabled: boolean;
     /**
-     * @deprecated FIX-44-34 — dead keys removed from the surface. `read` was
+     * @deprecated FIX-44-34: dead keys removed from the surface. `read` was
      * never consulted (reads are always auto, EFFECT_POLICY.read has key:null);
      * `showMenuInChat`/`mode`/`question`/`todo` had no consumer at all. `write`
      * migrated to noteEdits + vaultChanges. Kept optional ONLY so a one-time

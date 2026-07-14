@@ -176,4 +176,37 @@ describe('PanelChatController', () => {
         controller.abort();
         expect(controller.isRunning).toBe(false);
     });
+
+    it('resolves the conversation model display from providerConfigs[] (review finding B1)', async () => {
+        // The first-run wizard writes only providerConfigs[] (FIX-26-99-03).
+        // Reading activeModels[] alone left the history entry model-blind
+        // ("inline-chat") after a wizard install.
+        const plugin = makePlugin();
+        const settings = plugin.settings as unknown as Record<string, unknown>;
+        settings.activeModels = [];
+        settings.activeModelKey = null;
+        settings.activeProviderId = 'anthropic-main';
+        settings.providerConfigs = [{
+            id: 'anthropic-main',
+            type: 'anthropic',
+            displayName: 'Anthropic',
+            enabled: true,
+            apiKey: 'sk-live',
+            discoveredModels: [{ id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' }],
+            lastRefreshAt: 0,
+            tierMapping: { mid: 'claude-sonnet-4-6' },
+            tierOverrides: {},
+        }];
+        const create = vi.fn<(modeSlug: string, modelDisplay: string) => Promise<string>>(async () => 'conv-1');
+        (plugin as unknown as Record<string, unknown>).conversationStore = {
+            create,
+            save: vi.fn(async () => undefined),
+        };
+
+        const controller = new PanelChatController({ plugin, ctx: makeCtx() });
+        await controller.sendTurn({ userInput: 'hi', handle: makeHandle(), assistantBubbleId: 'b1' });
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(create.mock.calls[0][1]).toBe('Claude Sonnet 4.6');
+    });
 });

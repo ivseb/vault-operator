@@ -72,7 +72,7 @@ export interface AttachmentItem {
     /**
      * FEAT-02-11: set when this attachment is a folder-manifest (not a single
      * file). Drives chip icon (`folder-tree` vs `folder`) and chip text
-     * (`<name>/ (N files)`). Never propagated into the ContentBlock — pure
+     * (`<name>/ (N files)`). Never propagated into the ContentBlock: pure
      * UI metadata.
      */
     folderMeta?: { path: string; recursive: boolean; fileCount: number };
@@ -298,7 +298,7 @@ export class AttachmentHandler {
      * FEAT-02-11: attach a folder as a **manifest** (path list) rather than
      * inlining every file's contents. Individual files are read on-demand by
      * the agent via `read_file` / `read_document`, which already accept any
-     * vault path — no attachment registry needed.
+     * vault path, no attachment registry needed.
      */
     async addVaultFolder(folder: TFolder, opts: { recursive: boolean }): Promise<void> {
         const files = this.collectFolderFiles(folder, opts.recursive);

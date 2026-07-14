@@ -151,20 +151,34 @@ function markModelFetch(
 }
 
 /**
+ * Model lineup plus its provenance (review finding AL1, 2026-07-14).
+ * `source` travels IN-BAND with the models so the discovery service can
+ * decide whether to persist the result without racing on the
+ * getLastChatGptOAuthModelFetch side channel (which stays for the
+ * provider-modal Notice, FIX-55-03).
+ */
+export interface ChatGptOAuthModelLineup {
+    models: { id: string; label: string }[];
+    source: 'live' | 'fallback';
+}
+
+/**
  * Discover the models the signed-in ChatGPT account can actually use, from
  * the live Codex `/codex/models` endpoint (the same source the official Codex
  * client caches). Falls back to the static KNOWN_MODELS lineup on any failure
  * so the picker is never empty. The endpoint is account- and version-specific,
  * so this is the authoritative list, not the hardcoded one. Every fallback is
- * recorded via getLastChatGptOAuthModelFetch and logged (FIX-55-03).
+ * recorded via getLastChatGptOAuthModelFetch and logged (FIX-55-03); the
+ * returned lineup additionally carries the provenance in-band (AL1) so the
+ * discovery cache never persists a fallback over a live lineup.
  */
-export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: string }[]> {
+export async function fetchChatGptOAuthModelLineup(): Promise<ChatGptOAuthModelLineup> {
     try {
         const auth = ChatGptOAuthService.getInstance();
         const token = await auth.getValidAccessToken();
         if (!token) {
             markModelFetch('fallback', 'no-token');
-            return listKnownChatGptOAuthModels();
+            return { models: listKnownChatGptOAuthModels(), source: 'fallback' };
         }
         const accountId = auth.getAccountId();
         const headers: Record<string, string> = {
@@ -183,7 +197,7 @@ export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: st
             const list = parseCodexModelsResponse(res.json);
             if (list.length > 0) {
                 markModelFetch('live');
-                return list;
+                return { models: list, source: 'live' };
             }
             markModelFetch('fallback', 'empty-list');
             console.debug('[chatgpt-oauth] /codex/models returned HTTP 200 but no parseable models; using the static fallback lineup');
@@ -195,7 +209,12 @@ export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: st
         markModelFetch('fallback', 'exception');
         console.debug('[chatgpt-oauth] live model discovery failed; using the static fallback lineup:', e instanceof Error ? e.message : String(e));
     }
-    return listKnownChatGptOAuthModels();
+    return { models: listKnownChatGptOAuthModels(), source: 'fallback' };
+}
+
+/** Models-only convenience wrapper around fetchChatGptOAuthModelLineup. */
+export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: string }[]> {
+    return (await fetchChatGptOAuthModelLineup()).models;
 }
 
 const DEFAULT_MODEL_INFO: ModelInfo = {
