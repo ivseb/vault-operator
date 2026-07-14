@@ -146,6 +146,9 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
 
         store.upsert(safe, 'agent-tool');
 
+        // FIX-44-53: a swallowed frontmatter failure must not turn into an
+        // unconditional success line -- the gate previewed exactly this write.
+        let fmFailure: string | null = null;
         if (write_frontmatter) {
             try {
                 // FIX-44-13a: resolve + write through the same function whose
@@ -166,6 +169,7 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
                 }
             } catch (e) {
                 console.warn(`[mark_note_as_memory_source] frontmatter write failed for ${safe}:`, e);
+                fmFailure = e instanceof Error ? e.message : String(e);
             }
         }
 
@@ -175,6 +179,15 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
             await this.plugin.frontmatterIndexer?.indexNote(file);
         } catch (e) {
             console.debug(`[mark_note_as_memory_source] indexer pass failed for ${safe}:`, e);
+        }
+
+        if (fmFailure) {
+            ctx.callbacks.pushToolResult(this.formatError(new Error(
+                `Note "${safe}" registered as memory-source in the DB (extraction will run), `
+                + `but writing 'memory-source: true' to the frontmatter FAILED: ${fmFailure}. `
+                + `The previewed frontmatter change did NOT land; the marker is not visible in the note.`,
+            )));
+            return;
         }
 
         ctx.callbacks.pushToolResult(this.formatSuccess(

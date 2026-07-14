@@ -121,6 +121,12 @@ export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memor
 
         const removed = store.remove(safe);
 
+        // FIX-44-53: a swallowed frontmatter failure must not turn into an
+        // unconditional success line. The marker would still be in the note,
+        // and the FrontmatterIndexer re-registers a marker-carrying,
+        // unregistered note on its next pass -- silently undoing the unmark
+        // the user just approved.
+        let fmFailure: string | null = null;
         if (clear_frontmatter) {
             const file = this.plugin.app.vault.getAbstractFileByPath(safe);
             if (file instanceof TFile && file.extension === 'md') {
@@ -143,8 +149,21 @@ export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memor
                     }
                 } catch (e) {
                     console.warn(`[unmark_note_as_memory_source] frontmatter clear failed for ${safe}:`, e);
+                    fmFailure = e instanceof Error ? e.message : String(e);
                 }
             }
+        }
+
+        if (fmFailure) {
+            ctx.callbacks.pushToolResult(this.formatError(new Error(
+                `${removed
+                    ? `DB registration for "${safe}" removed`
+                    : `Note "${safe}" was not registered in the DB`}, `
+                + `but clearing the 'memory-source' frontmatter property FAILED: ${fmFailure}. `
+                + `The marker is still in the note, so the indexer may re-register it on its next pass. `
+                + `Fix the note (or retry) to make the unmark stick.`,
+            )));
+            return;
         }
 
         ctx.callbacks.pushToolResult(this.formatSuccess(
