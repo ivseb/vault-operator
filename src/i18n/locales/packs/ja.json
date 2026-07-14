@@ -234,6 +234,8 @@
   "settings.mcp.edit": "編集",
   "settings.mcp.delete": "削除",
   "settings.mcp.builtInDisabledHint": "APIキーが必要です。編集をクリックして設定し、その後接続してください。",
+  "settings.mcp.allowWriteTools": "MCP経由の書き込みツールを許可",
+  "settings.mcp.allowWriteToolsDesc": "外部MCPクライアント(Claude Desktop、ChatGPT、リレー)によるVaultファイルの作成・編集・削除、および長期メモリへの保存を許可します。デフォルトはオフ: 外部クライアントは読み取りのみ可能です。execute_vault_op経由の書き込み操作にも適用されます。",
   "settings.modes.introTitle": "エージェントとは?",
   "settings.modes.introDesc": "エージェントとは、アシスタントが採用する人格のことです。システムPrompt(行動ルール)、使用できるツールのセット、追加の指示から構成されます。ここで別のエージェントを選ぶと、アシスタントの考え方とできることが即座に変わります。Defaultエージェントは読み書き可能で全ツールを使えます。独自のエージェントを作成して特化させることもできます(例:読み取り専用のリサーチ、執筆特化、コードレビュー)。",
   "settings.modes.groupBuiltIn": "デフォルト",

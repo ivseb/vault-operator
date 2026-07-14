@@ -138,7 +138,11 @@ Without the token, `/health` answers with the static `{ "status": "ok", "relay":
 Do not judge the connection by opening the tokenized MCP URL in a browser; a browser GET does not exercise the MCP handshake and its result is misleading.
 
 :::warning Write access
-The write tier lets external clients modify your vault. Enable per-surface write access only for clients you trust with file-level access. The read and history tiers are safe for everyday use.
+Write-class tools are disabled by default. The toggle **Allow write tools over MCP** under **Settings > Vault Operator > Customize > Connectors** enables them for all connected clients; it covers `write_vault`, `save_to_memory`, `update_memory` (deprecated), and write operations routed through `execute_vault_op`. Only enable it if you trust every connected client with file-level access. The read and history tiers are safe for everyday use.
+:::
+
+:::warning Breaking change in 3.2.4
+`save_to_memory` and `update_memory` moved into the write tier and are now behind **Allow write tools over MCP** (default off). External clients that saved memory before 3.2.4 (Claude Desktop, ChatGPT, Claude Code, Perplexity) will receive an error naming the setting until you enable the toggle under **Settings > Vault Operator > Customize > Connectors**. Reading memory (`recall_memory`) is unaffected.
 :::
 
 ## Remote access via Cloudflare relay

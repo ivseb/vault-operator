@@ -234,6 +234,8 @@
   "settings.mcp.edit": "编辑",
   "settings.mcp.delete": "删除",
   "settings.mcp.builtInDisabledHint": "需要 API key。点击编辑进行配置，然后连接。",
+  "settings.mcp.allowWriteTools": "允许通过 MCP 使用写入工具",
+  "settings.mcp.allowWriteToolsDesc": "允许外部 MCP 客户端(Claude Desktop、ChatGPT、中继)创建、编辑和删除 Vault 文件,并写入长期记忆。默认关闭:外部客户端只能读取。也涵盖通过 execute_vault_op 的写入操作。",
   "settings.modes.introTitle": "什么是智能体？",
   "settings.modes.introDesc": "智能体是助手所扮演的角色：包括它的系统 Prompt（游戏规则）、可使用的工具集，以及你提供的额外指令。在此切换智能体会立即改变助手的思考方式和能力范围。默认智能体可读写并拥有完整工具集。你可以创建自己的智能体来实现专门用途（例如只读研究、专注写作、代码审查）。",
   "settings.modes.groupBuiltIn": "默认",
