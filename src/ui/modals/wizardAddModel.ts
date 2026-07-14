@@ -92,6 +92,19 @@ export function applyWizardModelToProviderConfigs(
         // Empty wizard fields leave the stored values untouched.
         if (model.apiKey) provider.apiKey = model.apiKey;
         if (model.baseUrl) provider.baseUrl = model.baseUrl;
+        // Review follow-up on C3 (2026-07-14): the same non-empty-wins rule
+        // covers the remaining credential fields the wizard's
+        // ModelConfigModal collects. A Bedrock user re-running the wizard
+        // with rotated AWS keys (or an Azure user with a new apiVersion)
+        // otherwise hit the identical silently-kept-stale-credentials
+        // failure through these fields.
+        if (model.apiVersion) provider.apiVersion = model.apiVersion;
+        if (model.awsAuthMode) provider.awsAuthMode = model.awsAuthMode;
+        if (model.awsRegion) provider.awsRegion = model.awsRegion;
+        if (model.awsApiKey) provider.awsApiKey = model.awsApiKey;
+        if (model.awsAccessKey) provider.awsAccessKey = model.awsAccessKey;
+        if (model.awsSecretKey) provider.awsSecretKey = model.awsSecretKey;
+        if (model.awsSessionToken) provider.awsSessionToken = model.awsSessionToken;
     } else {
         provider = {
             id: allocateInstanceId(list, model.provider),

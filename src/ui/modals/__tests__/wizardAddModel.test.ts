@@ -222,6 +222,92 @@ describe('merge into an existing provider config (review follow-up)', () => {
         expect(settings.providerConfigs[0].baseUrl).toBe('https://old.example');
     });
 
+    it('lets rotated AWS credentials overwrite stale ones on merge (review follow-up on C3)', () => {
+        // C3 only covered apiKey/baseUrl. A Bedrock user re-running the
+        // wizard with rotated AWS keys hit the same silently-kept-stale-
+        // credentials failure through the remaining ModelConfigModal fields.
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider({
+            id: 'bedrock-main',
+            type: 'bedrock',
+            displayName: 'AWS Bedrock',
+            apiKey: undefined,
+            awsAuthMode: 'access-key',
+            awsRegion: 'us-east-1',
+            awsAccessKey: 'AKIA-OLD',
+            awsSecretKey: 'secret-old',
+            awsSessionToken: 'session-old',
+            awsApiKey: 'bearer-old',
+        })];
+        applyWizardModelToProviderConfigs(settings, model({
+            name: 'anthropic.claude-sonnet-4-6',
+            provider: 'bedrock',
+            apiKey: undefined,
+            awsAuthMode: 'api-key',
+            awsRegion: 'eu-central-1',
+            awsAccessKey: 'AKIA-NEW',
+            awsSecretKey: 'secret-new',
+            awsSessionToken: 'session-new',
+            awsApiKey: 'bearer-new',
+        }));
+
+        const p = settings.providerConfigs[0];
+        expect(p.awsAuthMode).toBe('api-key');
+        expect(p.awsRegion).toBe('eu-central-1');
+        expect(p.awsAccessKey).toBe('AKIA-NEW');
+        expect(p.awsSecretKey).toBe('secret-new');
+        expect(p.awsSessionToken).toBe('session-new');
+        expect(p.awsApiKey).toBe('bearer-new');
+    });
+
+    it('lets a freshly entered apiVersion overwrite a stale one on merge (review follow-up on C3)', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider({
+            id: 'azure-main',
+            type: 'azure',
+            displayName: 'Azure OpenAI',
+            apiVersion: '2024-06-01',
+        })];
+        applyWizardModelToProviderConfigs(settings, model({
+            name: 'gpt-5.2-pro',
+            provider: 'azure',
+            apiVersion: '2026-03-01',
+        }));
+
+        expect(settings.providerConfigs[0].apiVersion).toBe('2026-03-01');
+    });
+
+    it('keeps stored AWS credentials and apiVersion when the wizard fields were left empty', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider({
+            id: 'bedrock-main',
+            type: 'bedrock',
+            displayName: 'AWS Bedrock',
+            apiKey: undefined,
+            apiVersion: '2024-06-01',
+            awsAuthMode: 'access-key',
+            awsRegion: 'us-east-1',
+            awsAccessKey: 'AKIA-OLD',
+            awsSecretKey: 'secret-old',
+            awsSessionToken: 'session-old',
+            awsApiKey: 'bearer-old',
+        })];
+        applyWizardModelToProviderConfigs(settings, model({
+            name: 'anthropic.claude-sonnet-4-6',
+            provider: 'bedrock',
+            apiKey: undefined,
+        }));
+
+        const p = settings.providerConfigs[0];
+        expect(p.apiVersion).toBe('2024-06-01');
+        expect(p.awsAuthMode).toBe('access-key');
+        expect(p.awsRegion).toBe('us-east-1');
+        expect(p.awsAccessKey).toBe('AKIA-OLD');
+        expect(p.awsSecretKey).toBe('secret-old');
+        expect(p.awsSessionToken).toBe('session-old');
+        expect(p.awsApiKey).toBe('bearer-old');
+    });
+
     it('still backfills empty provider credentials from the model', () => {
         const settings = freshSettings();
         settings.providerConfigs = [disabledProvider({ apiKey: undefined })];
