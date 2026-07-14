@@ -54,11 +54,23 @@ const BUDGET_TOKENS_RE = /budget_tokens/i;
 const EFFORT_FIELD_RE = /reasoning[._\s-]?effort/i;
 const EFFORT_TOOLS_RE = /\btools?\b|\bfunction.?call/i;
 const EFFORT_REJECT_RE = /not supported|unsupported|not compatible|incompatible|cannot be (?:used|combined|set)/i;
+// Guards against effort-ONLY rejections, where a retry with 'none' cannot
+// help because the parameter itself is unsupported: (a) the vLLM/LM-Studio
+// shape "Unsupported parameter: reasoning_effort. Supported parameters
+// are: ..., tools, ...", whose tools mention merely enumerates what IS
+// supported; (b) generally, a tools mention that only occurs after such an
+// enumeration opener.
+const EFFORT_PARAM_UNSUPPORTED_RE = /unsupported\s+(?:parameter|argument|field)s?\s*[:'"\s]\s*['"]?reasoning[._\s-]?effort/i;
+const SUPPORTED_ENUM_RE = /supported\s+(?:parameter|argument|field)s?\s+(?:are|include)/i;
 
 function isEffortToolsUnsupportedMessage(message: string): boolean {
-    return EFFORT_FIELD_RE.test(message)
-        && EFFORT_TOOLS_RE.test(message)
-        && EFFORT_REJECT_RE.test(message);
+    if (EFFORT_PARAM_UNSUPPORTED_RE.test(message)) return false;
+    if (!EFFORT_FIELD_RE.test(message) || !EFFORT_REJECT_RE.test(message)) return false;
+    const toolsMatch = EFFORT_TOOLS_RE.exec(message);
+    if (!toolsMatch) return false;
+    const enumMatch = SUPPORTED_ENUM_RE.exec(message);
+    if (enumMatch && toolsMatch.index > enumMatch.index) return false;
+    return true;
 }
 
 function isOutputCapMessage(message: string): boolean {

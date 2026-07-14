@@ -296,7 +296,7 @@ export class OpenAiProvider implements ApiHandler {
         const effort = this.config.reasoningEffort;
         const effortLevels = resolveEffortLevels(this.config.model, this.config.type, this.config.effortOptIn);
         const effortValid = effort !== undefined && effortLevels.includes(effort);
-        // FIX-54-10: learned per-model restriction — the gpt-5.6 platform
+        // FIX-54-10: learned per-model restriction. The gpt-5.6 platform
         // generation 400s when function tools and reasoning_effort are
         // combined on /v1/chat/completions ("... use /v1/responses or set
         // reasoning_effort to 'none'"). When the flag is set AND tools are

@@ -1767,9 +1767,9 @@ export class AgentTask {
             if (errorAction.action === 'corrective-retry') {
                 // FIX-54-10: the provider rejected function tools combined
                 // with reasoning_effort (gpt-5.6 platform generation on
-                // chat/completions). Learn the per-model flag — persisted and
+                // chat/completions). Learn the per-model flag (persisted and
                 // injected into the registry, so the OpenAI request builder
-                // forces reasoning_effort 'none' with tools from now on —
+                // forces reasoning_effort 'none' with tools from now on),
                 // then retry once. The provider names 'none' as the accepted
                 // escape; omitting the field is NOT equivalent (reasoning
                 // models default to a non-none effort server-side).

@@ -155,6 +155,35 @@ describe('effort-tools-unsupported classification (FIX-54-10)', () => {
         const err = apiError({ status: 400, message: 'max_tokens: 32000 > 8192, which is the maximum' });
         expect(classifyProviderError(err)).toBe('output-cap');
     });
+
+    // Review finding (2026-07-14): the vLLM/LM-Studio shape rejects the
+    // reasoning_effort PARAMETER entirely; its "Supported parameters are:
+    // ..., tools, ..." enumeration must not count as a tools-combination
+    // rejection, because retrying with 'none' still sends the unsupported
+    // field and cannot succeed.
+    it('does NOT classify an effort-parameter-unsupported 400 whose supported-list mentions tools', () => {
+        const err = apiError({
+            status: 400,
+            message: 'Unsupported parameter: reasoning_effort. Supported parameters are: temperature, top_p, tools, tool_choice, stream',
+        });
+        expect(classifyProviderError(err)).toBe('client');
+    });
+
+    it('does NOT classify when tools are only mentioned inside a supported-parameters enumeration', () => {
+        const err = apiError({
+            status: 400,
+            message: "reasoning_effort is not supported by this endpoint. Supported parameters include: messages, tools, stream",
+        });
+        expect(classifyProviderError(err)).toBe('client');
+    });
+
+    it('still classifies the combination rejection when tools appear before a supported-list', () => {
+        const err = apiError({
+            status: 400,
+            message: "Function tools with reasoning_effort are not supported for gpt-5.6-terra in /v1/chat/completions. Supported parameters are: messages, stream",
+        });
+        expect(classifyProviderError(err)).toBe('effort-tools-unsupported');
+    });
 });
 
 // ===========================================================================

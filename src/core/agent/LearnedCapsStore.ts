@@ -63,7 +63,7 @@ export async function learnOutputCap(modelId: string, cap: number): Promise<numb
 /**
  * FIX-54-10: record that a model rejects function tools combined with
  * reasoning_effort on chat/completions. No-op when no store is registered
- * (unit tests, early boot) — same contract as learnOutputCap.
+ * (unit tests, early boot), same contract as learnOutputCap.
  */
 export async function learnEffortToolsUnsupported(modelId: string): Promise<void> {
     if (!activeStore) return;
@@ -78,8 +78,9 @@ export class LearnedCapsStore {
 
     constructor(private fs: LearnedCapsFs) {}
 
-    /** Load persisted caps and inject them into the registry. Call at boot. */
+    /** Load persisted caps and inject them into the registry. Call at boot. Idempotent. */
     async load(): Promise<void> {
+        if (this.loaded) return;
         try {
             if (await this.fs.exists(LEARNED_CAPS_FILE)) {
                 const parsed = JSON.parse(await this.fs.read(LEARNED_CAPS_FILE)) as LearnedCapsFile;
@@ -101,7 +102,7 @@ export class LearnedCapsStore {
                 // FIX-54-10: flags share the caps file. Same INP-3/INP-4
                 // hardening: proto-chain keys are skipped, the entry count is
                 // bounded, and only a literal `true` on a known flag field is
-                // copied — flags can only ADD restrictions, so any other value
+                // copied: flags can only ADD restrictions, so any other value
                 // (or an unknown field) is dropped rather than trusted.
                 if (typeof parsed?.flags === 'object' && parsed.flags !== null) {
                     let flagCount = 0;
@@ -132,6 +133,10 @@ export class LearnedCapsStore {
      * Only lowers existing values; floors at MIN_LEARNED_CAP.
      */
     async learnCap(modelId: string, cap: number): Promise<number> {
+        // A learn that wins the race against the boot load() would persist
+        // with the other field still empty and erase it on disk. load() is
+        // idempotent, so waiting here is free after boot.
+        if (!this.loaded) await this.load();
         const id = normalizeModelId(modelId);
         const bounded = Math.max(MIN_LEARNED_CAP, Math.floor(cap));
         const existing = this.caps[id];
@@ -150,10 +155,11 @@ export class LearnedCapsStore {
      * reasoning_effort are not supported ... set reasoning_effort to
      * 'none'", gpt-5.6 platform generation). Persisted and injected into the
      * registry, so the OpenAI request builder forces effort 'none' with
-     * tools from now on — this task's corrective retry AND every future
+     * tools from now on: this task's corrective retry AND every future
      * session. Restriction-only: there is no unlearn path.
      */
     async learnEffortWithToolsUnsupported(modelId: string): Promise<void> {
+        if (!this.loaded) await this.load();
         const id = normalizeModelId(modelId);
         if (this.flags[id]?.effortWithToolsUnsupported === true) return;
         this.flags[id] = { ...this.flags[id], effortWithToolsUnsupported: true };
