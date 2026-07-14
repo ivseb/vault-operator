@@ -6099,10 +6099,23 @@ export class AgentSidebarView extends ItemView {
             discardLabel: t('ui.editReview.revertAll'),
         });
 
-        if (result.decisions === null) {
+        // FIX-44-38: Esc / X / backdrop is NOT "Revert all". A user who merely
+        // closes the review keeps every file exactly as the agent left it.
+        if (result.outcome === 'dismissed') return;
+
+        if (result.outcome === 'discarded') {
             // FIX-44-16: this used to be a bare `return`. The user pressed the
             // button that says the changes go away, and the changes stayed. The
             // pre-task content is right here in `entries`, so give it back.
+            // FIX-44-38: only the EXPLICIT revert button lands here, and since it
+            // destroys the agent's finished work it gets a confirm step.
+            const ok = await confirmModal(this.app, {
+                title: t('ui.editReview.confirmRevertTitle'),
+                message: t('ui.editReview.confirmRevertBody', { count: entries.length }),
+                confirmLabel: t('ui.editReview.revertAll'),
+                destructive: true,
+            });
+            if (!ok) return; // keep everything
             const undone = await revertReviewedFiles(this.app, entries);
             if (undone.reverted.length > 0) {
                 new Notice(t('ui.editReview.reverted', { count: undone.reverted.length }));
@@ -6112,6 +6125,7 @@ export class AgentSidebarView extends ItemView {
             }
             return;
         }
+        if (result.decisions === null) return; // defensive: applied always carries decisions
 
         // FIX-01-07-04: only decisions the user actually changed are written,
         // through the atomic + empty-guarded path. An unchanged Apply is a
