@@ -995,6 +995,7 @@
   "ui.undo.noCheckpoint": "復元できるCheckpointが見つかりません。",
   "ui.undo.restoreFailed": "復元に失敗しました。コンソールを確認してください。",
   "ui.error.invalidKey": "APIキーが無効です。エージェント設定を確認してください。",
+  "ui.error.insufficientPermissions": "APIキーは有効ですが、このモデルまたは操作への権限がありません。プロバイダーのダッシュボードでキーのスコープとモデルへのアクセスを確認してください。",
   "ui.error.modelNotFound": "モデルが見つかりません。エージェント設定のモデルIDを確認してください。",
   "ui.error.rateLimit": "レート制限に達しました。しばらくお待ちください。",
   "ui.error.overloaded": "APIが過負荷状態です。少し待ってから再試行してください。",

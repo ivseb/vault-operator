@@ -995,6 +995,7 @@
   "ui.undo.noCheckpoint": "找不到可還原的 Checkpoint。",
   "ui.undo.restoreFailed": "還原失敗。請查看主控台。",
   "ui.error.invalidKey": "API key 無效。請檢查代理設定。",
+  "ui.error.insufficientPermissions": "API 金鑰有效，但沒有此模型或操作的權限。請在供應商後台檢查金鑰範圍與模型存取權。",
   "ui.error.modelNotFound": "找不到模型。請在代理設定中確認模型 ID。",
   "ui.error.rateLimit": "已達速率限制。請稍候片刻。",
   "ui.error.overloaded": "API 過載。請稍後再試。",

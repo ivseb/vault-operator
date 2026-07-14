@@ -995,6 +995,7 @@
   "ui.undo.noCheckpoint": "Aucun checkpoint à restaurer.",
   "ui.undo.restoreFailed": "La restauration a échoué. Voir la console.",
   "ui.error.invalidKey": "Clé API invalide. Vérifiez les paramètres de l'agent.",
+  "ui.error.insufficientPermissions": "La clé API est valide mais ne dispose pas des permissions pour ce modèle ou cette opération. Vérifiez les portées de la clé et l'accès au modèle dans le tableau de bord du fournisseur.",
   "ui.error.modelNotFound": "Modèle introuvable. Vérifiez l'ID du modèle dans les paramètres de l'agent.",
   "ui.error.rateLimit": "Limite de requêtes atteinte. Veuillez patienter un instant.",
   "ui.error.overloaded": "API surchargée. Réessayez dans un instant.",

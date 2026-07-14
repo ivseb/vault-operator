@@ -1194,6 +1194,7 @@ export const en = {
     // Chat UI -- Error Messages
     // =========================================================================
     'ui.error.invalidKey': 'Invalid API key. Check the agent settings.',
+    'ui.error.insufficientPermissions': 'The API key is valid but lacks permission for this model or operation. Check key scopes and model access in the provider dashboard.',
     'ui.error.modelNotFound': 'Model not found. Verify the model ID in the agent settings.',
     'ui.error.rateLimit': 'Rate limit reached. Please wait a moment.',
     'ui.error.overloaded': 'API overloaded. Try again shortly.',

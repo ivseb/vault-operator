@@ -24,6 +24,7 @@ import {
 } from './checkpointMarkerRehydration';
 // FIX-44-44: testable gate for the undo bar / post-task review surfaces.
 import { decidePostTaskSurfaces } from './postTaskReviewGate';
+import { isInsufficientPermissionsAuthError } from './errorTitleClassifier';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
@@ -4156,6 +4157,13 @@ export class AgentSidebarView extends ItemView {
     private getErrorTitle(error: Error): string {
         const msg = error.message.toLowerCase();
         const status = (error as Error & { status?: number; statusCode?: number }).status ?? (error as Error & { statusCode?: number }).statusCode;
+        // FIX-54-11: a scope/model-access 401 is NOT an invalid key. OpenAI
+        // project keys with model restrictions answer "You have insufficient
+        // permissions for this operation." while the key itself is valid;
+        // sending the user to re-check the key wastes their time.
+        if (isInsufficientPermissionsAuthError(error.message, status)) {
+            return t('ui.error.insufficientPermissions');
+        }
         if (status === 401 || msg.includes('api key') || msg.includes('authentication')) {
             return t('ui.error.invalidKey');
         }
