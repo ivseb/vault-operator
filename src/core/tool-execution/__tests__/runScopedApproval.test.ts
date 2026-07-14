@@ -209,7 +209,7 @@ describe('FEAT-44-02: approving for the run', () => {
         }));
 
         await pipeline.executeTool(call('update_settings', { action: 'set', path: 'debugMode', value: true }), makeCallbacks(), { onApprovalRequired });
-        expect(pipeline.getRunApprovedEffects().size).toBe(0);
+        expect(pipeline.getRunApprovedEffects().keys.size).toBe(0);
     });
 
     it('FEAT-44-02: a subtask inherits the parent run-scope via a shared set', async () => {

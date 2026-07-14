@@ -181,6 +181,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      * ToolExecutionPipeline.askOrDeny and by the alwaysAsk lookup order).
      */
     readonly sessionApprovedGrants = new Set<import('./core/tools/toolEffects').ApprovalGrantKey>();
+    /**
+     * FEAT-44-07 (kill switch, part a): in-memory revocation epoch for
+     * run-scope grants. The run sets live per task inside the pipelines,
+     * which the settings tab cannot reach; bumping this counter makes every
+     * pipeline clear its (shared) run set lazily on the next approval check.
+     * In-memory on purpose: run grants themselves never survive a reload.
+     */
+    approvalRevocationEpoch = 0;
     ignoreService: IgnoreService;
     operationLogger: OperationLogger;
     checkpointService: GitCheckpointService;

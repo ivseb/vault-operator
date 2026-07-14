@@ -54,6 +54,13 @@ Two effects are **never** auto-approvable, whatever the settings say: **settings
 If you auto-approve both **web** and a write category, Vault Operator lights up a "Permissive" warning in the Permissions tab. The agent could fetch content from the internet and act on it without asking.
 :::
 
+## Kill switch
+
+At the top of the Permissions tab sit two emergency brakes:
+
+- **Always ask (paranoid mode).** A runtime override: while it is on, every action except reads and pure UI steps asks for confirmation, regardless of the category toggles, presets, and any run or session grants. The approval cards stop offering scope grants while it is active (a grant would not take effect). The switch is a persisted setting, so it stays on across restarts until you turn it off; use it when you are inspecting an unfamiliar skill or model and want to watch every step.
+- **Reset to default-deny.** One click (behind a confirmation) applies the restrictive preset: the auto-approve master goes off, every category returns to asking, and all grants given for the current run or session are revoked. Paranoid mode is not changed by the reset. Use it when the configuration has drifted more permissive than you are comfortable with and you want the fail-closed default back without flipping toggles one by one.
+
 ## Reviewing changes
 
 ### Before the edit

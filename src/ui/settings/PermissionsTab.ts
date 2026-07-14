@@ -1,7 +1,9 @@
-import { App, Modal, Setting, setIcon } from 'obsidian';
+import { App, Modal, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
 import { addSectionHeading } from './utils';
+import { resetToDefaultDeny } from '../../core/tools/autoApprovalGrant';
+import { PRESETS } from '../../core/tools/agent/UpdateSettingsTool';
 
 
 export class PermissionsTab {
@@ -34,6 +36,7 @@ export class PermissionsTab {
 
     build(containerEl: HTMLElement): void {
         this.buildIntroSection(containerEl);
+        this.buildKillSwitchSection(containerEl);
 
         // ── Auto-approve master toggle + visibility helper ───────────────
         addSectionHeading(
@@ -240,10 +243,67 @@ export class PermissionsTab {
     }
 
     /**
+     * FEAT-44-07: the kill switch, rendered ABOVE the auto-approve controls so
+     * the way back to fail-closed is always in sight, never buried below the
+     * grants it revokes. Two parts:
+     *
+     * (b) "Always ask (paranoid mode)": a persisted plain setting (survives the
+     *     reload -- a brake that silently drops off on restart would be a trap).
+     *     While on, the pipeline asks for every effect except read/ui,
+     *     regardless of the toggles below, presets, and run-/session grants.
+     *     Deliberately NOT an autoApproval category key, so the EFFECT_POLICY
+     *     drift contract stays untouched.
+     *
+     * (a) "Reset to default-deny": one click (plus confirm) back to the
+     *     restrictive preset, revoking all run- and session-scope grants.
+     */
+    private buildKillSwitchSection(containerEl: HTMLElement): void {
+        addSectionHeading(
+            containerEl,
+            t('settings.permissions.headingKillSwitch'),
+            { body: t('settings.permissions.sectionKillSwitchInfo') },
+        );
+
+        new Setting(containerEl)
+            .setName(t('settings.permissions.paranoidMode'))
+            .setDesc(t('settings.permissions.paranoidModeDesc'))
+            .addToggle((tg) =>
+                tg.setValue(this.plugin.settings.paranoidMode === true).onChange(async (v) => {
+                    this.plugin.settings.paranoidMode = v;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName(t('settings.permissions.resetDefaultDeny'))
+            .setDesc(t('settings.permissions.resetDefaultDenyDesc'))
+            .addButton((btn) =>
+                btn
+                    .setButtonText(t('settings.permissions.resetDefaultDenyButton'))
+                    .setDestructive()
+                    .onClick(() => {
+                        void (async () => {
+                            const ok = await this.confirmHighRisk(
+                                t('settings.permissions.resetConfirmTitle'),
+                                t('settings.permissions.resetConfirmMessage'),
+                                t('settings.permissions.resetConfirmAccept'),
+                            );
+                            if (!ok) return;
+                            resetToDefaultDeny(this.plugin, PRESETS.restrictive);
+                            await this.plugin.saveSettings();
+                            new Notice(t('settings.permissions.resetDone'));
+                            // Re-render so every toggle shows its post-reset state.
+                            this.rerender();
+                        })();
+                    }),
+            );
+    }
+
+    /**
      * Show a confirmation dialog for high-risk settings.
      * Returns true if the user confirmed, false otherwise.
      */
-    private confirmHighRisk(title: string, message: string): Promise<boolean> {
+    private confirmHighRisk(title: string, message: string, acceptLabel?: string): Promise<boolean> {
         return new Promise((resolve) => {
             const modal = new (class extends Modal {
                 onOpen(): void {
@@ -254,7 +314,7 @@ export class PermissionsTab {
                     const btnRow = contentEl.createDiv('agent-setting-confirm-buttons');
                     const cancelBtn = btnRow.createEl('button', { text: t('settings.permissions.sandboxConfirmCancel') });
                     const confirmBtn = btnRow.createEl('button', {
-                        text: t('settings.permissions.sandboxConfirmAccept'),
+                        text: acceptLabel ?? t('settings.permissions.sandboxConfirmAccept'),
                         cls: 'mod-warning',
                     });
                     cancelBtn.addEventListener('click', () => { this.close(); resolve(false); });

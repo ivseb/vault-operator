@@ -352,6 +352,19 @@ export const en = {
     'settings.permissions.sandboxConfirmCancel': 'Cancel',
     'settings.permissions.sandboxConfirmAccept': 'I understand the risk, enable',
 
+    // FEAT-44-07: kill switch (paranoid mode + reset to default-deny)
+    'settings.permissions.headingKillSwitch': 'Kill switch',
+    'settings.permissions.sectionKillSwitchInfo': 'Two emergency brakes: a runtime override that makes the agent ask before everything, and a one-click reset back to the fail-closed default.',
+    'settings.permissions.paranoidMode': 'Always ask (paranoid mode)',
+    'settings.permissions.paranoidModeDesc': 'While on, every action except reads and pure UI steps asks for confirmation, regardless of the toggles below, presets, and any grants given for a run or session. Stays on across restarts until you turn it off.',
+    'settings.permissions.resetDefaultDeny': 'Reset to default-deny',
+    'settings.permissions.resetDefaultDenyDesc': 'Apply the restrictive preset (auto-approval off, every category asks) and revoke all grants given for the current run or session.',
+    'settings.permissions.resetDefaultDenyButton': 'Reset',
+    'settings.permissions.resetConfirmTitle': 'Reset permissions to default-deny?',
+    'settings.permissions.resetConfirmMessage': 'This turns auto-approval off, sets every category back to ask, and revokes all run and session grants. The agent will ask before any change again.',
+    'settings.permissions.resetConfirmAccept': 'Reset permissions',
+    'settings.permissions.resetDone': 'Permissions reset to default-deny.',
+
     // H-1: Permissive mode warning (web + writes both auto-approved)
     'settings.permissions.permissiveWarning': 'Permissive mode: web access and write operations are both auto-approved. Content from untrusted web pages or vault notes could trick the agent into modifying your vault without review. This is the highest-risk configuration. Consider disabling auto-approval for either web access or write operations.',
 

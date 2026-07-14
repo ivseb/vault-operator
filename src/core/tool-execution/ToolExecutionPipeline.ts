@@ -177,6 +177,18 @@ export interface ApprovalResult {
 }
 
 /**
+ * FEAT-44-02 / FEAT-44-07: run-scope grants plus the revocation epoch they were
+ * made under. Shared BY REFERENCE between a parent task's pipeline and its
+ * subtasks (see setRunApprovedEffects), so both the grants and their revocation
+ * travel together: when the kill switch bumps the plugin's epoch, whichever
+ * pipeline checks next clears the shared keys for every sharer.
+ */
+export interface RunGrantStore {
+    epoch: number;
+    keys: Set<import('../tools/toolEffects').ApprovalGrantKey>;
+}
+
+/**
  * Result of an in-chat asset-install prompt (Obsidian policy compliance:
  * network fetches must be triggered by an explicit user click, so tools
  * that need an optional asset call `onOptionalAssetRequired` which
@@ -350,6 +362,12 @@ export class ToolExecutionPipeline {
         // FEATURE-0507: tmp root honors the configurable agentFolderPath setting.
         const vaultFs = new VaultDataFileAdapter(plugin.app.vault.adapter);
         this.resultExternalizer = new ResultExternalizer(vaultFs, taskId, getTmpRoot(plugin));
+
+        // FEAT-44-07: stamp the fresh (empty) run-grant store with the current
+        // revocation epoch, so a pipeline built after a reset does not treat
+        // its own empty store as revoked and, more importantly, a store filled
+        // BEFORE a reset is recognisably stale.
+        this.runGrants.epoch = this.getRevocationEpoch();
     }
 
     /** ADR-063: Get the externalizer (for Fast Path to disable during batch). */
@@ -883,27 +901,31 @@ export class ToolExecutionPipeline {
      * actually showed ('plugin-api:read' vs 'plugin-api:write'), so a grant
      * given on a read card never covers writes.
      *
+     * FEAT-44-07: wrapped in a store together with the revocation epoch the
+     * grants were made under, so the kill switch can void them even inside
+     * subtasks that inherited the store before the reset.
+     *
      * config and self-modify can never land in here: they are alwaysAsk, and the
      * agent must not be able to buy itself a blanket permission by asking nicely
      * once. Enforced BOTH at lookup (checkApproval checks alwaysAsk first) and
      * at insert (askOrDeny refuses to store them, FIX-44-39/S1).
      */
-    private runApprovedEffects = new Set<ApprovalGrantKey>();
+    private runGrants: RunGrantStore = { epoch: 0, keys: new Set<ApprovalGrantKey>() };
 
     /**
-     * FEAT-44-02: adopt the parent run's approved-grants set so "for the rest of
-     * this run" survives into a subtask / invoked skill. The parent shares its
-     * actual Set (not a copy), so a grant made in the child is also visible to the
+     * FEAT-44-02: adopt the parent run's grant store so "for the rest of this
+     * run" survives into a subtask / invoked skill. The parent shares its actual
+     * store (not a copy), so a grant made in the child is also visible to the
      * parent and siblings for the remainder of the run. alwaysAsk effects still
      * never enter the set, so this cannot widen config / self-modify.
      */
-    setRunApprovedEffects(shared: Set<ApprovalGrantKey>): void {
-        this.runApprovedEffects = shared;
+    setRunApprovedEffects(shared: RunGrantStore): void {
+        this.runGrants = shared;
     }
 
-    /** Expose the run-scope set so a parent task can share it with subtasks. */
-    getRunApprovedEffects(): Set<ApprovalGrantKey> {
-        return this.runApprovedEffects;
+    /** Expose the run-scope grant store so a parent task can share it with subtasks. */
+    getRunApprovedEffects(): RunGrantStore {
+        return this.runGrants;
     }
 
     /**
@@ -928,6 +950,35 @@ export class ToolExecutionPipeline {
     private getSessionGrants(): Set<ApprovalGrantKey> | undefined {
         const holder = this.plugin as Partial<Pick<ObsidianAgentPlugin, 'sessionApprovedGrants'>>;
         return holder.sessionApprovedGrants instanceof Set ? holder.sessionApprovedGrants : undefined;
+    }
+
+    /**
+     * FEAT-44-07 (kill switch, part b): while paranoid mode is on, every effect
+     * except read/ui asks, whatever the config, presets, and scope grants say.
+     */
+    private isParanoidMode(): boolean {
+        return this.plugin.settings.paranoidMode === true;
+    }
+
+    private getRevocationEpoch(): number {
+        const holder = this.plugin as Partial<Pick<ObsidianAgentPlugin, 'approvalRevocationEpoch'>>;
+        return typeof holder.approvalRevocationEpoch === 'number' ? holder.approvalRevocationEpoch : 0;
+    }
+
+    /**
+     * FEAT-44-07 (kill switch, part a): void the run grants when the plugin's
+     * revocation epoch moved past the one the store was filled under. The store
+     * (not a bare Set) is what parent and subtasks share, so the epoch travels
+     * WITH the grants: whichever pipeline notices the bump first clears the
+     * shared keys for everyone. Called lazily on every grant lookup -- the
+     * settings tab cannot reach into per-task pipelines directly.
+     */
+    private syncRunGrantsWithRevocationEpoch(): void {
+        const epoch = this.getRevocationEpoch();
+        if (this.runGrants.epoch !== epoch) {
+            this.runGrants.keys.clear();
+            this.runGrants.epoch = epoch;
+        }
     }
 
     /**
@@ -960,6 +1011,14 @@ export class ToolExecutionPipeline {
             return await this.askOrDeny(toolCall, tool, extensions, 'unclassified');
         }
 
+        // FEAT-44-07 (kill switch, part b): paranoid mode. Checked FIRST, before
+        // any branch that could auto-approve (scope grants, key:null classes,
+        // settings), so it clamps ALL of them. Only read/ui stay auto -- they
+        // mutate nothing, and gating them would make the plugin unusable.
+        if (this.isParanoidMode() && effect !== 'read' && effect !== 'ui') {
+            return await this.askOrDeny(toolCall, tool, extensions, effect);
+        }
+
         const policy = EFFECT_POLICY[effect];
 
         // config + self-modify: never auto-approvable, whatever the settings
@@ -980,7 +1039,10 @@ export class ToolExecutionPipeline {
         // settings, and both honour the blast-radius exemptions.
         const grantKey = this.resolveGrantKey(effect, toolCall);
         if (!ToolExecutionPipeline.SCOPE_GRANT_EXEMPT_TOOLS.has(toolCall.name)) {
-            if (this.runApprovedEffects.has(grantKey)) {
+            // FEAT-44-07: the kill switch may have voided run grants since the
+            // last lookup; sync before honouring them.
+            this.syncRunGrantsWithRevocationEpoch();
+            if (this.runGrants.keys.has(grantKey)) {
                 return { decision: 'auto' };
             }
             if (this.getSessionGrants()?.has(grantKey) === true) {
@@ -1079,10 +1141,15 @@ export class ToolExecutionPipeline {
             result.decision === 'approved'
             && effect !== 'unclassified'
             && !EFFECT_POLICY[effect].alwaysAsk
+            // FEAT-44-07: while paranoid mode is on, the card hides the scope
+            // buttons; if a grant flag arrives anyway, refuse to bank it --
+            // otherwise it would silently arm the moment paranoid is turned off.
+            && !this.isParanoidMode()
         ) {
             const grantKey = this.resolveGrantKey(effect, toolCall);
             if (result.rememberForRun === true) {
-                this.runApprovedEffects.add(grantKey);
+                this.syncRunGrantsWithRevocationEpoch();
+                this.runGrants.keys.add(grantKey);
                 console.debug(`[Pipeline] '${grantKey}' approved for the rest of this run`);
             }
             // FEAT-44-02a: session scope, one level above the run scope.

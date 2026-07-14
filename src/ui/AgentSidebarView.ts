@@ -5238,7 +5238,9 @@ export class AgentSidebarView extends ItemView {
             // only decides its next tool call after seeing this one's result, so
             // there is nothing to preview yet. Offering to REMEMBER the answer is
             // the honest version of what the user actually wants.
-            allowRememberForRun: true,
+            // FEAT-44-07: not while paranoid mode is on -- a scope grant would not
+            // take effect, so the buttons are not offered.
+            allowRememberForRun: this.plugin.settings.paranoidMode !== true,
         });
 
         // Discarded, or the single file was skipped: nothing happens.
@@ -5374,7 +5376,11 @@ export class AgentSidebarView extends ItemView {
             // backs it. config and self-modify (alwaysAsk) have none -- a button
             // promising a permanent grant that never takes effect would be a lie,
             // and it would set an unrelated permission instead.
-            const permKey = this.effectToPermKey(group, input);
+            // FEAT-44-07: while paranoid mode is on, no scope or standing grant
+            // takes effect -- so none is offered. A button whose grant would not
+            // bite (or would silently arm once paranoid is turned off) is a lie.
+            const paranoid = this.plugin.settings.paranoidMode === true;
+            const permKey = paranoid ? null : this.effectToPermKey(group, input);
             // FEAT-44-02: a run-scoped grant is offered for the same effects that
             // can be remembered (not alwaysAsk). It applies to the rest of THIS
             // run only, dies with the task, and cannot buy off config/self-modify.
