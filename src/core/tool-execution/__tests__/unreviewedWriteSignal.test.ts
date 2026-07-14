@@ -28,11 +28,13 @@ function makeCallbacks(): ToolCallbacks {
     };
 }
 
+type StubExecuteCtx = { callbacks: { pushToolResult: (s: string) => void } };
+
 function makeTool(name: string, opts?: { isWrite?: boolean; preview?: EditPreview | null }) {
     const tool: Record<string, unknown> = {
         name,
         isWriteOperation: opts?.isWrite ?? true,
-        execute: vi.fn(async () => 'ok'),
+        execute: vi.fn(async (_input: Record<string, unknown>, _ctx: StubExecuteCtx) => 'ok'),
         getDefinition: () => ({ name, description: 'stub', input_schema: { type: 'object' as const } }),
     };
     if (opts && 'preview' in opts) {
@@ -40,7 +42,7 @@ function makeTool(name: string, opts?: { isWrite?: boolean; preview?: EditPrevie
     }
     return tool as {
         name: string; isWriteOperation: boolean;
-        execute: ReturnType<typeof vi.fn>;
+        execute: import('vitest').Mock<(input: Record<string, unknown>, ctx: StubExecuteCtx) => Promise<string>>;
         getDefinition: () => unknown;
         previewEdit?: ReturnType<typeof vi.fn>;
     };
@@ -186,9 +188,9 @@ describe('FIX-44-44: unreviewed writes are reported, diff-approved writes are no
 
     it('a failed write does not fire (nothing reviewable landed)', async () => {
         const write = makeTool('write_file');
-        write.execute.mockImplementation((_input: unknown, ctx: { callbacks: { pushToolResult: (s: string) => void } }) => {
+        write.execute.mockImplementation(async (_input: Record<string, unknown>, ctx: StubExecuteCtx) => {
             ctx.callbacks.pushToolResult('<error>boom</error>');
-            return Promise.resolve();
+            return 'err';
         });
         const pipeline = await buildPipeline([write], { enabled: true, noteEdits: true });
         const onUnreviewedWrite = vi.fn();
