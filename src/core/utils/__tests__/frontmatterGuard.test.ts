@@ -139,3 +139,32 @@ describe('FIX-44-09: frontmatter integrity guard', () => {
         expect(checkFrontmatterIntegrity(INTACT, after)).not.toBeNull();
     });
 });
+
+describe('FIX-44-42: the guard is not blind on CRLF / BOM notes', () => {
+    const CRLF_INTACT = '---\r\nuid: 1\r\ntitle: T\r\n---\r\n\r\n### Transkript\r\n\r\nHallo.\r\n';
+    // The closing fence was eaten by an edit: the block is unterminated.
+    const CRLF_UNTERMINATED = '---\r\nuid: 1\r\ntitle: T\r\n\r\n### Transkript\r\n\r\nHallo.\r\n';
+
+    it('refuses an edit that leaves a CRLF frontmatter unterminated', () => {
+        const reason = checkFrontmatterIntegrity(CRLF_INTACT, CRLF_UNTERMINATED);
+        expect(reason).not.toBeNull();
+        expect(reason).toMatch(/frontmatter/i);
+    });
+
+    it('allows a healthy CRLF frontmatter edit', () => {
+        const after = CRLF_INTACT.replace('title: T', 'title: U');
+        expect(checkFrontmatterIntegrity(CRLF_INTACT, after)).toBeNull();
+    });
+
+    it('refuses swallowing a heading into a CRLF frontmatter block', () => {
+        const after = '---\r\nuid: 1\r\n### Transkript\r\n---\r\n\r\nHallo.\r\n';
+        expect(checkFrontmatterIntegrity(CRLF_INTACT, after)).not.toBeNull();
+    });
+
+    it('sees through a leading BOM on both sides', () => {
+        const before = '\uFEFF---\nuid: 1\n---\n\nBody.\n';
+        const broken = '\uFEFF---\nuid: 1\n\nBody.\n';
+        expect(checkFrontmatterIntegrity(before, broken)).not.toBeNull();
+        expect(checkFrontmatterIntegrity(before, before.replace('uid: 1', 'uid: 2'))).toBeNull();
+    });
+});

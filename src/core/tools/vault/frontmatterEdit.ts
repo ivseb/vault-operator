@@ -18,6 +18,7 @@
  */
 
 import { parseYaml, stringifyYaml } from 'obsidian';
+import { splitNoteFrontmatter, renderFrontmatterBlock } from '../../utils/frontmatterSplit';
 
 export interface FrontmatterUpdateResult {
     newContent: string;
@@ -37,24 +38,14 @@ interface SplitNote {
 /**
  * Split a note into frontmatter and body.
  *
- * Line-based on purpose: the regex form (`/^---\n[\s\S]*?\n---/`) silently fails
- * on an EMPTY frontmatter block (`---\n---`), which is exactly the shape the OKF
- * scaffolds use, and would then treat the whole note as body.
+ * FIX-44-42: delegates to the shared, CRLF/BOM-tolerant splitter in
+ * `src/core/utils/frontmatterSplit.ts`. The line-based approach (instead of the
+ * regex form `/^---\n[\s\S]*?\n---/`, which silently fails on the EMPTY block
+ * `---\n---` of the OKF scaffolds) lives there now.
  */
 export function splitFrontmatter(content: string): SplitNote {
-    const lines = content.split('\n');
-    if (lines[0] !== '---') return { fmText: null, body: content };
-    for (let i = 1; i < lines.length; i++) {
-        if (lines[i] === '---') {
-            return {
-                fmText: lines.slice(1, i).join('\n'),
-                body: lines.slice(i + 1).join('\n'),
-            };
-        }
-    }
-    // Opening fence with no closing fence: the note is already broken. Treat it
-    // as bodyless-frontmatter-free rather than swallowing the whole file.
-    return { fmText: null, body: content };
+    const { fmText, body } = splitNoteFrontmatter(content);
+    return { fmText, body };
 }
 
 /**
@@ -69,7 +60,8 @@ export function resolveFrontmatterUpdate(
     updates: Record<string, unknown>,
     remove: string[] = [],
 ): FrontmatterUpdateResult {
-    const { fmText, body } = splitFrontmatter(content);
+    const split = splitNoteFrontmatter(content);
+    const { fmText, body } = split;
 
     let fm: Record<string, unknown> = {};
     if (fmText !== null && fmText.trim() !== '') {
@@ -105,8 +97,11 @@ export function resolveFrontmatterUpdate(
     // stringifyYaml({}) yields "{}\n", which is not what an empty frontmatter
     // block looks like on disk. Emit the bare fences instead.
     const yaml = Object.keys(fm).length === 0 ? '' : stripNullValues(stringifyYaml(fm));
-    const block = `---\n${yaml}---`;
-    const newContent = `${block}\n${body}`;
+    // FIX-44-42: reassemble in the note's OWN line-ending style and keep a
+    // leading BOM where there was one -- a frontmatter update must not silently
+    // convert a CRLF file to LF or strip its BOM.
+    const block = renderFrontmatterBlock(yaml, split.lineEnding);
+    const newContent = `${split.bom}${block}${split.lineEnding}${body}`;
 
     return { newContent, changed, block };
 }

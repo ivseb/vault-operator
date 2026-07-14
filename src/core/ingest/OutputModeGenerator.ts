@@ -279,6 +279,13 @@ export function renderFrontmatter(fm: Record<string, unknown>): string {
  * the trailing `---` and the blank line that usually follows) and the
  * remaining body. If no frontmatter is present, returns `{ frontmatter:
  * '', body: input }`.
+ *
+ * FIX-44-42: deliberately NOT unified with the shared splitter in
+ * `src/core/utils/frontmatterSplit.ts`. The trim-based fence rule here is
+ * already CRLF-tolerant, and the contract differs: this one returns the raw
+ * block INCLUDING the fences plus the absorbed blank line, which is what the
+ * ingest reassembly needs. Adopting the shared splitter would change that
+ * blank-line semantic without fixing a defect.
  */
 export function splitFrontmatter(input: string): { frontmatter: string; body: string } {
     if (!input.startsWith('---')) return { frontmatter: '', body: input };
