@@ -29,6 +29,8 @@ export interface ShowEditReviewArgs {
     discardLabel?: string;
     /** FEAT-44-02: offer "apply, and stop asking for the rest of this run". */
     allowRememberForRun?: boolean;
+    /** FEAT-44-02b: read-only batch gate -- no editing surface, Skip stays. */
+    readonlyContent?: boolean;
 }
 
 export interface EditReviewResult {
@@ -68,6 +70,7 @@ export function showEditReviewModal(args: ShowEditReviewArgs): Promise<EditRevie
             title: args.title,
             discardLabel: args.discardLabel,
             allowRememberForRun: args.allowRememberForRun,
+            readonlyContent: args.readonlyContent,
             onApply: (decisions, meta) => resolve({
                 decisions,
                 rememberForRun: meta?.rememberForRun === true,
@@ -110,6 +113,7 @@ interface EditReviewModalOptions {
     title?: string;
     discardLabel?: string;
     allowRememberForRun?: boolean;
+    readonlyContent?: boolean;
     onApply?: (decisions: EditReviewDecision[], meta?: { rememberForRun: boolean; rememberForSession?: boolean }) => void;
     onDiscard?: () => void;
     /**
@@ -160,6 +164,7 @@ export class EditReviewModal extends Modal {
             sourceLabel: this.opts.source,
             discardLabel: this.opts.discardLabel,
             allowRememberForRun: this.opts.allowRememberForRun,
+            readonlyContent: this.opts.readonlyContent,
             setIcon: (el, name) => setIcon(el, name),
             onApply: (decisions, meta) => {
                 try { this.settle(() => this.opts.onApply?.(decisions, meta)); } finally { this.close(); }

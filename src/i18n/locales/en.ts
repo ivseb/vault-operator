@@ -1101,6 +1101,7 @@ export const en = {
     'ui.approval.gateTitleBatch': 'Review the planned changes before they are written',
     'ui.approval.scopeHeading': 'Planned scope: {{count}} file(s)',
     'ui.approval.scopeMore': 'and {{count}} more file(s), full list under details',
+    'ui.approval.scopeDetailsHeading': 'Planned files ({{count}}):',
     'ui.approval.scope.extractZip': 'Extract {{count}} file(s) from {{zip}} into {{folder}}.',
     'ui.approval.scope.extractZipSkipped': '{{count}} existing file(s) will be skipped.',
     'ui.approval.scope.vaultHealth': '{{action}} will modify {{count}} note(s).',

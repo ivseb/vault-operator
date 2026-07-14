@@ -50,6 +50,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
      * check / refresh / cleanup_edges return null: they write no vault
      * files, the plain card stays honest for them.
      */
+    // eslint-disable-next-line @typescript-eslint/require-await -- interface contract is async; the plan itself is synchronous reads
     async previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null> {
         const action = (input.action as string) || 'check';
         if (action !== 'fix_backlinks' && action !== 'cleanup' && action !== 'fix_categories') {

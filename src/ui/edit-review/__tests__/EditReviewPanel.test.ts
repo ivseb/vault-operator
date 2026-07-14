@@ -467,4 +467,36 @@ describe('EditReviewPanel', () => {
             expect(findByClass(root, 'agent-edit-review__empty')).not.toBeNull();
         });
     });
+    /**
+     * FEAT-44-02b: the batch approval gate is read-only. A user edit inside a
+     * batch could not be honoured honestly (the tool writes internally and
+     * the Pipeline drops stray finalContent), so the editing surface is not
+     * offered. Skip stays: per-entry consent is the point of the gate.
+     */
+    describe('readonlyContent (batch gate)', () => {
+        it('hides the edit and discard-edit buttons, keeps Skip', () => {
+            const panel = newPanel({ readonlyContent: true });
+            panel.open();
+            const root = container.children[0];
+            expect(findByClass(root, 'agent-edit-review__edit-btn')).toBeNull();
+            expect(findByClass(root, 'agent-edit-review__edit-discard-btn')).toBeNull();
+            expect(findByClass(root, 'agent-edit-review__textarea')).toBeNull();
+            expect(findByClass(root, 'agent-edit-review__skip-btn')).not.toBeNull();
+        });
+
+        it('apply still reports per-file skip decisions with unmodified content', () => {
+            const onApply = vi.fn();
+            const panel = newPanel({ readonlyContent: true, onApply });
+            panel.open();
+            const root = container.children[0];
+            findByClass(root, 'agent-edit-review__skip-btn')!.click();
+            findByClass(root, 'agent-edit-review__apply-btn')!.click();
+            const decisions = onApply.mock.calls[0][0] as Array<{ path: string; skipped: boolean; finalContent: string }>;
+            expect(decisions).toEqual([
+                { path: 'Notes/Idee.md', finalContent: SAMPLE_ENTRIES[0].after, skipped: true },
+                { path: 'Notes/Plan.md', finalContent: SAMPLE_ENTRIES[1].after, skipped: false },
+            ]);
+        });
+    });
 });
+

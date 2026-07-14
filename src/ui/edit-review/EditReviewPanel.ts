@@ -90,6 +90,14 @@ export interface EditReviewPanelOptions {
      * pre-approve.
      */
     allowRememberForRun?: boolean;
+    /**
+     * FEAT-44-02b: the BATCH approval gate is read-only. The tool writes its
+     * batch internally, so a user edit inside one entry could not be honoured
+     * honestly (the Pipeline drops stray finalContent from batch approvals).
+     * Hides the edit/discard-edit buttons and the textarea; per-file Skip
+     * stays -- per-entry consent is the point of the gate.
+     */
+    readonlyContent?: boolean;
     /** Called when the user presses "Verwerfen" or closes. */
     onDiscard?: () => void;
     /**
@@ -123,6 +131,7 @@ export class EditReviewPanel {
     private readonly onRestore?: () => void | Promise<void>;
     private readonly discardLabel: string;
     private readonly setIcon: SetIconHook;
+    private readonly readonlyContent: boolean;
 
     private files: FileState[] = [];
     private currentIndex = 0;
@@ -156,6 +165,7 @@ export class EditReviewPanel {
         this.allowRememberForRun = options.allowRememberForRun ?? false;
         this.onDiscard = options.onDiscard;
         this.onRestore = options.onRestore;
+        this.readonlyContent = options.readonlyContent ?? false;
         this.discardLabel = options.discardLabel ?? t('ui.editReview.discard');
         this.setIcon = options.setIcon ?? ((el, _name) => { el.textContent = ''; });
 
@@ -313,7 +323,7 @@ export class EditReviewPanel {
         bar.appendChild(stats);
         this.afterStatsEl = stats;
 
-        if (this.mode === 'edit') {
+        if (this.mode === 'edit' && !this.readonlyContent) {
             // Two buttons, not one toggle. "Back to diff" said nothing about what
             // happens to what you just typed -- it kept it, but you had to guess.
             // Now the two outcomes are named: keep the edit, or throw it away.
@@ -339,7 +349,8 @@ export class EditReviewPanel {
             });
             bar.appendChild(dropBtn);
             this.editDiscardEl = dropBtn;
-
+        }
+        if (this.mode === 'edit') {
             const skip = doc.createElement('button');
             skip.classList.add('agent-edit-review__skip-btn');
             skip.setAttribute('type', 'button');
@@ -377,7 +388,7 @@ export class EditReviewPanel {
         this.bodyEl = body;
 
         // --- the editing surface (hidden until the user asks for it) ---------
-        if (this.mode === 'edit') {
+        if (this.mode === 'edit' && !this.readonlyContent) {
             const ta = doc.createElement('textarea');
             ta.classList.add('agent-edit-review__textarea');
             ta.setAttribute('spellcheck', 'true');
