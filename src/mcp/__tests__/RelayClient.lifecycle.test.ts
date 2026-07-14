@@ -120,6 +120,85 @@ describe('RelayClient poll loop generation guard', () => {
         expect(polls).toHaveLength(2);
     });
 
+    it('drops a batch delivered to a superseded poll when the relay URL changed', async () => {
+        // Review finding (2026-07-14): the delivered-batch handoff above is
+        // only safe when the reconnect kept the SAME relay + token (bridge
+        // restart). When the user reconnects to a different relay, the batch
+        // arrived under the OLD endpoint; executing it and POSTing the
+        // result to the NEW relay would answer relay B with relay A's
+        // correlation id, under a connection the user just abandoned.
+        const respondCalls: { url: string; body: string }[] = [];
+        const pollUrls: string[] = [];
+        requestUrlMock.mockImplementation((opts: unknown) => {
+            const { url, body } = opts as { url: string; body?: string };
+            if (url.endsWith('/respond')) {
+                respondCalls.push({ url, body: body ?? '' });
+                return Promise.resolve({ json: {} });
+            }
+            pollUrls.push(url);
+            return new Promise((resolve, reject) => {
+                polls.push({ resolve, reject });
+            });
+        });
+
+        const client = new RelayClient({} as never);
+        client.connect('https://relay-a.test', 'tok');
+        await vi.advanceTimersByTimeAsync(0);
+        client.disconnect();
+        client.connect('https://relay-b.test', 'tok');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(polls).toHaveLength(2);
+        expect(pollUrls).toEqual(['https://relay-a.test/poll', 'https://relay-b.test/poll']);
+
+        // Relay A releases the stale poll with a delivered batch.
+        polls[0].resolve({
+            json: {
+                requests: [JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'initialize' })],
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The batch must be dropped: no dispatch, no /respond anywhere
+        // (in particular none to relay B), and no third poll.
+        expect(respondCalls).toHaveLength(0);
+        expect(polls).toHaveLength(2);
+    });
+
+    it('drops a batch delivered to a superseded poll when the token was rotated', async () => {
+        // Same relay, rotated token: the batch was delivered under a
+        // credential the user just replaced (possibly revoked). Executing
+        // requests (incl. write tools) under it must not happen.
+        const respondCalls: { url: string; body: string }[] = [];
+        requestUrlMock.mockImplementation((opts: unknown) => {
+            const { url, body } = opts as { url: string; body?: string };
+            if (url.endsWith('/respond')) {
+                respondCalls.push({ url, body: body ?? '' });
+                return Promise.resolve({ json: {} });
+            }
+            return new Promise((resolve, reject) => {
+                polls.push({ resolve, reject });
+            });
+        });
+
+        const client = new RelayClient({} as never);
+        client.connect('https://relay.test', 'tok-old');
+        await vi.advanceTimersByTimeAsync(0);
+        client.disconnect();
+        client.connect('https://relay.test', 'tok-new');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(polls).toHaveLength(2);
+
+        polls[0].resolve({
+            json: {
+                requests: [JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'initialize' })],
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(respondCalls).toHaveLength(0);
+        expect(polls).toHaveLength(2);
+    });
+
     it('a stale loop failure does not clobber the connected state of the new loop', async () => {
         const client = new RelayClient({} as never);
 
