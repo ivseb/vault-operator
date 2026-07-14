@@ -995,6 +995,7 @@
   "ui.undo.noCheckpoint": "No se encontró ningún checkpoint para restaurar.",
   "ui.undo.restoreFailed": "La restauración falló. Consulta la consola.",
   "ui.error.invalidKey": "API key no válida. Revisa los ajustes del agente.",
+  "ui.error.insufficientPermissions": "La clave API es válida pero no tiene permisos para este modelo u operación. Revisa los ámbitos de la clave y el acceso al modelo en el panel del proveedor.",
   "ui.error.modelNotFound": "Modelo no encontrado. Verifica el ID del modelo en los ajustes del agente.",
   "ui.error.rateLimit": "Límite de peticiones alcanzado. Espera un momento.",
   "ui.error.overloaded": "API sobrecargada. Inténtalo de nuevo en breve.",

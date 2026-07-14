@@ -995,6 +995,7 @@
   "ui.undo.noCheckpoint": "Kein Checkpoint zum Wiederherstellen gefunden.",
   "ui.undo.restoreFailed": "Wiederherstellung fehlgeschlagen. Siehe Konsole.",
   "ui.error.invalidKey": "Ungültiger API key. Prüfe die Agent-Einstellungen.",
+  "ui.error.insufficientPermissions": "Der API-Key ist gültig, hat aber keine Berechtigung für dieses Modell oder diese Operation. Prüfe Key-Scopes und Modellzugriff im Anbieter-Dashboard.",
   "ui.error.modelNotFound": "Modell nicht gefunden. Prüfe die Modell-ID in den Agent-Einstellungen.",
   "ui.error.rateLimit": "Rate-Limit erreicht. Bitte warte einen Moment.",
   "ui.error.overloaded": "API überlastet. Versuche es gleich noch einmal.",
