@@ -2344,6 +2344,10 @@ export class AgentSidebarView extends ItemView {
         const taskId = `task-${Date.now()}`;
         let taskWriteCount = 0;
         let hasRenderedCheckpoints = false;
+        // FIX-44-44: true once any write landed WITHOUT an individual diff
+        // approval (settings-auto, run-scope grant, name-only card). Decides
+        // whether the post-task review opens; see showPostTaskReview.
+        let taskHadUnreviewedWrites = false;
 
         // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
         // Working spinner for a Stopping row; the drain-end removeLoading
@@ -2783,6 +2787,12 @@ export class AgentSidebarView extends ItemView {
                     hasRenderedCheckpoints = true;
                     scheduleScroll();
                 },
+                // FIX-44-44: the pipeline reports every write that landed
+                // without an individual diff approval; one is enough to owe
+                // the user a post-task review.
+                onUnreviewedWrite: () => {
+                    taskHadUnreviewedWrites = true;
+                },
                 onQuestion: (question, options, resolve, allowMultiple) => {
                     // Render any accumulated text before the question card.
                     // This is critical for multi-turn flows like onboarding where
@@ -3008,8 +3018,14 @@ export class AgentSidebarView extends ItemView {
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
                         this.showUndoBar(taskId, taskWriteCount);
                     }
-                    // Post-task review: show all changes for review/undo
-                    if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true)) {
+                    // Post-task review: show all changes for review/undo.
+                    // FIX-44-44: gated on writes that never had a diff surface
+                    // (regardless of the auto-approval master toggle), NOT on
+                    // the toggle itself. When every write was individually
+                    // diff-approved at the gate, the review stays closed -- a
+                    // second, weaker-looking approval is what misled users
+                    // (FIX-44-16).
+                    if (taskWriteCount > 0 && taskHadUnreviewedWrites && (this.plugin.settings.enableCheckpoints ?? true)) {
                         void this.showPostTaskReview(taskId);
                     }
                     // Notify when sidebar is not the active (focused) view
@@ -6024,20 +6040,18 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
-        // FIX-44-16: the diff belongs BEFORE the write, not after it.
+        // FIX-44-16: the diff belongs BEFORE the write, not after it. A write the
+        // user individually approved on its real diff must not be re-approved
+        // here -- a second, weaker-looking approval is what misled a user into
+        // thinking the POST-task modal was the gate.
         //
-        // With the master auto-approve toggle off, every CUD tool goes through the
-        // pre-write gate (FEAT-44-01 / FEAT-44-10): the user already saw this exact
-        // diff and already said yes, and a rejection there means the write never
-        // happened. Showing the same diff again afterwards is not a second chance,
-        // it is a second, weaker-looking approval -- and that is precisely what
-        // misled a user into thinking the POST-task modal was the gate, rejecting
-        // in it, and watching nothing happen.
-        //
-        // The review is only still needed for writes that were NOT gated, i.e. when
-        // the user has switched auto-approval on. Then it is the last line of
-        // defence, and its discard really does take the changes back.
-        if (this.plugin.settings.autoApproval.enabled !== true) return;
+        // FIX-44-44: but "the user saw the diff at the gate" only holds for tools
+        // with previewEdit. Name-only card approvals, settings-auto and run-scope
+        // grants land with no diff surface at all, and they exist with the master
+        // toggle OFF too. The caller therefore gates this method on the
+        // pipeline's onUnreviewedWrite signal (taskHadUnreviewedWrites), not on
+        // `autoApproval.enabled`. For those writes this review is the last line
+        // of defence, and its explicit revert really does take the changes back.
 
         const checkpoints = service.getCheckpointsForTask(taskId);
         if (checkpoints.length === 0) return;

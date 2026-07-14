@@ -166,6 +166,15 @@ export interface ApprovalResult {
      * carries the generic "denied by user" line.
      */
     reason?: string;
+    /**
+     * FIX-44-44: true when the user approved this call on its REAL diff (a
+     * previewEdit preview reached the card). Set by the Pipeline in askOrDeny,
+     * never by the UI. Auto approvals (settings, run scope) and name-only card
+     * approvals leave it unset -- those writes land without a diff surface and
+     * are reported via {@link ContextExtensions.onUnreviewedWrite} so the
+     * post-task review can pick them up.
+     */
+    diffReviewed?: boolean;
 }
 
 /**
@@ -244,6 +253,15 @@ export interface ContextExtensions {
     consumeAdvisorSlot?: () => { ok: boolean; used: number; limit: number };
     /** Notify UI about a new checkpoint after a write operation */
     onCheckpoint?: (checkpoint: import('../checkpoints/GitCheckpointService').CheckpointInfo) => void;
+    /**
+     * FIX-44-44: a write tool ran successfully WITHOUT the user having
+     * individually approved it on its diff (auto-approved by settings, covered
+     * by a run-scope grant, or approved on a name-only card because the tool
+     * has no previewEdit). The sidebar counts these per task and opens the
+     * post-task review exactly when at least one exists -- the review is the
+     * only diff surface such a write will ever get.
+     */
+    onUnreviewedWrite?: (toolName: string) => void;
     /** Invalidate cached tool definitions (e.g. after webTools.enabled changes) */
     invalidateToolCache?: () => void;
     /** FEATURE-1600: activate a deferred tool for the rest of the session. */
@@ -753,6 +771,15 @@ export class ToolExecutionPipeline {
                 }
             }
 
+            // 6d. FIX-44-44: report a write that landed WITHOUT an individual
+            // diff approval (settings-auto, run-scope grant, or a name-only
+            // card). The finalContent path above returns earlier and never gets
+            // here -- there the user saw and shaped the diff. The sidebar opens
+            // the post-task review exactly when at least one of these exists.
+            if (tool.isWriteOperation && !executionHadError && approval.diffReviewed !== true) {
+                extensions?.onUnreviewedWrite?.(toolCall.name);
+            }
+
             // 7. Chat-Linking: track written .md paths for deferred frontmatter stamping (ADR-022)
             if (tool.isWriteOperation && !executionHadError && extensions?.conversationId) {
                 const writePath = toolCall.input?.path as string | undefined;
@@ -1028,7 +1055,13 @@ export class ToolExecutionPipeline {
             this.runApprovedEffects.add(effect);
             console.debug(`[Pipeline] '${effect}' approved for the rest of this run`);
         }
-        return result;
+        // FIX-44-44: only the Pipeline decides whether this approval was given on
+        // a real diff. The flag from the UI (if any) is overwritten -- a caller
+        // must not be able to claim a diff review that never happened.
+        return {
+            ...result,
+            diffReviewed: result.decision === 'approved' && preview !== undefined,
+        };
     }
 
     /**

@@ -191,6 +191,13 @@ export interface AgentTaskCallbacks {
     /** Called when a checkpoint is saved before a write tool */
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /**
+     * FIX-44-44: called when a write tool ran successfully WITHOUT an
+     * individual diff approval (settings-auto, run-scope grant, or a
+     * name-only card for a tool without previewEdit). The sidebar tracks
+     * this per task to decide whether the post-task review must open.
+     */
+    onUnreviewedWrite?: (toolName: string) => void;
+    /**
      * Called once per task in the finally-block with the complete episode
      * payload (ADR-133). The callback fires for every exit path
      * (success, iteration-cap, abort, error) so RecipePromotion sees the
@@ -757,6 +764,9 @@ export class AgentTask {
                     {
                         onApprovalRequired: this.taskCallbacks.onApprovalRequired,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
+                        // FIX-44-44: FastPath writes count toward the
+                        // post-task-review decision like model writes.
+                        onUnreviewedWrite: this.taskCallbacks.onUnreviewedWrite,
                     },
                 );
             },
@@ -1488,6 +1498,7 @@ export class AgentTask {
                         onOptionalAssetRequired: this.taskCallbacks.onOptionalAssetRequired,
                         updateTodos: todoUpdateForTools,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
+                        onUnreviewedWrite: this.taskCallbacks.onUnreviewedWrite,
                         invalidateToolCache,
                         activateDeferredTool,
                         conversationId,

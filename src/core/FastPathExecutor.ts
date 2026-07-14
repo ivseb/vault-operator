@@ -134,7 +134,7 @@ export class FastPathExecutor {
     ) {}
 
     /** FIX-44-33: approval + checkpoint callbacks for the current run (set in execute()). */
-    private gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint'>;
+    private gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint' | 'onUnreviewedWrite'>;
 
     /** Build the extensions object for a pipeline dispatch, merging readFiles + the gate. */
     private buildExtensions(readFiles?: Set<string>): ContextExtensions | undefined {
@@ -142,6 +142,9 @@ export class FastPathExecutor {
         if (readFiles) ext.readFiles = readFiles;
         if (this.gate?.onApprovalRequired) ext.onApprovalRequired = this.gate.onApprovalRequired;
         if (this.gate?.onCheckpoint) ext.onCheckpoint = this.gate.onCheckpoint;
+        // FIX-44-44: recipe writes that were not individually diff-approved
+        // count toward the post-task review, same as model dispatches.
+        if (this.gate?.onUnreviewedWrite) ext.onUnreviewedWrite = this.gate.onUnreviewedWrite;
         return Object.keys(ext).length > 0 ? ext : undefined;
     }
 
@@ -179,7 +182,7 @@ export class FastPathExecutor {
         // FIX-44-33: the approval + checkpoint callbacks from the owning task.
         // Without them a recipe step whose effect is not auto-approved was denied
         // fail-closed with only a console.warn, instead of asking the user.
-        gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint'>,
+        gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint' | 'onUnreviewedWrite'>,
     ): Promise<FastPathResult> {
         this.gate = gate;
         const failed: FastPathResult = { success: false, historyEntries: [], toolCallsExecuted: 0 };
