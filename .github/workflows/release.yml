@@ -17,20 +17,28 @@ jobs:
       attestations: write
 
     steps:
+      # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit
+      # SHAs (mutable tags are not an immutable reference); Dependabot bumps them.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Do not leave the GITHUB_TOKEN in .git/config where an install
+          # lifecycle script could read and exfiltrate it.
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
+      # FIX-28-04: use the verified lockfile with `npm ci --ignore-scripts`
+      # instead of discarding it and running `npm install` with lifecycle
+      # scripts. The rollup platform binary is pinned to the lockfile version
+      # (the .npmrc `omit=optional` skips it under ci, so it is added explicitly).
       - name: Install dependencies
         run: |
-          rm -f package-lock.json
-          rm -rf node_modules
-          npm install --no-audit --no-fund
-          npm install @rollup/rollup-linux-x64-gnu --no-audit --no-fund --no-save
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu@4.62.2 --no-audit --no-fund --no-save --ignore-scripts
 
       - name: Build plugin
         run: node esbuild.config.mjs production
@@ -87,7 +95,7 @@ jobs:
           done
 
       - name: Generate build provenance attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
             release-assets/main.js
@@ -109,7 +117,7 @@ jobs:
        # matching release, and pin `make_latest` explicitly so the
        # behaviour doesn't depend on creation order.
       - name: Create GitHub Release (optional assets)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ inputs.version }}-assets
           name: ${{ inputs.version }} -- Optional assets
@@ -142,7 +150,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release (plugin)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ inputs.version }}
           name: ${{ inputs.version }}

@@ -31,6 +31,22 @@ export interface ExtractZipInput {
     stripRootFolder?: boolean;
     /** Cumulative uncompressed size cap. Default 100 MB. */
     maxUncompressedBytes?: number;
+    /**
+     * FEAT-44-02b: plan without writing. Every guard (traversal, zip-bomb,
+     * target validation) and every existence check runs exactly as in a real
+     * extraction, but no folder is created and no byte is written. The
+     * result's writtenFiles/skippedEntries ARE the plan -- the batch approval
+     * gate shows them, and a subsequent real run over unchanged inputs
+     * produces the same sets.
+     */
+    dryRun?: boolean;
+    /**
+     * FEAT-44-02b: only extract entries whose ABSOLUTE vault path the filter
+     * admits. Used to honour the approved subset of a batch gate
+     * (context.approvedBatchPaths). Filtered-out entries are reported in
+     * skippedEntries.
+     */
+    entryFilter?: (absPath: string) => boolean;
 }
 
 export interface ExtractZipResult {
@@ -38,6 +54,14 @@ export interface ExtractZipResult {
     skippedEntries: string[];
     strippedRoot: string | null;
     totalUncompressedBytes: number;
+    /** FEAT-44-02b: the normalised target folder (for absolute-path composition). */
+    targetRoot: string;
+    /**
+     * FEAT-44-02b: subset of writtenFiles that already existed and are being
+     * replaced (only non-empty with overwrite=true). The gate renders these
+     * as changes instead of new files.
+     */
+    overwrittenFiles: string[];
 }
 
 export type ExtractZipErrorCode =
@@ -54,6 +78,10 @@ export class ExtractZipError extends Error {
 }
 
 const DEFAULT_MAX_UNCOMPRESSED = 100 * 1024 * 1024;
+// AUDIT 2026-07-14 M-3: cap the entry count so an archive with hundreds of
+// thousands of tiny (or zero-declared) entries cannot exhaust memory before the
+// per-byte guard trips.
+const MAX_ENTRIES = 10_000;
 
 export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResult> {
     const limit = input.maxUncompressedBytes ?? DEFAULT_MAX_UNCOMPRESSED;
@@ -82,6 +110,16 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
     const strippedRoot = input.stripRootFolder ? detectSingleRoot(zip) : null;
     const entries = collectFileEntries(zip, strippedRoot);
 
+    if (entries.length > MAX_ENTRIES) {
+        throw new ExtractZipError(
+            `Archive has ${entries.length} entries, exceeding the ${MAX_ENTRIES} limit.`,
+            'ZIP_BOMB',
+        );
+    }
+
+    // First line: the declared central-directory sizes. Cheap, but an attacker
+    // controls them and can declare 0 (AUDIT 2026-07-14 M-3), so the real
+    // decompressed bytes are counted again during extraction below.
     let total = 0;
     for (const entry of entries) {
         total += getUncompressedSize(entry.file);
@@ -93,18 +131,40 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
         }
     }
 
-    if (!(await input.adapter.exists(target))) {
+    if (!input.dryRun && !(await input.adapter.exists(target))) {
         await input.adapter.mkdir(target);
     }
 
     const written: string[] = [];
     const skipped: string[] = [];
+    const overwritten: string[] = [];
+    // AUDIT 2026-07-14 M-3: count the bytes we actually decompress, independent
+    // of the attacker-declared header sizes, and abort if the real total blows
+    // the limit (a header can lie; a 4 GB entry can declare uncompressedSize=0).
+    let realBytes = 0;
 
     for (const entry of entries) {
         const absPath = target ? `${target}/${entry.relPath}` : entry.relPath;
 
-        if ((await input.adapter.exists(absPath)) && !input.overwrite) {
+        // FEAT-44-02b: honour the approved subset of a batch gate. Checked
+        // BEFORE the exists-check so a filtered entry is always "skipped",
+        // never silently overwritten.
+        if (input.entryFilter && !input.entryFilter(absPath)) {
             skipped.push(entry.relPath);
+            continue;
+        }
+
+        const exists = await input.adapter.exists(absPath);
+        if (exists && !input.overwrite) {
+            skipped.push(entry.relPath);
+            continue;
+        }
+        if (exists) {
+            overwritten.push(entry.relPath);
+        }
+
+        if (input.dryRun) {
+            written.push(entry.relPath);
             continue;
         }
 
@@ -114,6 +174,13 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
         }
 
         const data = await entry.file.async('arraybuffer');
+        realBytes += data.byteLength;
+        if (realBytes > limit) {
+            throw new ExtractZipError(
+                `Archive real uncompressed size exceeds ${limit} bytes during extraction.`,
+                'ZIP_BOMB',
+            );
+        }
         await input.adapter.writeBinary(absPath, data);
         written.push(entry.relPath);
     }
@@ -123,6 +190,8 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
         skippedEntries: skipped,
         strippedRoot,
         totalUncompressedBytes: total,
+        targetRoot: target,
+        overwrittenFiles: overwritten,
     };
 }
 
@@ -203,7 +272,10 @@ function isDangerousPath(p: string): boolean {
     if (p.startsWith('/')) return true;
     if (/^[a-zA-Z]:[\\/]/.test(p)) return true;
     if (p.startsWith('\\\\')) return true;
-    const segments = p.split('/');
+    // BYP-4 (AUDIT 2026-07-14): normalise backslashes before splitting so a
+    // `..\.obsidian\x` entry is broken into real segments. On Windows `\` is a
+    // path separator; without this the `..` segment escapes detection.
+    const segments = p.replace(/\\/g, '/').split('/');
     if (segments.some((s) => s === '..')) return true;
     return false;
 }

@@ -56,7 +56,7 @@ const NUMERIC_STATE_KEYS: readonly (keyof AgentLoopState)[] = [
 ];
 const BOOLEAN_STATE_KEYS: readonly (keyof AgentLoopState)[] = [
     'attemptCompletionFired', 'fastPathFired', 'cleanNaturalExit',
-    'emergencyRetried', 'outputCapRetried', 'hasStreamedText',
+    'emergencyRetried', 'outputCapRetried', 'effortToolsRetried', 'hasStreamedText',
     'hasRetriedEmpty', 'cacheInvalidated', 'recentPluginSkillUsage',
 ];
 

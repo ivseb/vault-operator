@@ -7,11 +7,15 @@
  * inventing model ids, while keeping every other provider on the dropdown.
  */
 import { describe, expect, it } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
+    MANUAL_TIER_INPUT_CLS,
     MANUAL_TIER_OPTION_VALUE,
     providerSupportsManualModelId,
     resolveTierSlotView,
 } from '../manualModelEntry';
+import { en } from '../../../i18n/locales/en';
 
 describe('providerSupportsManualModelId', () => {
     it('allows manual entry for providers that may lack a model-list endpoint', () => {
@@ -95,5 +99,34 @@ describe('resolveTierSlotView', () => {
         expect(MANUAL_TIER_OPTION_VALUE).toBe('__manual__');
         // The sentinel must never collide with a real model id.
         expect(discovered).not.toContain(MANUAL_TIER_OPTION_VALUE);
+    });
+});
+
+/**
+ * FIX-55-02 (issue #55): the free-text model-id input rendered broken because
+ * it carried the 'dropdown' class, which Obsidian core styles for <select>
+ * elements (appearance:none, chevron background image, select padding). The
+ * input must use its own class with a dedicated styles.css rule instead.
+ */
+describe('manual tier input styling (FIX-55-02)', () => {
+    it('the input class list contains no select/dropdown classes', () => {
+        const classes = MANUAL_TIER_INPUT_CLS.split(/\s+/);
+        expect(classes).toContain('mcm-tier-manual-input');
+        expect(classes).not.toContain('dropdown');
+        expect(classes).not.toContain('mcm-tier-dropdown');
+    });
+
+    it('styles.css carries a rule for .mcm-tier-manual-input', () => {
+        const css = fs.readFileSync(
+            path.resolve(__dirname, '..', '..', '..', '..', 'styles.css'),
+            'utf-8',
+        );
+        expect(css).toMatch(/\.mcm-tier-manual-input\s*\{/);
+    });
+
+    it('the placeholder suggests a current model id, not a retired one', () => {
+        const placeholder = en['settings.providers.tier.manualPlaceholder'];
+        expect(placeholder).toContain('gpt-5.6');
+        expect(placeholder).not.toContain('gpt-5.3-codex');
     });
 });

@@ -1,6 +1,6 @@
 /**
  * init_skill -- creates a new self-authored skill folder under
- * data/skills/{name}/ with a SKILL.md template and empty
+ * {skills_root}/{name}/ with a SKILL.md template and empty
  * scripts/ / references/ / assets/ folders.
  *
  * Run via:
@@ -84,6 +84,29 @@ function renderSkillMd(name) {
     ].join('\n');
 }
 
+
+/**
+ * The skill folder, taken from the host.
+ *
+ * A sandboxed script has no __dirname and cannot see the settings, and the agent
+ * folder is a free-form user setting (settings.agentFolderPath), so it cannot be
+ * guessed either. RunSkillScriptTool resolves the path and passes it in as
+ * `skills_root`. Hardcoding '.vault-operator/data/skills' silently writes into a
+ * folder nobody scans the moment a user renames their agent folder, and the skill
+ * then never appears. Refuse rather than guess.
+ */
+function skillRootOf(args, name) {
+    const root = args && typeof args.skills_root === 'string' ? args.skills_root.trim() : '';
+    if (!root) {
+        throw new Error(
+            'skills_root was not provided by the host. This Vault Operator build is ' +
+            'too old for this skill: it must pass skills_root into run_skill_script. ' +
+            'Update the plugin, then run this again.',
+        );
+    }
+    return `${root}/${name}`;
+}
+
 export async function execute(args, ctx) {
     // The agent may pass the skill name as either `name` or `skill_name`
     // (both are intuitive). Accept either to reduce friction in the
@@ -91,7 +114,7 @@ export async function execute(args, ctx) {
     const name = ((args && (args.name || args.skill_name)) || '').trim();
     validateName(name);
 
-    const skillRoot = `.vault-operator/data/skills/${name}`;
+    const skillRoot = skillRootOf(args, name);
     const skillMdPath = `${skillRoot}/SKILL.md`;
 
     // Refuse to overwrite. The agent must consciously delete or rename the

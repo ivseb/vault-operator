@@ -12,7 +12,9 @@
 
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
-import { extractZip, ExtractZipError } from '../../utils/extractZip';
+import { extractZip, ExtractZipError, type ExtractZipAdapter } from '../../utils/extractZip';
+import type { BatchEditPreview } from '../editPreview';
+import { t } from '../../../i18n';
 
 interface ExtractZipInput {
     zip_path: string;
@@ -25,6 +27,64 @@ interface ExtractZipInput {
 export class ExtractZipTool extends BaseTool<'extract_zip'> {
     readonly name = 'extract_zip' as const;
     readonly isWriteOperation = true;
+
+    private zipAdapter(): ExtractZipAdapter {
+        const adapter = this.app.vault.adapter;
+        return {
+            exists: (p) => adapter.exists(p),
+            mkdir: (p) => adapter.mkdir(p),
+            writeBinary: (p, data) => adapter.writeBinary(p, data),
+            readBinary: (p) => adapter.readBinary(p),
+        };
+    }
+
+    /**
+     * FIX-44-13b: the target file list of an archive is fully computable up
+     * front, so the gate shows the exact paths instead of a blind name card.
+     * Runs the SAME code path as execute (extractZip with dryRun), so the
+     * plan cannot diverge from the extraction. scopeOnly: the archive holds
+     * binary and text alike, there is no meaningful per-file text diff.
+     *
+     * A failed plan (corrupt archive, zip bomb, bad target) returns null --
+     * the plain card asks, and execute reports the real error to the model.
+     */
+    async previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null> {
+        const params = input as unknown as ExtractZipInput;
+        if (typeof params.zip_path !== 'string' || params.zip_path.length === 0) return null;
+        if (typeof params.target_folder !== 'string' || params.target_folder.length === 0) return null;
+        try {
+            const plan = await extractZip({
+                adapter: this.zipAdapter(),
+                zipPath: params.zip_path,
+                targetFolder: params.target_folder,
+                overwrite: params.overwrite,
+                stripRootFolder: params.strip_root_folder,
+                maxUncompressedBytes: params.max_uncompressed_bytes,
+                dryRun: true,
+            });
+            if (plan.writtenFiles.length === 0) return null;
+            const overwrittenSet = new Set(plan.overwrittenFiles);
+            const entries = plan.writtenFiles.map((rel) => ({
+                path: plan.targetRoot ? `${plan.targetRoot}/${rel}` : rel,
+                before: '',
+                after: '',
+                isNew: !overwrittenSet.has(rel),
+            }));
+            let summary = t('ui.approval.scope.extractZip', {
+                count: String(plan.writtenFiles.length),
+                zip: params.zip_path,
+                folder: plan.targetRoot,
+            });
+            if (plan.skippedEntries.length > 0) {
+                summary += ' ' + t('ui.approval.scope.extractZipSkipped', {
+                    count: String(plan.skippedEntries.length),
+                });
+            }
+            return { entries, summary, scopeOnly: true };
+        } catch {
+            return null;
+        }
+    }
 
     getDefinition(): ToolDefinition {
         return {
@@ -74,20 +134,19 @@ export class ExtractZipTool extends BaseTool<'extract_zip'> {
             if (!params.zip_path) throw new Error('zip_path parameter is required');
             if (!params.target_folder) throw new Error('target_folder parameter is required');
 
-            const adapter = this.app.vault.adapter;
+            // FEAT-44-02b: the user may have skipped entries in the batch
+            // gate. Only extract the approved subset; the rest is reported
+            // as skipped in the result below.
+            const approved = context.approvedBatchPaths;
 
             const result = await extractZip({
-                adapter: {
-                    exists: (p) => adapter.exists(p),
-                    mkdir: (p) => adapter.mkdir(p),
-                    writeBinary: (p, data) => adapter.writeBinary(p, data),
-                    readBinary: (p) => adapter.readBinary(p),
-                },
+                adapter: this.zipAdapter(),
                 zipPath: params.zip_path,
                 targetFolder: params.target_folder,
                 overwrite: params.overwrite,
                 stripRootFolder: params.strip_root_folder,
                 maxUncompressedBytes: params.max_uncompressed_bytes,
+                entryFilter: approved !== undefined ? (absPath) => approved.has(absPath) : undefined,
             });
 
             const stripNote = result.strippedRoot

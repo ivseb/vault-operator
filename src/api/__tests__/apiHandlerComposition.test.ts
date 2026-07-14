@@ -71,6 +71,50 @@ describe('withCircuitBreaker', () => {
         expect(reportFailure).toHaveBeenCalledWith('anthropic', 'server');
     });
 
+    it('emits an [AuthDiag] warn line with model + provider on a 401 auth error (FIX-54-11 follow-up)', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const health = new ProviderHealth();
+        const inner = fakeHandler({
+            createMessage: () => (async function* (): AsyncIterable<ApiStreamChunk> {
+                throw Object.assign(
+                    new Error('401 You have insufficient permissions for this operation.'),
+                    { status: 401, headers: { 'x-request-id': 'req_test123' } },
+                );
+            })(),
+        });
+        const wrapped = withCircuitBreaker(inner, 'openai', health);
+
+        await expect(drain(wrapped.createMessage('sys', [], []))).rejects
+            .toThrow(/insufficient permissions/);
+
+        const authCall = warn.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('[AuthDiag]'));
+        expect(authCall).toBeDefined();
+        expect(authCall?.[1]).toMatchObject({
+            providerType: 'openai',
+            model: 'claude-sonnet-5',
+            status: 401,
+            requestId: 'req_test123',
+        });
+        warn.mockRestore();
+    });
+
+    it('does NOT log [AuthDiag] on non-auth failures (503 server error)', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const health = new ProviderHealth();
+        const inner = fakeHandler({
+            createMessage: () => (async function* (): AsyncIterable<ApiStreamChunk> {
+                throw Object.assign(new Error('upstream 503'), { status: 503 });
+            })(),
+        });
+        const wrapped = withCircuitBreaker(inner, 'openai', health);
+
+        await expect(drain(wrapped.createMessage('sys', [], []))).rejects.toThrow('upstream 503');
+
+        const authCall = warn.mock.calls.find(c => typeof c[0] === 'string' && c[0].includes('[AuthDiag]'));
+        expect(authCall).toBeUndefined();
+        warn.mockRestore();
+    });
+
     it('fails fast with a descriptive error when the breaker is open, without calling the inner handler', async () => {
         const health = new ProviderHealth();
         openBreaker(health, 'anthropic');

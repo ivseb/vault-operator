@@ -1,9 +1,10 @@
-import { setIcon, TFile, Notice } from 'obsidian';
+import { setIcon, TFile, TFolder, Notice } from 'obsidian';
 import type { ContentBlock, ImageMediaType } from '../../api/types';
 import type { Vault, FileSystemAdapter } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
 import { parseDocument } from '../../core/document-parsers/parseDocument';
+import { defangBoundaryTags } from '../../core/tools/BaseTool';
 import {
     BINARY_DOCUMENT_EXTENSIONS,
     MAX_FILE_SIZE,
@@ -12,6 +13,29 @@ import {
     CONTEXT_DOCUMENT_CHAR_LIMIT,
     TOTAL_ATTACHMENT_CHAR_BUDGET,
 } from '../../core/document-parsers/types';
+
+/**
+ * FEAT-02-11: extensions that a folder-mention manifest includes. Kept as a
+ * superset of every path that AttachmentHandler already ingests today: binary
+ * documents (PDF/Office), CSV, image formats, and the text-file extensions
+ * used by processFile(). Anything else (executables, archives, arbitrary
+ * binaries) is skipped so an @-folder over the vault root does not surface
+ * config junk.
+ */
+const FOLDER_MANIFEST_TEXT_EXTENSIONS = new Set([
+    'md', 'txt', 'csv', 'json', 'py', 'ts', 'js', 'jsx', 'tsx',
+    'css', 'html', 'xml', 'yaml', 'yml', 'sh',
+]);
+const FOLDER_MANIFEST_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+function isFolderManifestExtension(ext: string): boolean {
+    const e = ext.toLowerCase();
+    return BINARY_DOCUMENT_EXTENSIONS.has(e)
+        || FOLDER_MANIFEST_TEXT_EXTENSIONS.has(e)
+        || FOLDER_MANIFEST_IMAGE_EXTENSIONS.has(e);
+}
+
+/** FEAT-02-11: hard cap on files listed per folder-mention. */
+const FOLDER_MANIFEST_MAX_FILES = 500;
 
 /** Extensions handled by the document parser (binary formats via OS file picker). */
 const DOCUMENT_EXTENSIONS = ['.pptx', '.potx', '.xlsx', '.docx', '.pdf', '.csv'];
@@ -46,6 +70,13 @@ export interface AttachmentItem {
     binaryData?: ArrayBuffer;
     /** Vault path if the file was added from the vault (for template reference). */
     vaultPath?: string;
+    /**
+     * FEAT-02-11: set when this attachment is a folder-manifest (not a single
+     * file). Drives chip icon (`folder-tree` vs `folder`) and chip text
+     * (`<name>/ (N files)`). Never propagated into the ContentBlock: pure
+     * UI metadata.
+     */
+    folderMeta?: { path: string; recursive: boolean; fileCount: number };
 }
 
 /**
@@ -166,7 +197,7 @@ export class AttachmentHandler {
                     vaultPath: resolvedVaultPath,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${safeName}" format="${ext}"${vaultPathAttr}${sourceAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${contextText}\n</attached_document>`,
+                        text: `<attached_document name="${safeName}" format="${ext}"${vaultPathAttr}${sourceAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${defangBoundaryTags(contextText)}\n</attached_document>`,
                     },
                 };
 
@@ -190,7 +221,7 @@ export class AttachmentHandler {
             this.pending.push({
                 name: displayName,
                 vaultPath,
-                block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(displayName)}">\n${contextText}\n</attached_file>` },
+                block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(displayName)}">\n${defangBoundaryTags(contextText)}\n</attached_file>` },
             });
         } else {
             new Notice(t('ui.attachment.unsupported', { name: file.name }));
@@ -221,7 +252,7 @@ export class AttachmentHandler {
                     vaultPath: file.path,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${safePath}" format="${ext}" vault_path="${safePath}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${contextText}\n</attached_document>`,
+                        text: `<attached_document name="${safePath}" format="${ext}" vault_path="${safePath}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${defangBoundaryTags(contextText)}\n</attached_document>`,
                     },
                 };
 
@@ -243,7 +274,7 @@ export class AttachmentHandler {
                     extension: ext,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${escapeXmlAttr(file.path)}" format="${ext}">\n${contextText}\n</attached_document>`,
+                        text: `<attached_document name="${escapeXmlAttr(file.path)}" format="${ext}">\n${defangBoundaryTags(contextText)}\n</attached_document>`,
                     },
                 });
             } else {
@@ -255,13 +286,115 @@ export class AttachmentHandler {
                 this.pending.push({
                     name: file.path,
                     extension: ext,
-                    block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(file.path)}">\n${contextText}\n</attached_file>` },
+                    block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(file.path)}">\n${defangBoundaryTags(contextText)}\n</attached_file>` },
                 });
             }
             this.renderChips();
         } catch {
             new Notice(t('ui.attachment.readFailed', { path: file.path }));
         }
+    }
+
+    /**
+     * FEAT-02-11: attach a folder as a **manifest** (path list) rather than
+     * inlining every file's contents. Individual files are read on-demand by
+     * the agent via `read_file` / `read_document`, which already accept any
+     * vault path, no attachment registry needed.
+     *
+     * FIX-44-37: the body is synchronous (metadata only, no file reads), but
+     * the Promise contract stays: AutocompleteHandler and PluginWiring await
+     * this call, and a future content-reading variant will need it.
+     */
+    addVaultFolder(folder: TFolder, opts: { recursive: boolean }): Promise<void> {
+        const files = this.collectFolderFiles(folder, opts.recursive);
+        const totalMatched = files.length;
+        const capped = files.slice(0, FOLDER_MANIFEST_MAX_FILES);
+
+        if (totalMatched > FOLDER_MANIFEST_MAX_FILES) {
+            new Notice(
+                t('ui.attachment.folderCapped', {
+                    path: folder.path,
+                    shown: String(FOLDER_MANIFEST_MAX_FILES),
+                    total: String(totalMatched),
+                }),
+            );
+        }
+
+        const totalBytes = capped.reduce((sum, f) => sum + (f.stat?.size ?? 0), 0);
+        // AUDIT 2026-07-14 L-1: escape child paths the same way as folder.path.
+        // A vault file named `evil</attached_folder> ...md` (`<`/`>` are legal on
+        // macOS/Linux) could otherwise break out of the manifest block and
+        // inject prompt instructions without the agent ever reading the file.
+        const pathList = capped.map((f) => escapeXmlAttr(f.path)).join('\n');
+        const capNote = totalMatched > FOLDER_MANIFEST_MAX_FILES
+            ? ` showing first ${FOLDER_MANIFEST_MAX_FILES} of ${totalMatched} files (cap)`
+            : '';
+
+        const rawText = `<attached_folder path="${escapeXmlAttr(folder.path)}" recursive="${opts.recursive ? 'true' : 'false'}" file_count="${capped.length}" total_bytes="${totalBytes}">\n`
+            + pathList
+            + `\n</attached_folder>\n\n[Folder listing only.${capNote} `
+            + `Read individual files with read_file path="..." or read_document path="..." `
+            + '-- do NOT assume file contents from the path alone.]';
+
+        // Charge against the same per-turn budget as text attachments. If the
+        // budget is tight (a large text attachment already consumed most of
+        // it), the manifest text is line-safe-truncated so an entry is never
+        // left half-serialised.
+        const contextText = this.truncateFolderManifestForContext(rawText);
+
+        const item: AttachmentItem = {
+            name: folder.path || folder.name,
+            extension: 'folder',
+            vaultPath: folder.path,
+            block: { type: 'text', text: contextText },
+            folderMeta: {
+                path: folder.path,
+                recursive: opts.recursive,
+                fileCount: capped.length,
+            },
+        };
+        this.pending.push(item);
+        this.renderChips();
+        return Promise.resolve();
+    }
+
+    /**
+     * Cap a folder manifest to the remaining per-turn attachment budget. Cut on
+     * a line boundary near the limit; the trailing hint is preserved verbatim
+     * so the agent always reads the read_file guidance.
+     */
+    private truncateFolderManifestForContext(text: string): string {
+        const maxChars = this.budgetRemaining();
+        if (text.length <= maxChars) return this.chargeContext(text);
+        const nl = text.lastIndexOf('\n', maxChars);
+        const cut = nl > maxChars / 2 ? nl : maxChars;
+        return this.chargeContext(text.slice(0, cut)
+            + `\n\n[Manifest truncated: showing first ${cut.toLocaleString()} of ${text.length.toLocaleString()} chars. `
+            + 'Attach a smaller sub-folder if the omitted paths are needed.]');
+    }
+
+    /**
+     * Walk a folder and collect the TFile-children that pass the manifest
+     * extension whitelist. Recursive by BFS; top-level takes only direct
+     * children. Skips hidden sub-folders (Obsidian already hides `.trash`
+     * etc. from getFiles, but a manually-walked children[] list would see
+     * them).
+     */
+    private collectFolderFiles(folder: TFolder, recursive: boolean): TFile[] {
+        const out: TFile[] = [];
+        const queue: TFolder[] = [folder];
+        while (queue.length > 0) {
+            const cur = queue.shift();
+            if (!cur) break;
+            for (const child of cur.children ?? []) {
+                if (child instanceof TFolder) {
+                    if (recursive) queue.push(child);
+                } else if (child instanceof TFile) {
+                    if (isFolderManifestExtension(child.extension)) out.push(child);
+                }
+            }
+        }
+        return out;
     }
 
     renderChips(): void {
@@ -272,6 +405,11 @@ export class AttachmentHandler {
                 const img = chip.createEl('img', { cls: 'attachment-chip-thumb' });
                 img.src = item.objectUrl;
                 img.alt = item.name;
+            } else if (item.folderMeta) {
+                const iconName = item.folderMeta.recursive ? 'folder-tree' : 'folder';
+                setIcon(chip.createSpan('attachment-chip-icon'), iconName);
+                const label = `${item.folderMeta.path || item.name}/ (${item.folderMeta.fileCount})`;
+                chip.createSpan('attachment-chip-name').setText(label);
             } else {
                 const iconName = (item.extension && CHIP_ICON_MAP[item.extension]) || 'file-text';
                 setIcon(chip.createSpan('attachment-chip-icon'), iconName);

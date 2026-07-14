@@ -9,6 +9,7 @@
 
 import type { PluginApiSettings } from '../../../types/settings';
 import { isSafePathSegment } from '../../utils/safePathName';
+import { findAllowedMethod } from './pluginApiAllowlist';
 
 /** Default API-call timeout when nothing more specific is configured. */
 export const DEFAULT_API_TIMEOUT_MS = 10_000;
@@ -26,6 +27,19 @@ const READ_PREFIX_RE =
     /^(get|list|find|query|fetch|read|search|count|has|is|describe|enumerate|peek|browse)([A-Z0-9_].*|s$|es$|$)/;
 
 /**
+ * FIX-44-06: a read-prefixed name whose body reaches a mutation is still a write.
+ * The conjunction (`And`/`Or`, camelCase or snake_case) may sit anywhere, not
+ * just adjacent to the prefix: `findAndReplace`, `getOrCreate`, but also
+ * `getItemsAndDelete`, `listNotesAndArchive`, `get_or_create`, `get_and_set`.
+ * All of these mutate and must never be auto-promoted to a silent read.
+ */
+const COMPOUND_WRITE_RE =
+    // camelCase: a capitalised And/Or followed by a capitalised mutation verb.
+    // Case-sensitive on purpose so the lowercase "and" inside Brand/Command/
+    // Standard cannot trigger a false positive.
+    /(And|Or)(Create|Update|Delete|Remove|Write|Set|Replace|Insert|Purge|Archive|Destroy|Rename|Patch|Save|Put|Modify|Clear|Move|Append|Merge)|_(and|or)_(create|update|delete|remove|write|set|replace|insert|purge|archive|destroy|rename|patch|save|put|modify|clear|move|append|merge)/;
+
+/**
  * Classify a method name as read (returns false) or write (returns
  * true) using a name-prefix heuristic.
  *
@@ -34,7 +48,36 @@ const READ_PREFIX_RE =
  */
 export function classifyMethodIsWrite(method: string): boolean {
     if (!method || typeof method !== 'string') return true;
+    // FIX-44-06: any conjunction-plus-mutation compound is a write, wherever it
+    // appears in the name, so a read prefix cannot launder a mutating method.
+    if (COMPOUND_WRITE_RE.test(method)) return true;
     return !READ_PREFIX_RE.test(method);
+}
+
+/**
+ * FIX-44-03a: single source of truth for whether a call_plugin_api call is a
+ * write. Used by both the approval gate (ToolExecutionPipeline) and the sidebar
+ * "Always allow" button, so the permission that is GRANTED can never diverge
+ * from the permission that was CHECKED.
+ *
+ * Precedence: the built-in allowlist wins; then a user override marking the
+ * method as a safe read; otherwise it is a write (the safe default).
+ */
+export function isPluginApiWriteCall(
+    input: { plugin_id?: unknown; method?: unknown } | undefined,
+    settings: PluginApiSettings | undefined,
+): boolean {
+    const pluginId = (typeof input?.plugin_id === 'string' ? input.plugin_id : '').trim();
+    const method = (typeof input?.method === 'string' ? input.method : '').trim();
+
+    const entry = findAllowedMethod(pluginId, method);
+    if (entry) return entry.isWrite;
+
+    const overrideKey = `${pluginId}:${method}`;
+    const overrides = settings?.safeMethodOverrides ?? {};
+    if (overrides[overrideKey]) return false;
+
+    return true;
 }
 
 /**

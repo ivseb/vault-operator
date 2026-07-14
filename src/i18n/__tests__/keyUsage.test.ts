@@ -46,4 +46,25 @@ describe('t() key usage', () => {
         }
         expect(missing, 'keys used in code but missing in en.ts').toEqual([]);
     });
+
+    // FIX-44-34: the reverse direction, scoped to the permissions surface. A
+    // permission key defined in en.ts but never rendered is a dead setting the
+    // audit had to hunt down by hand. Pin it so drift cannot reaccumulate. Kept
+    // to settings.permissions.* on purpose -- the whole locale has legitimate
+    // dynamically-built keys this static scan cannot see.
+    it('every settings.permissions.* key in en.ts has a call site', () => {
+        const referenced = new Set<string>();
+        for (const file of walk(SRC)) {
+            const src = fs.readFileSync(file, 'utf-8');
+            CALL_RE.lastIndex = 0;
+            let m;
+            while ((m = CALL_RE.exec(src)) !== null) {
+                referenced.add(m[1].replace(/\\'/g, "'"));
+            }
+        }
+        const dead = Object.keys(en)
+            .filter((k) => k.startsWith('settings.permissions.'))
+            .filter((k) => !referenced.has(k));
+        expect(dead, 'permission keys defined in en.ts but never rendered').toEqual([]);
+    });
 });

@@ -20,7 +20,8 @@ export class UseMcpToolTool extends BaseTool<'use_mcp_tool'> {
     readonly name = 'use_mcp_tool' as const;
     // H-6: MCP tools are dynamic and may perform writes, deletes, or other destructive ops.
     // Treat as write so IgnoreService path-checks apply if the tool passes a 'path' argument.
-    // Approval is already triggered via TOOL_GROUPS['use_mcp_tool'] = 'mcp' regardless of this flag.
+    // Approval does not hang off this flag but off the 'mcp' effect class in
+    // toolEffects.ts (ADR-153).
     readonly isWriteOperation = true;
 
     private mcpClient: McpClient;

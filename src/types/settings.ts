@@ -49,6 +49,14 @@ export interface CustomModel {
     thinkingBudgetTokens?: number;
     /** Native reasoning-effort level for effort-capable models; undefined sends no effort field. */
     reasoningEffort?: EffortLevel;
+    /**
+     * IMP-54-05b (issue #54): per-model effort opt-in threaded down from
+     * ProviderConfig.effortOptIn. True marks a model on a custom /
+     * OpenAI-compatible endpoint whose effort capability the static registry
+     * cannot know (e.g. GLM-5.2); resolveEffortLevels then grants the
+     * OpenAI-style level set. Undefined/false keeps the registry answer.
+     */
+    effortOptIn?: boolean;
     /** AWS region (Bedrock only), e.g. "eu-central-1", "us-east-1" */
     awsRegion?: string;
     /** Auth mode for Bedrock: 'api-key' uses a single bearer token (new AWS Bedrock API Keys),
@@ -302,6 +310,8 @@ export interface LLMProvider {
     thinkingBudgetTokens?: number;
     /** Native reasoning-effort level for effort-capable models; undefined sends no effort field. */
     reasoningEffort?: EffortLevel;
+    /** IMP-54-05b: per-model effort opt-in (see CustomModel.effortOptIn). */
+    effortOptIn?: boolean;
     /** AWS region (Bedrock only) */
     awsRegion?: string;
     /** Bedrock auth mode (FEAT-26-07 adds 'gateway') */
@@ -339,6 +349,7 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         thinkingEnabled: model.thinkingEnabled,
         thinkingBudgetTokens: model.thinkingBudgetTokens,
         reasoningEffort: model.reasoningEffort,
+        effortOptIn: model.effortOptIn,
         awsRegion: model.awsRegion,
         awsAuthMode: model.awsAuthMode,
         awsApiKey: model.awsApiKey,
@@ -443,14 +454,18 @@ export interface ModeConfig {
 export interface AutoApprovalConfig {
     /** Master toggle: when false, all write operations require manual approval */
     enabled: boolean;
-    /** Show the quick-toggle bar inside the chat view */
-    showMenuInChat: boolean;
-    /** Auto-approve read operations (read_file, list_files, search_files, ...) */
-    read: boolean;
     /**
-     * @deprecated — migrated to noteEdits + vaultChanges.
-     * Kept as optional for the migration pass in loadSettings().
+     * @deprecated FIX-44-34: dead keys removed from the surface. `read` was
+     * never consulted (reads are always auto, EFFECT_POLICY.read has key:null);
+     * `showMenuInChat`/`mode`/`question`/`todo` had no consumer at all. `write`
+     * migrated to noteEdits + vaultChanges. Kept optional ONLY so a one-time
+     * migration in loadSettings() can read and then drop a stored value.
      */
+    read?: boolean;
+    showMenuInChat?: boolean;
+    mode?: boolean;
+    question?: boolean;
+    todo?: boolean;
     write?: boolean;
     /** Auto-approve note content changes (write_file, edit_file, append_to_file, update_frontmatter) */
     noteEdits: boolean;
@@ -460,14 +475,8 @@ export interface AutoApprovalConfig {
     web: boolean;
     /** Auto-approve MCP tool calls */
     mcp: boolean;
-    /** Auto-approve mode switching (switch_mode) */
-    mode: boolean;
     /** Auto-approve spawning subtasks (new_task) */
     subtasks: boolean;
-    /** Auto-approve ask_followup_question (skips approval card, shows question card directly) */
-    question: boolean;
-    /** Auto-approve update_todo_list */
-    todo: boolean;
     /** Auto-approve skills injection into context (future) */
     skills: boolean;
     /** Auto-approve plugin API read calls (built-in allowlist, isWrite=false) */
@@ -744,6 +753,20 @@ export interface ProviderConfig {
     };
 
     /**
+     * IMP-54-05b (issue #54): per-model reasoning-effort opt-in for
+     * custom / OpenAI-compatible endpoints. Key = model id (discovered or
+     * manually typed tier-override id), value true = the endpoint accepts
+     * an OpenAI-style reasoning_effort field for this model, so the effort
+     * slider is offered and the field is sent. Lives on the provider (not
+     * on DiscoveredModel) so a discovery refresh, which replaces the
+     * discoveredModels array wholesale, cannot wipe it, and manual ids
+     * that never appear in discovery are coverable. Only honoured for
+     * provider types on the OpenAI-compatible wire path
+     * (see providerSupportsEffortOptIn).
+     */
+    effortOptIn?: Record<string, boolean>;
+
+    /**
      * IMP-20-06-01 W4-T2 / ADR-135: per-provider Zero-Data-Retention
      * affirmation. Default undefined (treated as not-ZDR). When the
      * user flips this on, they confirm with the provider that prompts
@@ -830,6 +853,16 @@ export interface ObsidianAgentSettings {
 
     // Approval (Sprint 1.3)
     autoApproval: AutoApprovalConfig;
+    /**
+     * FEAT-44-07 (kill switch, part b): "Always ask (paranoid mode)". While
+     * true, every effect except read/ui asks for confirmation, regardless of
+     * autoApproval, presets, and run-/session-scope grants. Checked FIRST in
+     * checkApproval. Deliberately a plain top-level setting and NOT an
+     * autoApproval category key: it is a clamp around all categories, so it
+     * must stay outside the EFFECT_POLICY/preset drift contract. Persisted so
+     * the brake survives a plugin reload; default off.
+     */
+    paranoidMode: boolean;
     /** @deprecated use autoApproval */
     autoApprovalRules: AutoApprovalRules;
 
@@ -1809,23 +1842,21 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     modeMcpServers: {},
 
     autoApproval: {
+        // FIX-44-34: read/showMenuInChat/mode/question/todo removed -- they had
+        // no consumer. Reads are always auto (EFFECT_POLICY.read, key:null).
         enabled: false,
-        showMenuInChat: true,
-        read: true,         // reads are always safe
         noteEdits: false,
         vaultChanges: false,
         web: false,
         mcp: false,
-        mode: false,
         subtasks: false,
-        question: true,
-        todo: true,
         skills: false,
         pluginApiRead: true,
         pluginApiWrite: false,
         recipes: false,
         sandbox: false,
     },
+    paranoidMode: false,
     autoApprovalRules: {
         readOperations: true,
         writeToTempFiles: false,

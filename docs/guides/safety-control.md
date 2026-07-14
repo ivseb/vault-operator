@@ -22,25 +22,44 @@ When Vault Operator wants to do something, a card appears with the tool name and
 - **Delete a file:** which file will be removed
 - **Move or rename:** source and destination paths
 
-Click the card to expand the full payload before deciding. You can Allow once (approve this specific action) or Always allow (auto-approve this category from now on).
+Click the card to expand the full payload before deciding. Four levels, from narrow to broad:
+
+- **Allow once**: this action only.
+- **Allow for this run**: stop asking for this kind of change until the current task ends. The grant is never persisted and is shared with sub-tasks of the same run.
+- **Allow this session**: stop asking for this kind of change until the plugin reloads (restart Obsidian or disable/enable the plugin). The grant lives only in memory and is never written to disk.
+- **Always allow**: auto-approve this category from now on (a persisted setting).
+
+Run and session grants cover the whole effect category shown on the card, not just the one tool: approving a `delete_file` card for the session also covers the other vault-change tools (`move_file`, `create_folder`, further deletes) until the plugin reloads, and an MCP card covers every tool on every configured MCP server. Plugin-API calls carry one extra distinction: the grant records read vs. write, so approving a plugin-API *read* never covers plugin-API *writes*. Settings changes and agent self-modification can never be covered by any scope. High-blast-radius operations always re-ask, whatever scope was granted: `restore_checkpoint`, `extract_zip`, and the `vault_health_check` mass repairs (`fix_backlinks`, `cleanup`, `fix_categories`; the read-only `check` stays covered).
 
 ## Auto-approve categories
 
-You can enable auto-approve per category. Go to **Settings > Vault Operator > Agents > Auto-approve** to see the full list. The categories map one-to-one to the seven tool groups the agent uses internally.
+Every tool call is classified into one effect by a central registry, and the effect decides whether it can auto-approve. The master switch under **Settings > Vault Operator > Agents > Permissions** ships **off**: with it off, everything that writes, spends money, or leaves the device asks. Reads always run.
 
 | Category | What it covers | Risk level |
 |----------|----------------|------------|
-| **read** | Reading files, listing folders, searching, reading checkpoints | Low (nothing changes) |
-| **vault** | Frontmatter, tag and link lookups, semantic search, memory recall, daily notes | Low (read-side queries) |
-| **edit** | Writing, editing, moving, deleting files, frontmatter updates, canvas, office docs, ingest, restore checkpoint | High (changes your content and structure) |
+| **reads** | Reading files, listing folders, searching, semantic search | Always run (nothing changes); no toggle |
+| **note edits** | Writing, editing, appending, frontmatter updates, ingest | High (changes your content) |
+| **vault changes** | Create/move/delete files, extract archives, restore checkpoint, canvas and office docs | High (changes structure; harder to undo) |
 | **web** | Fetching pages, web search, anti-echo search | Medium (external data enters the vault) |
-| **agent** | Followup questions, completion signal, todo list, subtasks, mode and settings changes, plugin discovery, skill invocation | Medium (controls agent behaviour and settings) |
-| **mcp** | Calling external MCP tools | Medium (depends on the connected server) |
-| **skill** | Shell commands, recipes, plugin API calls, capability resolution, sandbox scripts | High (runs generated or scripted code) |
+| **mcp** | Calling external MCP tools/servers | Medium (depends on the connected server) |
+| **subtasks** | Spawning sub-agents | Medium |
+| **skills** | Running a skill (only trusted built-in / Pro skills auto-approve) | Medium |
+| **recipes** | Running a stored recipe | Medium |
+| **plugin API** | Reading from / writing to other plugins (two separate toggles) | Medium to high |
+| **sandbox** | Agent-authored expressions, skill scripts, dynamic skill tools | High (runs generated code); toggle carries a confirm |
+
+Two effects are **never** auto-approvable, whatever the settings say: **settings changes** (`update_settings`, `configure_model`, MCP server management) and **agent self-modification** (persona, memory, source). The agent cannot turn its own permissions on.
 
 :::warning Permissive combination
-If you auto-approve both **web** and **edit**, Vault Operator shows a security warning. The agent could fetch content from the internet and write it to your vault without asking.
+If you auto-approve both **web** and a write category, Vault Operator lights up a "Permissive" warning in the Permissions tab. The agent could fetch content from the internet and act on it without asking.
 :::
+
+## Kill switch
+
+At the top of the Permissions tab sit two emergency brakes:
+
+- **Always ask (paranoid mode).** A runtime override: while it is on, every action except reads and pure UI steps asks for confirmation, regardless of the category toggles, presets, and any run or session grants. The approval cards stop offering scope grants while it is active (a grant would not take effect). The switch is a persisted setting, so it stays on across restarts until you turn it off; use it when you are inspecting an unfamiliar skill or model and want to watch every step.
+- **Reset to default-deny.** One click (behind a confirmation) applies the restrictive preset: the auto-approve master goes off, every category returns to asking, and all grants given for the current run or session are revoked. Paranoid mode is not changed by the reset. Use it when the configuration has drifted more permissive than you are comfortable with and you want the fail-closed default back without flipping toggles one by one.
 
 ## Reviewing changes
 

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile, TFolder } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
 import {
@@ -9,6 +9,23 @@ import {
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
 } from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
+// ADR-153: the approval card consumes the same effect registry as the Pipeline.
+// No second, drifting copy of the group mapping.
+import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
+import { sanitizeDirectoryEntry } from '../core/tools/BaseTool';
+import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
+import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
+import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
+import { confirmModal } from './modals/PromptModal';
+// FIX-44-12: checkpoint markers persist into the conversation and rehydrate live.
+import {
+    planCheckpointMarkerRehydration,
+    toPersistedCheckpointMarker,
+    type PersistedCheckpointMarker,
+} from './checkpointMarkerRehydration';
+// FIX-44-44: testable gate for the undo bar / post-task review surfaces.
+import { decidePostTaskSurfaces } from './postTaskReviewGate';
+import { isInsufficientPermissionsAuthError } from './errorTitleClassifier';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
@@ -16,7 +33,7 @@ import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { McpServerPopover } from './sidebar/McpServerPopover';
 import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
-import { resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
+import { resolveEffortLevelsForPin, resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
 import { shouldSendOnEnter } from './sidebar/composerKeymap';
 import {
     DEFAULT_THINKING_OVERRIDE,
@@ -30,7 +47,7 @@ import {
     thinkingSwitchIsOn,
     type EffortOverride,
 } from './sidebar/effortOverride';
-import { getModelEffortLevels, type EffortLevel } from '../types/model-registry';
+import type { EffortLevel } from '../types/model-registry';
 import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
@@ -40,7 +57,7 @@ import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
 import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
-import { resolveObsidianDraggedFiles } from './sidebar/dragManagerBridge';
+import { resolveObsidianDraggedFiles, resolveObsidianDraggedFolders } from './sidebar/dragManagerBridge';
 import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
 import { LazyConversationId } from '../core/history/LazyConversationId';
@@ -645,6 +662,9 @@ export class AgentSidebarView extends ItemView {
             () => this.textarea,
             () => this.inputArea,
             (file) => this.attachments.addVaultFile(file),
+            // FEAT-02-11: folder-mention. Manifest attachment (path list),
+            // lazy-read via read_file / read_document.
+            (folder, opts) => this.attachments.addVaultFolder(folder, opts),
         );
 
         this.textarea.addEventListener('input', () => {
@@ -721,6 +741,19 @@ export class AgentSidebarView extends ItemView {
             // Obsidian 1.4+ and widely used by community plugins. Guarded by a
             // null-check so a future API change silently falls through to the
             // text/plain path.
+            //
+            // FEAT-02-11: probe folders BEFORE files -- a folder-drag from the
+            // file explorer is a distinct payload (`{ type: 'folder', file: TFolder }`)
+            // and the folder path carries semantic meaning that a flattened
+            // file list would lose. Default recursive, same as the @-mention
+            // recursive row.
+            const draggedFolders = resolveObsidianDraggedFolders(this.app);
+            if (draggedFolders.length > 0) {
+                for (const folder of draggedFolders) {
+                    void this.attachments.addVaultFolder(folder, { recursive: true });
+                }
+                return;
+            }
             const draggedFiles = resolveObsidianDraggedFiles(this.app);
             if (draggedFiles.length > 0) {
                 for (const file of draggedFiles) void this.attachments.addVaultFile(file);
@@ -733,6 +766,8 @@ export class AgentSidebarView extends ItemView {
                 const vaultFile = this.app.vault.getAbstractFileByPath(textData);
                 if (vaultFile instanceof TFile) {
                     void this.attachments.addVaultFile(vaultFile);
+                } else if (vaultFile instanceof TFolder) {
+                    void this.attachments.addVaultFolder(vaultFile, { recursive: true });
                 }
             }
         });
@@ -1259,14 +1294,15 @@ export class AgentSidebarView extends ItemView {
      * model keeps its own vendor default (the provider layer sends no effort
      * field). The empty array hides the effort slider, which is how Auto mode and
      * effort-incapable models (Gemini, local) both end up with no control.
+     *
+     * IMP-54-05b: delegates to the pure resolveEffortLevelsForPin helper,
+     * which applies the provider's per-model effort opt-in (custom /
+     * OpenAI-compatible endpoints) before the static registry families.
      */
     private resolveEffortLevelsForPinnedModel(
         provider: import('../types/settings').ProviderConfig,
     ): EffortLevel[] {
-        if (!this.chatModelOverride) return [];
-        const m = resolveOverrideModel(provider, this.chatModelOverride);
-        if (!m) return [];
-        return getModelEffortLevels(m.id, provider.type);
+        return resolveEffortLevelsForPin(provider, this.chatModelOverride);
     }
 
     /**
@@ -1578,7 +1614,10 @@ export class AgentSidebarView extends ItemView {
 
         const userLines = filteredUserSkills
             .filter(s => !selfAuthoredNames.has(s.name))
-            .map(s => `- ${s.name}: ${s.description}`);
+            // AUDIT 2026-07-14 (Codex) M-1: user/imported skill names and
+            // descriptions are untrusted; sanitise before they enter the cached
+            // <available_skills> prompt block (defang boundary tags + one line).
+            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
 
         const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
         if (blocks.length === 0) return undefined;
@@ -2319,6 +2358,14 @@ export class AgentSidebarView extends ItemView {
         const taskId = `task-${Date.now()}`;
         let taskWriteCount = 0;
         let hasRenderedCheckpoints = false;
+        // FIX-44-44: true once any write landed WITHOUT an individual diff
+        // approval (settings-auto, run-scope grant, name-only card). Decides
+        // whether the post-task review opens; see showPostTaskReview.
+        let taskHadUnreviewedWrites = false;
+        // FIX-44-12: checkpoints of the CURRENT assistant turn. Persisted into
+        // the UiMessage (uiMessages.push sites) so a reloaded conversation can
+        // re-render live markers; reset with the rest of the per-turn state.
+        let turnCheckpoints: import('../core/checkpoints/GitCheckpointService').CheckpointInfo[] = [];
 
         // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
         // Working spinner for a Stopping row; the drain-end removeLoading
@@ -2756,7 +2803,15 @@ export class AgentSidebarView extends ItemView {
                 onCheckpoint: (checkpoint) => {
                     this.renderCheckpointMarker(toolsEl, checkpoint);
                     hasRenderedCheckpoints = true;
+                    // FIX-44-12: remember for persistence into the UiMessage.
+                    turnCheckpoints.push(checkpoint);
                     scheduleScroll();
+                },
+                // FIX-44-44: the pipeline reports every write that landed
+                // without an individual diff approval; one is enough to owe
+                // the user a post-task review.
+                onUnreviewedWrite: () => {
+                    taskHadUnreviewedWrites = true;
                 },
                 onQuestion: (question, options, resolve, allowMultiple) => {
                     // Render any accumulated text before the question card.
@@ -2785,7 +2840,15 @@ export class AgentSidebarView extends ItemView {
                                 toolStepsHtml: stepsBlockEl?.outerHTML,
                                 taskId,
                                 reasoningText: accumulatedThinking || undefined,
+                                // FIX-44-12: persist this turn's markers so they
+                                // rehydrate live after a reload.
+                                checkpoints: turnCheckpoints.length > 0
+                                    ? turnCheckpoints.map(toPersistedCheckpointMarker)
+                                    : undefined,
                             });
+                            // FIX-44-12: markers of the finalized turn were
+                            // just persisted; the next turn starts empty.
+                            turnCheckpoints = [];
                         }
                         // Render user answer as a regular chat message
                         this.addUserMessage(answer);
@@ -2809,14 +2872,20 @@ export class AgentSidebarView extends ItemView {
                         stepsHasError = false;
                         loadingRemoved = false;
                         activeToolGroup = null;
+                        // FIX-44-12 (review follow-up): turnCheckpoints is
+                        // deliberately NOT reset here. When the turn had no
+                        // assistant text, nothing was persisted above -- the
+                        // markers ride along and persist with the NEXT push
+                        // instead of vanishing on reload. The reset lives
+                        // inside the `if (accumulatedText)` block.
                         // Scroll and continue agent loop
                         scheduleScroll();
                         resolve(answer);
                     };
                     this.showQuestionCard(question, options, wrappedResolve, allowMultiple);
                 },
-                onApprovalRequired: async (toolName, input) => {
-                    return this.showApprovalCard(toolName, input);
+                onApprovalRequired: async (toolName, input, preview, batch) => {
+                    return this.showApprovalCard(toolName, input, preview, batch);
                 },
                 onOptionalAssetRequired: async (spec, toolName) => {
                     return this.showInstallPromptCard(spec, toolName);
@@ -2980,11 +3049,26 @@ export class AgentSidebarView extends ItemView {
                         void this.maybeOfferInflightResume();
                     }
                     scheduleScroll();
-                    if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
+                    // Post-task surfaces (extracted for testability, see
+                    // postTaskReviewGate.ts). The review is gated on writes
+                    // that never had a diff surface (regardless of the
+                    // auto-approval master toggle), NOT on the toggle itself
+                    // and NOT on the legacy six-tool write count: tools like
+                    // update_frontmatter or set_block_anchors write without
+                    // ever incrementing taskWriteCount (FIX-44-44). When
+                    // every write was individually diff-approved at the gate,
+                    // the review stays closed -- a second, weaker-looking
+                    // approval is what misled users (FIX-44-16).
+                    const surfaces = decidePostTaskSurfaces({
+                        taskWriteCount,
+                        taskHadUnreviewedWrites,
+                        enableCheckpoints: this.plugin.settings.enableCheckpoints ?? true,
+                        hasRenderedCheckpoints,
+                    });
+                    if (surfaces.showUndoBar) {
                         this.showUndoBar(taskId, taskWriteCount);
                     }
-                    // Post-task review: show all changes for review/undo
-                    if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true)) {
+                    if (surfaces.showPostTaskReview) {
                         void this.showPostTaskReview(taskId);
                     }
                     // Notify when sidebar is not the active (focused) view
@@ -3002,6 +3086,11 @@ export class AgentSidebarView extends ItemView {
                             toolStepsHtml: stepsBlockEl?.outerHTML,
                             taskId,
                             reasoningText: accumulatedThinking || undefined,
+                            // FIX-44-12: persist this turn's markers so they
+                            // rehydrate live after a reload.
+                            checkpoints: turnCheckpoints.length > 0
+                                ? turnCheckpoints.map(toPersistedCheckpointMarker)
+                                : undefined,
                         });
                     }
                     // Auto-save conversation to ConversationStore
@@ -3884,13 +3973,12 @@ export class AgentSidebarView extends ItemView {
         this.historyPanel?.setActiveId(id);
         this.updateContextBadge();
 
-        // FIX-01-07-02: rebuild checkpoint markers inline at the assistant
-        // message they belong to. The shadow repo holds the snapshots across
-        // plugin reloads, but the in-memory taskCheckpoints map starts empty
-        // and the rehydrated toolStepsHtml only carries dead marker spans
-        // (the live event listeners are gone). For every assistant message
-        // with a persisted taskId we strip the stale markers and render new
-        // live ones via renderCheckpointMarker.
+        // FIX-01-07-02 / FIX-44-12: rebuild checkpoint markers inline at the
+        // assistant message they belong to. Markers never survive into
+        // toolStepsHtml (they render as siblings of the steps block), so this
+        // step re-renders them from UiMessage.checkpoints (verified live, or
+        // expired) with the legacy shadow-repo scan as fallback for older
+        // conversations.
         void this.rehydrateCheckpointMarkers(assistantPairs);
 
         if (!opts.skipNavPush) {
@@ -4073,6 +4161,13 @@ export class AgentSidebarView extends ItemView {
     private getErrorTitle(error: Error): string {
         const msg = error.message.toLowerCase();
         const status = (error as Error & { status?: number; statusCode?: number }).status ?? (error as Error & { statusCode?: number }).statusCode;
+        // FIX-54-11: a scope/model-access 401 is NOT an invalid key. OpenAI
+        // project keys with model restrictions answer "You have insufficient
+        // permissions for this operation." while the key itself is valid;
+        // sending the user to re-check the key wastes their time.
+        if (isInsufficientPermissionsAuthError(error.message, status)) {
+            return t('ui.error.insufficientPermissions');
+        }
         if (status === 401 || msg.includes('api key') || msg.includes('authentication')) {
             return t('ui.error.invalidKey');
         }
@@ -4235,6 +4330,12 @@ export class AgentSidebarView extends ItemView {
                     const img = chip.createEl('img', { cls: 'attachment-chip-thumb' });
                     img.src = att.objectUrl;
                     img.alt = att.name;
+                } else if (att.folderMeta) {
+                    // FEAT-02-11: folder-manifest chip.
+                    const icon = att.folderMeta.recursive ? 'folder-tree' : 'folder';
+                    setIcon(chip.createSpan('attachment-chip-icon'), icon);
+                    const label = `${att.folderMeta.path || att.name}/ (${att.folderMeta.fileCount})`;
+                    chip.createSpan('attachment-chip-name').setText(label);
                 } else {
                     setIcon(chip.createSpan('attachment-chip-icon'), 'file-text');
                     chip.createSpan('attachment-chip-name').setText(att.name);
@@ -4401,16 +4502,30 @@ export class AgentSidebarView extends ItemView {
 
         // Auto-accept Edits (toggle)
         menu.addItem((item) => {
-            const enabled = settings.autoApproval.noteEdits && settings.autoApproval.vaultChanges;
+            // FIX-44-03c: the check must reflect what the gate actually does.
+            // note/vault edits only auto-approve when the MASTER is on too, so a
+            // check that ignored the master showed "on" while every edit still
+            // prompted. Derive the state from the master as well.
+            const cfg = settings.autoApproval;
+            const enabled = cfg.enabled && cfg.noteEdits && cfg.vaultChanges;
             item.setTitle(t('ui.menu.autoAcceptEdits'));
             item.setIcon(enabled ? 'check' : 'pencil');
             item.setChecked(enabled);
             item.onClick(async () => {
-                const newVal = !enabled;
-                settings.autoApproval.noteEdits = newVal;
-                settings.autoApproval.vaultChanges = newVal;
+                const flags = cfg as unknown as Record<string, unknown>;
+                if (!enabled) {
+                    // Turning on: flip the master (clearing dormant flags,
+                    // FIX-44-03b) and grant both edit categories.
+                    grantAutoApproval(flags, 'noteEdits');
+                    flags.vaultChanges = true;
+                } else {
+                    // Turning off: drop just these two; leave the master and any
+                    // other grants as they are.
+                    flags.noteEdits = false;
+                    flags.vaultChanges = false;
+                }
                 await this.plugin.saveSettings();
-                new Notice(t('notice.autoAcceptEdits', { value: newVal ? 'on' : 'off' }));
+                new Notice(t('notice.autoAcceptEdits', { value: !enabled ? 'on' : 'off' }));
             });
         });
 
@@ -5163,25 +5278,144 @@ export class AgentSidebarView extends ItemView {
         return lines.join('\n');
     }
 
+    /**
+     * FEAT-44-10: approve a note edit on its DIFF, before it is written.
+     *
+     * The post-task review that used to be the only diff in the product opens
+     * after every write has landed, and its "reject" only declines the user's own
+     * manual edits -- the agent's version stays on disk. That is a gate in
+     * appearance only. When the Pipeline hands us a preview, we put the real diff
+     * in front of the write: Apply approves (with whatever the user typed),
+     * discard rejects and nothing is written.
+     */
+    private async showEditApprovalGate(
+        toolName: string,
+        preview: import('../core/tools/editPreview').EditPreview,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
+        const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
+        const result = await showEditReviewModal({
+            app: this.app,
+            source: this.formatToolLabel(toolName),
+            title: preview.isDeleted ? t('ui.approval.gateTitleDelete') : t('ui.approval.gateTitle'),
+            entries: [{
+                path: preview.path,
+                before: preview.before,
+                after: preview.after,
+                isNew: preview.isNew,
+                isDeleted: preview.isDeleted,
+            }],
+            // FEAT-44-02: one approval for the whole run is impossible -- the agent
+            // only decides its next tool call after seeing this one's result, so
+            // there is nothing to preview yet. Offering to REMEMBER the answer is
+            // the honest version of what the user actually wants.
+            // FEAT-44-07: not while paranoid mode is on -- a scope grant would not
+            // take effect, so the buttons are not offered.
+            allowRememberForRun: this.plugin.settings.paranoidMode !== true,
+        });
+
+        // Discarded, or the single file was skipped: nothing happens.
+        const decision = result.decisions?.[0];
+        if (!result.decisions || !decision || decision.skipped) {
+            return { decision: 'rejected', reason: 'Rejected by user in the diff view.' };
+        }
+
+        const rememberForRun = result.rememberForRun === true;
+        const rememberForSession = result.rememberForSession === true;
+
+        // A deletion has no meaningful "edited after-state" -- the only real
+        // choices are let it go or keep it. Whatever the textarea says, we do not
+        // turn a delete into a write behind the user's back.
+        if (preview.isDeleted) {
+            return { decision: 'approved', rememberForRun, rememberForSession };
+        }
+
+        // Approved as proposed -- let the tool do its own write.
+        if (decision.finalContent === preview.after) {
+            return { decision: 'approved', rememberForRun, rememberForSession };
+        }
+
+        // The user rewrote it in the diff. Their content wins; the Pipeline
+        // writes it instead of re-running the tool.
+        //
+        // Say so out loud. The note is usually not open yet at this point (skills
+        // call open_note at the END of a run), so the write lands silently and the
+        // user is left wondering whether their edit survived. It did.
+        new Notice(t('ui.approval.editApplied', { path: preview.path }));
+        return { decision: 'approved', finalContent: decision.finalContent, rememberForRun, rememberForSession };
+    }
+
+    private async showBatchEditApprovalGate(
+        toolName: string,
+        batch: import('../core/tools/editPreview').BatchEditPreview,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
+        const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
+        const { decideBatchApproval } = await import('./edit-review/batchApprovalDecision');
+        const result = await showEditReviewModal({
+            app: this.app,
+            source: `${this.formatToolLabel(toolName)}: ${batch.summary}`,
+            title: t('ui.approval.gateTitleBatch'),
+            entries: batch.entries.map((e) => ({
+                path: e.path,
+                before: e.before,
+                after: e.after,
+                isNew: e.isNew,
+                isDeleted: e.isDeleted,
+            })),
+            // The batch gate is read-only: the tool writes internally, a
+            // user edit inside one entry could not be honoured honestly.
+            readonlyContent: true,
+            // FEAT-44-07: no scope buttons while paranoid mode is on.
+            allowRememberForRun: this.plugin.settings.paranoidMode !== true,
+        });
+        return decideBatchApproval(result);
+    }
+
     private async showApprovalCard(
         toolName: string,
         input: Record<string, unknown>,
+        preview?: import('../core/tools/editPreview').EditPreview,
+        batch?: import('../core/tools/editPreview').BatchEditPreview,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
-        // All tools use the same inline approval card during execution.
-        // Approvals are always rendered in chatContainer (not toolsEl) to ensure visibility
-        // even when .agent-steps-block is collapsed.
-        // Post-task DiffReviewModal is shown in onComplete for collected review.
+        // FEAT-44-02b: a multi-file operation with real per-file diffs gets
+        // the multi-entry review as its gate. Scope-only batches fall through
+        // to the card below, which then shows the planned file list instead
+        // of a bare tool name.
+        //
+        // FIX-44-54: the entry-count guard mirrors the Pipeline's own cap
+        // (MAX_BATCH_DIFF_ENTRIES in editPreview.ts, the shared contract
+        // constant). The Pipeline downgrades oversized batches to scopeOnly
+        // BEFORE they reach this callback, so the guard here is defence in
+        // depth only -- it must never be the sole place the cap lives,
+        // because the Pipeline decides diffReviewed from what was offered.
+        if (batch && batch.scopeOnly !== true && batch.entries.length <= MAX_BATCH_DIFF_ENTRIES) {
+            return await this.showBatchEditApprovalGate(toolName, batch);
+        }
+        // FEAT-44-10: a note edit with a computable diff gets the real gate.
+        if (preview) {
+            return await this.showEditApprovalGate(toolName, preview);
+        }
+        // Everything else uses the inline card. Rendered in chatContainer (not
+        // toolsEl) so it stays visible even when .agent-steps-block is collapsed.
         return new Promise((resolve) => {
-            if (!this.chatContainer) { resolve({ decision: 'approved' }); return; }
+            // FIX-44-28: fail CLOSED, not open. If there is no chat container to
+            // show the card in, we cannot have obtained consent -- approving
+            // anyway would run an unconfirmed CUD action. Deny instead.
+            if (!this.chatContainer) {
+                resolve({ decision: 'rejected', reason: 'Approval UI unavailable; operation denied.' });
+                return;
+            }
 
-            const group = this.getToolGroup(toolName);
+            const group = this.getToolEffect(toolName, input);
             const groupLabels: Record<string, string> = {
                 'note-edit': t('ui.approval.noteEdits'), 'vault-change': t('ui.approval.vaultChanges'),
                 web: t('ui.approval.web'), mcp: t('ui.approval.mcp'), read: t('ui.approval.read'),
-                mode: t('ui.approval.modeSwitching'), subtask: t('ui.approval.subAgents'),
+                ui: t('ui.approval.agentControl'), subtask: t('ui.approval.subAgents'),
                 skill: t('ui.approval.pluginSkills'),
                 'plugin-api': t('ui.approval.pluginApi'), recipe: t('ui.approval.recipes'),
                 sandbox: t('ui.approval.sandbox'),
+                config: t('ui.approval.config'),
+                'self-modify': t('ui.approval.selfModify'),
+                unclassified: t('ui.approval.unclassified'),
             };
 
             // Always render in chatContainer (like Question-Cards)
@@ -5198,6 +5432,29 @@ export class AgentSidebarView extends ItemView {
             explanationEl.createSpan().setText(explanationText);
             if (target) {
                 explanationEl.createSpan('tool-approval-target').setText(target);
+            }
+
+            // FEAT-44-02b: scope-only batch -- the card names the operation's
+            // planned file list instead of just the tool. Rendered rows are
+            // capped (no unbounded DOM); the full list sits in the details
+            // <pre> below as one text node.
+            const SCOPE_LIST_CAP = 20;
+            if (batch) {
+                const scope = row.createDiv('tool-approval-scope');
+                scope.createDiv('tool-approval-scope-summary').setText(batch.summary);
+                scope.createDiv('tool-approval-scope-heading').setText(
+                    t('ui.approval.scopeHeading', { count: batch.entries.length }),
+                );
+                const list = scope.createEl('ul', { cls: 'tool-approval-scope-list' });
+                for (const entry of batch.entries.slice(0, SCOPE_LIST_CAP)) {
+                    const li = list.createEl('li');
+                    li.setText(entry.isDeleted === true ? `− ${entry.path}` : entry.isNew === true ? `+ ${entry.path}` : entry.path);
+                }
+                if (batch.entries.length > SCOPE_LIST_CAP) {
+                    scope.createDiv('tool-approval-scope-more').setText(
+                        t('ui.approval.scopeMore', { count: batch.entries.length - SCOPE_LIST_CAP }),
+                    );
+                }
             }
 
             // For sandbox: show code preview (first 3 lines)
@@ -5221,8 +5478,15 @@ export class AgentSidebarView extends ItemView {
                 text: t('ui.approval.explain.showDetails'),
             });
             const detailsContainer = row.createDiv('tool-approval-details');
+            // FEAT-44-02b: the details carry the FULL planned file list (the
+            // visible scope list above is capped) as one text node.
+            const detailsText = this.formatInputForDetails(input)
+                + (batch
+                    ? '\n\n' + t('ui.approval.scopeDetailsHeading', { count: batch.entries.length })
+                        + '\n' + batch.entries.map((e) => e.path).join('\n')
+                    : '');
             detailsContainer.createEl('pre', { cls: 'tool-approval-details-content' })
-                .setText(this.formatInputForDetails(input));
+                .setText(detailsText);
 
             detailsToggle.addEventListener('click', () => {
                 const isVisible = detailsContainer.hasClass('is-visible');
@@ -5249,7 +5513,28 @@ export class AgentSidebarView extends ItemView {
 
             const actions = row.createDiv('tool-approval-actions');
             const allowBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-allow-once', text: t('ui.approval.allowOnce') });
-            const enableBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') });
+            // ADR-153: only offer "Always allow" when a settings flag actually
+            // backs it. config and self-modify (alwaysAsk) have none -- a button
+            // promising a permanent grant that never takes effect would be a lie,
+            // and it would set an unrelated permission instead.
+            // FEAT-44-07: while paranoid mode is on, no scope or standing grant
+            // takes effect -- so none is offered. A button whose grant would not
+            // bite (or would silently arm once paranoid is turned off) is a lie.
+            const paranoid = this.plugin.settings.paranoidMode === true;
+            const permKey = paranoid ? null : this.effectToPermKey(group, input);
+            // FEAT-44-02: a run-scoped grant is offered for the same effects that
+            // can be remembered (not alwaysAsk). It applies to the rest of THIS
+            // run only, dies with the task, and cannot buy off config/self-modify.
+            // FEAT-44-02a: same for the session scope (until plugin reload).
+            const runBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-run', text: t('ui.approval.allowForRun') })
+                : null;
+            const sessionBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-session', text: t('ui.approval.allowForSession') })
+                : null;
+            const enableBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') })
+                : null;
             const denyBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-deny-small', text: '✕' });
 
             // AUDIT-FEAT-14-07 L-5: gate the Allow-button on the preview
@@ -5257,17 +5542,21 @@ export class AgentSidebarView extends ItemView {
             // approve before seeing the affected-note count. The Deny-
             // button stays enabled so the user can always bail out. A 2s
             // hard timeout re-enables Allow even if the plugin call hangs.
+            // Adversarial review 2026-07-14: the run and session buttons
+            // grant MORE than the one-shot Allow, so the "see the count
+            // first" rationale applies to them with more force -- same gate.
             if (previewPromise) {
-                allowBtn.disabled = true;
-                enableBtn.disabled = true;
-                const releaseTimeout = window.setTimeout(() => {
-                    allowBtn.disabled = false;
-                    enableBtn.disabled = false;
-                }, 2000);
+                const gatedButtons = [allowBtn, runBtn, sessionBtn, enableBtn];
+                const setGated = (disabled: boolean) => {
+                    for (const btn of gatedButtons) {
+                        if (btn) btn.disabled = disabled;
+                    }
+                };
+                setGated(true);
+                const releaseTimeout = window.setTimeout(() => setGated(false), 2000);
                 void previewPromise.finally(() => {
                     window.clearTimeout(releaseTimeout);
-                    allowBtn.disabled = false;
-                    enableBtn.disabled = false;
+                    setGated(false);
                 });
             }
 
@@ -5306,17 +5595,60 @@ export class AgentSidebarView extends ItemView {
             });
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
-            denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
-            enableBtn.addEventListener('click', () => {
+            runBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForRun: true }); });
+            sessionBtn?.addEventListener('click', () => {
                 void (async () => {
-                    this.plugin.settings.autoApproval.enabled = true;
-                    const permKey = this.groupToPermKey(group);
-                    if (permKey) (this.plugin.settings.autoApproval as unknown as Record<string, boolean>)[permKey] = true;
-                    await this.plugin.saveSettings();
+                    // Adversarial review 2026-07-14 (FEAT-44-02a): a session
+                    // grant for the sandbox effect auto-approves ALL agent-
+                    // authored code execution until the plugin reloads --
+                    // functionally close to the standing grant, which
+                    // FIX-44-03b gates behind an explicit confirm on both
+                    // surfaces. Same friction here; the run scope stays one
+                    // click because it dies with the task.
+                    if (scopeGrantNeedsConfirm(permKey, 'session')) {
+                        const ok = await confirmModal(this.app, {
+                            title: t('ui.approval.sandbox'),
+                            message: t('ui.approval.sandboxGrantWarning'),
+                            confirmLabel: t('ui.approval.allowForSession'),
+                            destructive: true,
+                        });
+                        if (!ok) return; // leave the card open, grant nothing
+                    }
                     cleanup();
-                    resolve({ decision: 'approved' });
+                    resolve({ decision: 'approved', rememberForSession: true });
                 })();
             });
+            denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
+            if (enableBtn && permKey) {
+                enableBtn.addEventListener('click', () => {
+                    void (async () => {
+                        const cfg = this.plugin.settings.autoApproval;
+                        const flags = cfg as unknown as Record<string, boolean>;
+
+                        // FIX-44-03b: sandbox auto-approval means arbitrary
+                        // agent-authored code writes the vault without a further
+                        // prompt. Require an explicit confirm, as the Settings tab
+                        // does -- a single card click must not arm it silently.
+                        if (scopeGrantNeedsConfirm(permKey, 'standing')) {
+                            const ok = await confirmModal(this.app, {
+                                title: t('ui.approval.sandbox'),
+                                message: t('ui.approval.sandboxGrantWarning'),
+                                confirmLabel: t('ui.approval.enableInSettings'),
+                                destructive: true,
+                            });
+                            if (!ok) return; // leave the card open, grant nothing
+                        }
+
+                        // FIX-44-03b: flipping the master ON must not silently
+                        // re-arm category flags left true by a past permissive
+                        // session. grantAutoApproval clears them first.
+                        grantAutoApproval(flags, permKey);
+                        await this.plugin.saveSettings();
+                        cleanup();
+                        resolve({ decision: 'approved' });
+                    })();
+                });
+            }
 
             this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
         });
@@ -5467,38 +5799,45 @@ export class AgentSidebarView extends ItemView {
         });
     }
 
-    private getToolGroup(toolName: string): 'note-edit' | 'vault-change' | 'web' | 'mcp' | 'read' | 'mode' | 'subtask' | 'skill' | 'plugin-api' | 'recipe' | 'sandbox' {
-        const readTools = ['read_file', 'list_files', 'search_files', 'get_frontmatter', 'get_linked_notes', 'get_vault_stats', 'search_by_tag', 'get_daily_note', 'query_base', 'semantic_search'];
-        const vaultChangeTools = ['create_folder', 'delete_file', 'move_file', 'generate_canvas', 'create_base', 'update_base'];
-        const skillTools = ['execute_command', 'enable_plugin', 'resolve_capability_gap'];
-        if (toolName === 'evaluate_expression') return 'sandbox';
-        if (['web_fetch', 'web_search'].includes(toolName)) return 'web';
-        if (toolName === 'use_mcp_tool') return 'mcp';
-        if (readTools.includes(toolName)) return 'read';
-        if (vaultChangeTools.includes(toolName)) return 'vault-change';
-        if (skillTools.includes(toolName)) return 'skill';
-        if (toolName === 'call_plugin_api') return 'plugin-api';
-        if (toolName === 'execute_recipe') return 'recipe';
-        if (toolName === 'switch_agent') return 'mode';
-        if (toolName === 'new_task') return 'subtask';
-        return 'note-edit'; // write_file, edit_file, append_to_file, update_frontmatter
+    /**
+     * ADR-153: the effect class comes from the central registry, not from a
+     * local copy.
+     *
+     * A hand-maintained list used to sit here that had drifted from the
+     * Pipeline: anything unknown fell back to 'note-edit'. Clicking "Always
+     * allow" on e.g. a restore_checkpoint card therefore wrote
+     * `autoApproval.noteEdits` -- a DIFFERENT permission from the one displayed
+     * -- and did not even suppress the next prompt for the tool that was
+     * clicked.
+     */
+    private getToolEffect(toolName: string, input: Record<string, unknown>): ToolEffect | 'unclassified' {
+        return resolveToolEffect(toolName, input) ?? 'unclassified';
     }
 
-    /** Map a tool group to the corresponding permission key in autoApproval config */
-    private groupToPermKey(group: string): string | null {
-        const map: Record<string, string> = {
-            'note-edit': 'noteEdits',
-            'vault-change': 'vaultChanges',
-            web: 'web',
-            mcp: 'mcp',
-            mode: 'mode',
-            subtask: 'subtasks',
-            skill: 'skills',
-            'plugin-api': 'pluginApiWrite', // "Enable" sets the broader write permission
-            recipe: 'recipes',
-            sandbox: 'sandbox',
-        };
-        return map[group] ?? null;
+    /**
+     * The settings flag that "Always allow" would set for this effect.
+     *
+     * `null` means there is nothing to grant permanently, so the button is not
+     * rendered at all. That covers `config` and `self-modify` (alwaysAsk --
+     * otherwise the agent could unlock itself) and unclassified tools.
+     */
+    private effectToPermKey(
+        effect: ToolEffect | 'unclassified',
+        input?: Record<string, unknown>,
+    ): string | null {
+        if (effect === 'unclassified') return null;
+        const policy = EFFECT_POLICY[effect];
+        if (policy.alwaysAsk) return null;
+        // FIX-44-03a: plugin-api read vs write hangs off the INPUT, exactly as
+        // the gate resolves it. Granting the write flag for a read card (the old
+        // hardcoded 'pluginApiWrite') handed the user a permission the card never
+        // showed. Mirror the gate via the shared helper.
+        if (effect === 'plugin-api') {
+            return isPluginApiWriteCall(input, this.plugin.settings.pluginApi)
+                ? 'pluginApiWrite'
+                : 'pluginApiRead';
+        }
+        return policy.key;
     }
 
     // -------------------------------------------------------------------------
@@ -5518,7 +5857,9 @@ export class AgentSidebarView extends ItemView {
         const files = checkpoint.filesChanged.map((f) => f.split('/').pop()).join(', ');
         const newFileNames = checkpoint.newFiles?.map((f) => f.split('/').pop()).join(', ');
         const allFiles = [files, newFileNames].filter(Boolean).join(', ');
-        const time = new Date(checkpoint.timestamp).toLocaleTimeString('de-DE', {
+        // Locale-neutral like every other timestamp in this file (EPIC-42
+        // ships a 9-locale UI; a hardcoded 'de-DE' leaked in here once).
+        const time = new Date(checkpoint.timestamp).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
         });
@@ -5804,24 +6145,19 @@ export class AgentSidebarView extends ItemView {
     // -------------------------------------------------------------------------
 
     /**
-     * FIX-01-07-02: after loadConversation rebuilds the chat DOM, rehydrate
-     * the per-checkpoint markers inline at the assistant message they belong
-     * to. The shadow repo still holds the snapshots across plugin reloads,
-     * but the in-memory taskCheckpoints map starts empty AND the dead marker
-     * spans in toolStepsHtml have no event listeners.
+     * FIX-01-07-02 / FIX-44-12: after loadConversation rebuilds the chat DOM,
+     * rehydrate the checkpoint markers inline at the assistant message they
+     * belong to. Markers are never part of toolStepsHtml (they render as
+     * siblings of the steps block), so without this step a reloaded chat has
+     * no markers at all.
      *
-     * For each unique taskId we:
-     *   1. service.loadCheckpointsForTask(taskId) -- rebuilds the in-memory map
-     *      from the shadow repo via git log.
-     *   2. Pick the LAST assistant message of that task as the anchor. (Most
-     *      tasks emit one assistant bubble; askQuestion pauses produce more,
-     *      and the trailing bubble is the user's natural exit point.)
-     *   3. Strip any stale .checkpoint-marker nodes that the toolStepsHtml
-     *      snapshot brought in dead, then render fresh markers via
-     *      renderCheckpointMarker so the buttons work again.
-     *
-     * Older conversations stored before taskId was persisted on UiMessages
-     * have m.taskId === undefined and are skipped (no marker, no error).
+     * FIX-44-12: messages that persisted their markers (UiMessage.checkpoints)
+     * get them back at their own bubble -- LIVE (verified against the shadow
+     * repo, full Diff/Undo buttons) or EXPIRED (dimmed, tooltip) when the repo
+     * no longer holds the snapshot (REF_RETENTION_DAYS pruning). Older
+     * conversations without the field keep the legacy behavior: every loaded
+     * checkpoint of a task at its last assistant bubble. The planning logic
+     * lives in checkpointMarkerRehydration.ts (pure, tested).
      */
     private async rehydrateCheckpointMarkers(
         pairs: { msg: UiMessage; el: HTMLElement }[],
@@ -5830,29 +6166,63 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
-        // Last DOM anchor per taskId (later messages overwrite earlier ones).
-        const anchorByTaskId = new Map<string, HTMLElement>();
-        for (const { msg, el } of pairs) {
-            if (msg.taskId) anchorByTaskId.set(msg.taskId, el);
-        }
+        try {
+            const plan = await planCheckpointMarkerRehydration(
+                pairs.map((p) => p.msg),
+                (taskId) => service.loadCheckpointsForTask(taskId),
+            );
 
-        for (const [taskId, messageEl] of anchorByTaskId) {
-            try {
-                const list = await service.loadCheckpointsForTask(taskId);
-                if (list.length === 0) continue;
+            for (const [index, items] of plan) {
+                const messageEl = pairs[index]?.el;
+                if (!messageEl) continue;
 
-                // Drop stale markers from the rehydrated toolStepsHtml so we
-                // don't render the same checkpoint twice (once dead, once live).
+                // Defensive: never render the same marker twice if rehydration
+                // runs again over the same DOM.
                 messageEl.querySelectorAll('.checkpoint-marker').forEach((el) => el.remove());
 
                 const toolsEl = messageEl.querySelector<HTMLElement>('.message-tools') ?? messageEl;
-                for (const cp of list) {
-                    this.renderCheckpointMarker(toolsEl, cp);
+                for (const item of items) {
+                    if (item.kind === 'live') {
+                        this.renderCheckpointMarker(toolsEl, item.checkpoint);
+                    } else {
+                        this.renderExpiredCheckpointMarker(toolsEl, item.marker);
+                    }
                 }
-            } catch (e) {
-                console.warn('[Checkpoints] rehydrate failed for', taskId, e);
             }
+        } catch (e) {
+            console.warn('[Checkpoints] rehydrate failed:', e);
         }
+    }
+
+    /**
+     * FIX-44-12: a persisted marker whose snapshot the shadow repo no longer
+     * holds (pruned after REF_RETENTION_DAYS, deleted repo). Rendered dimmed,
+     * without action buttons, with a tooltip saying why -- the honest version
+     * of "this existed, but its undo data is gone". Dropping it silently made
+     * users hunt for buttons that could never come back.
+     */
+    private renderExpiredCheckpointMarker(
+        container: HTMLElement,
+        marker: PersistedCheckpointMarker,
+    ): void {
+        const el = container.createDiv('checkpoint-marker checkpoint-marker-expired');
+        el.setAttribute('aria-label', t('ui.checkpoint.snapshotExpired'));
+
+        const iconEl = el.createSpan('checkpoint-icon');
+        setIcon(iconEl, 'git-commit-vertical');
+
+        const label = el.createSpan('checkpoint-label');
+        const files = [...marker.filesChanged, ...(marker.newFiles ?? [])]
+            .map((f) => f.split('/').pop())
+            .filter(Boolean)
+            .join(', ');
+        // Locale-neutral, matching renderCheckpointMarker and the rest of
+        // the file's timestamps.
+        const time = new Date(marker.timestamp).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        label.setText(t('ui.checkpoint.label', { files, time }));
     }
 
     // -------------------------------------------------------------------------
@@ -5862,6 +6232,19 @@ export class AgentSidebarView extends ItemView {
     private async showPostTaskReview(taskId: string): Promise<void> {
         const service = this.plugin.checkpointService;
         if (!service) return;
+
+        // FIX-44-16: the diff belongs BEFORE the write, not after it. A write the
+        // user individually approved on its real diff must not be re-approved
+        // here -- a second, weaker-looking approval is what misled a user into
+        // thinking the POST-task modal was the gate.
+        //
+        // FIX-44-44: but "the user saw the diff at the gate" only holds for tools
+        // with previewEdit. Name-only card approvals, settings-auto and run-scope
+        // grants land with no diff surface at all, and they exist with the master
+        // toggle OFF too. The caller therefore gates this method on the
+        // pipeline's onUnreviewedWrite signal (taskHadUnreviewedWrites), not on
+        // `autoApproval.enabled`. For those writes this review is the last line
+        // of defence, and its explicit revert really does take the changes back.
 
         const checkpoints = service.getCheckpointsForTask(taskId);
         if (checkpoints.length === 0) return;
@@ -5887,7 +6270,7 @@ export class AgentSidebarView extends ItemView {
         // read. vault.getFileByPath returns null for dot-paths (.obsidian/,
         // agent folder), which made the review show after='' and Apply then
         // zeroed the file through a raw adapter.write.
-        const { readCurrentContent, applyReviewDecisions } = await import('./edit-review/postTaskReviewIO');
+        const { readCurrentContent, applyReviewDecisions, revertReviewedFiles } = await import('./edit-review/postTaskReviewIO');
         const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
         const entries: import('./edit-review/EditReviewPanel').EditReviewEntry[] = [];
 
@@ -5917,8 +6300,39 @@ export class AgentSidebarView extends ItemView {
             entries,
             title: t('ui.editReview.titleReview'),
             source: t('ui.editReview.sourceTask', { taskId }),
+            // FIX-44-16: in a POST-task review the writes have already landed, so
+            // "discard" cannot mean "do not write" -- it has to mean "take it
+            // back". The label says so, and the handler below does so.
+            discardLabel: t('ui.editReview.revertAll'),
         });
-        if (result.decisions === null) return;
+
+        // FIX-44-38: Esc / X / backdrop is NOT "Revert all". A user who merely
+        // closes the review keeps every file exactly as the agent left it.
+        if (result.outcome === 'dismissed') return;
+
+        if (result.outcome === 'discarded') {
+            // FIX-44-16: this used to be a bare `return`. The user pressed the
+            // button that says the changes go away, and the changes stayed. The
+            // pre-task content is right here in `entries`, so give it back.
+            // FIX-44-38: only the EXPLICIT revert button lands here, and since it
+            // destroys the agent's finished work it gets a confirm step.
+            const ok = await confirmModal(this.app, {
+                title: t('ui.editReview.confirmRevertTitle'),
+                message: t('ui.editReview.confirmRevertBody', { count: entries.length }),
+                confirmLabel: t('ui.editReview.revertAll'),
+                destructive: true,
+            });
+            if (!ok) return; // keep everything
+            const undone = await revertReviewedFiles(this.app, entries);
+            if (undone.reverted.length > 0) {
+                new Notice(t('ui.editReview.reverted', { count: undone.reverted.length }));
+            }
+            if (undone.failed.length > 0) {
+                new Notice(t('ui.editReview.revertFailed', { paths: undone.failed.join(', ') }));
+            }
+            return;
+        }
+        if (result.decisions === null) return; // defensive: applied always carries decisions
 
         // FIX-01-07-04: only decisions the user actually changed are written,
         // through the atomic + empty-guarded path. An unchanged Apply is a

@@ -76,6 +76,10 @@ function makeApp(opts: {
         vault: {
             adapter,
             getFileByPath: (p: string) => tfiles.get(p) ?? null,
+            // FIX-44-49: safeNoteWrite resolves via getAbstractFileByPath
+            // (FIX-44-19); the harness mirrors the vault surface.
+            getAbstractFileByPath: (p: string) => tfiles.get(p) ?? null,
+            createFolder: async (_p: string) => { /* parent creation is a no-op here */ },
             read: async (f: TFile) => {
                 const p = (f as unknown as { path: string }).path;
                 const v = indexed.get(p);
@@ -192,6 +196,27 @@ describe('applyReviewDecisions (FIX-01-07-04)', () => {
 
         expect(modified).toEqual([{ path: 'Notes/a.md', content: 'v2' }]);
         expect(outcome.written).toEqual(['Notes/a.md']);
+    });
+
+    it('FIX-44-49: a file the index resolves only via getAbstractFileByPath goes through vault.modify, not the raw adapter', async () => {
+        // FIX-44-19 class: getFileByPath comes back null while the file IS
+        // reachable via getAbstractFileByPath. The duplicated write stack fell
+        // through to the adapter (disk right, open editor stale); the
+        // consolidated safeNoteWrite path resolves like every write tool.
+        const { app, calls, modified, indexed } = makeApp({ indexedSeed: { 'Notes/a.md': 'v1' } });
+        (app.vault as unknown as { getFileByPath: (p: string) => null }).getFileByPath = () => null;
+
+        const outcome = await applyReviewDecisions(
+            app,
+            [{ path: 'Notes/a.md', finalContent: 'v2', skipped: false }],
+            new Map([['Notes/a.md', 'v1']]),
+        );
+
+        expect(outcome.written).toEqual(['Notes/a.md']);
+        expect(modified).toEqual([{ path: 'Notes/a.md', content: 'v2' }]);
+        expect(indexed.get('Notes/a.md')).toBe('v2');
+        // The old bug: raw adapter write / temp+rename on an indexed file.
+        expect(calls.filter((c) => c.op === 'write' || c.op === 'rename')).toEqual([]);
     });
 
     it('leaves skipped decisions untouched', async () => {

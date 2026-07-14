@@ -2562,6 +2562,19 @@
     padding: 2px 8px;
     cursor: pointer;
 }
+/* FIX-55-02 (issue #55): free-text model-id input. Text-input look, same
+   width as the tier dropdowns. Previously carried the 'dropdown' class,
+   which Obsidian styles for <select> elements and which breaks an input. */
+.provider-detail-modal .mcm-tier-manual-input {
+    width: 100%;
+    max-width: 320px;
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--input-radius, 5px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+}
 
 /* EPIC-26 / FEAT-26-03 -- section header inside .mcm-form */
 .mcm-section {
@@ -3402,6 +3415,44 @@
     word-break: break-all;
 }
 
+/* FEAT-44-02b: scope-only batch approval -- planned file list on the card */
+.tool-approval-scope {
+    width: 100%;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-normal);
+}
+
+.tool-approval-scope-summary {
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.tool-approval-scope-heading {
+    margin-top: 4px;
+    color: var(--text-muted);
+}
+
+.tool-approval-scope-list {
+    margin: 4px 0 0;
+    padding: 6px 8px 6px 24px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+    font-family: var(--font-monospace);
+    font-size: 11px;
+    line-height: 1.5;
+    max-height: 160px;
+    overflow-y: auto;
+    word-break: break-all;
+}
+
+.tool-approval-scope-more {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .tool-approval-code-preview {
     width: 100%;
     margin-top: 4px;
@@ -3596,6 +3647,13 @@
 .checkpoint-action-btn svg {
     width: 13px;
     height: 13px;
+}
+
+/* FIX-44-12: rehydrated marker whose snapshot the shadow repo no longer holds
+   (pruned refs). Dimmed, no action buttons; the aria-label tooltip says why. */
+.checkpoint-marker-expired {
+    opacity: 0.55;
+    cursor: help;
 }
 
 .checkpoint-restored {
@@ -5419,8 +5477,9 @@
 
 .autocomplete-item {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
     padding: 6px 12px;
     cursor: pointer;
     border-bottom: 1px solid var(--background-modifier-border-hover);
@@ -5435,25 +5494,55 @@
     background: var(--background-modifier-hover);
 }
 
+.autocomplete-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .autocomplete-label {
     flex: 1;
     font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .autocomplete-tag {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-on-accent);
     background: var(--interactive-accent);
-    padding: 1px 6px;
-    border-radius: 4px;
+    padding: 0 5px;
+    border-radius: 3px;
     flex-shrink: 0;
     opacity: 0.85;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* FEAT-02-11: file vs folder tag variants. File = light grey chip,
+   folder = darker grey chip. Skills/prompts/workflows keep the accent
+   colour because they omit tagVariant. */
+.autocomplete-tag.tag-file {
+    color: var(--text-muted);
+    background: var(--background-modifier-border);
+    opacity: 1;
+}
+
+.autocomplete-tag.tag-folder {
+    color: var(--text-normal);
+    background: var(--background-modifier-border-hover);
+    opacity: 1;
 }
 
 .autocomplete-sub {
     font-size: 11px;
     color: var(--text-muted);
     font-family: var(--font-monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* ── Per-model temperature controls (ModelConfigModal) ────────────── */
@@ -6224,6 +6313,11 @@
 .chat-model-picker-tier-fast     { background: #5c6bc0; }
 .chat-model-picker-tier-mid      { background: #2e7d32; }
 .chat-model-picker-tier-flagship { background: #c27c4a; }
+/* FIX-55-01: badge for manually typed tier-override ids (issue #55) */
+.chat-model-picker-manual-badge {
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
 
 .chat-model-picker-auto {
     border-bottom: 1px solid var(--background-modifier-border);
@@ -6292,6 +6386,17 @@
     color: var(--text-normal);
     min-width: 22px;
     text-align: right;
+}
+
+/* IMP-54-05a: one-line discoverability hint sitting where the effort slider
+   would be (thinking on, but Auto active or the pinned model resolves no
+   effort levels). Muted, single line, toggled live with the thinking switch. */
+.chat-model-picker-effort-hint {
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text-faint);
+    flex-shrink: 0;
 }
 
 /* Per-conversation reasoning-effort slider: a Claude-Code-style pill slider
@@ -8153,17 +8258,34 @@
     max-height: 140px;
 }
 
-/* ── EditReviewModal (EPIC-33 Diff-UX-refresh, 2026-06-22) ───────── */
-/* `.agent-edit-review-modal` lands on the `.modal` element itself, so
- * the correct selector is `.modal.agent-edit-review-modal`. Pattern M
- * (extra class repetition) lifts the specificity from (0,2,0) to
- * (0,4,0), comfortably above Obsidian's own `.modal` width/max-width
- * rules without needing `!important`. */
+/* ── EditReviewPanel: the approval gate (FEAT-44-15 redesign) ─────────
+ *
+ * The gate is what the user reads before the agent writes, so it has to be
+ * readable first and pretty second.
+ *
+ * The one structural rule: there is ONE scroll container (`__body`) holding ONE
+ * row element per diff line, and each row is a two-column grid. A grid row is as
+ * tall as its tallest cell, so when a German paragraph wraps to three lines on
+ * the left and one on the right, BOTH cells become three lines tall and the two
+ * sides stay in lock-step. No JavaScript, no scroll syncing, no measuring.
+ *
+ * The previous build had two independent scroll containers, which cannot work:
+ * that is diff2html's long-standing bug (#99) -- when a line wraps in one table,
+ * the other table has no way to learn about it.
+ */
+
+/* `.agent-edit-review-modal` lands on the `.modal` element itself, so the
+ * selector must be `.modal.agent-edit-review-modal`. Repeating the class lifts
+ * specificity above Obsidian's own `.modal` width rules without `!important`. */
 .modal.agent-edit-review-modal.agent-edit-review-modal.agent-edit-review-modal {
-    width: 95vw;
-    min-width: 1200px;
-    max-width: 95vw;
-    /* Also enlarge the height so the side-by-side has vertical room. */
+    /* Capped, not 95vw. On a wide monitor 95vw gave each column ~1000px, which is
+     * roughly 130 characters of prose -- you have to move your head to take one
+     * line in, and comparing two of them side by side stops working. 1240px total
+     * puts each column near 70 characters, which is the range typography has
+     * agreed on for a century. */
+    width: min(1240px, 95vw);
+    min-width: min(900px, 96vw);
+    max-width: min(1240px, 95vw);
     height: 88vh;
     max-height: 88vh;
 }
@@ -8172,40 +8294,55 @@
     height: 100%;
     overflow: hidden;
 }
+
 .agent-edit-review {
     display: flex;
     flex-direction: column;
-    height: 70vh;
+    height: 100%;
     min-height: 420px;
     background: var(--background-primary);
     color: var(--text-normal);
+
+    /* Colour tokens. Only --color-red/-green/-blue/-orange and their -rgb
+     * variants are reliable across themes; --background-modifier-error is a
+     * solid dark red in some themes and a soft tint in others, so it is unusable
+     * for a tint. The row tint stays soft and the word highlight carries the
+     * signal -- that is the pattern every mature diff converged on. */
+    --vo-add-row: rgba(var(--color-green-rgb), 0.10);
+    --vo-add-word: rgba(var(--color-green-rgb), 0.32);
+    --vo-add-bar: var(--color-green);
+    --vo-del-row: rgba(var(--color-red-rgb), 0.09);
+    --vo-del-word: rgba(var(--color-red-rgb), 0.26);
+    --vo-del-bar: var(--color-red);
 }
+.theme-dark .agent-edit-review {
+    --vo-add-row: rgba(var(--color-green-rgb), 0.13);
+    --vo-add-word: rgba(var(--color-green-rgb), 0.30);
+    --vo-del-row: rgba(var(--color-red-rgb), 0.16);
+    --vo-del-word: rgba(var(--color-red-rgb), 0.36);
+}
+
+/* Header ------------------------------------------------------------- */
 .agent-edit-review__header {
-    padding: 12px 16px;
+    padding: 14px 18px 10px;
     border-bottom: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-}
-.agent-edit-review__title-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
 }
 .agent-edit-review__title {
-    font-size: var(--font-ui-large);
+    font-size: var(--font-ui-medium);
     font-weight: 600;
+    color: var(--text-normal);
 }
 .agent-edit-review__subtitle {
+    margin-top: 2px;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
-
 .agent-edit-review__empty {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-muted);
-    font-size: var(--font-ui-medium);
 }
 
 .agent-edit-review__main {
@@ -8214,246 +8351,338 @@
     min-height: 0;
 }
 
-/* ── Left: file list ─────────────────────────────────────────────── */
+/* File list (only when more than one file) ---------------------------- */
 .agent-edit-review__filelist {
-    width: 240px;
-    border-right: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    overflow-y: auto;
+    width: 220px;
     flex-shrink: 0;
-    padding: 8px 0;
+    border-right: 1px solid var(--background-modifier-border);
+    overflow-y: auto;
+    padding: 10px 0;
+    background: var(--background-secondary);
 }
 .agent-edit-review__filelist-heading {
-    padding: 4px 12px 8px 12px;
+    padding: 0 14px 8px;
     font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
+    color: var(--text-faint);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
 }
 .agent-edit-review__file {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 6px 12px;
-    background: transparent;
+    padding: 6px 14px;
     border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
     text-align: left;
     cursor: pointer;
-    color: var(--text-normal);
-    font-size: var(--font-ui-small);
-    border-radius: 0;
+    box-shadow: none;
 }
 .agent-edit-review__file:hover {
     background: var(--background-modifier-hover);
+    color: var(--text-normal);
 }
 .agent-edit-review__file.is-selected {
     background: var(--background-modifier-active-hover);
-    color: var(--text-on-accent);
-    background-color: var(--interactive-accent);
+    color: var(--text-normal);
+    font-weight: 500;
 }
-.agent-edit-review__file.is-selected .agent-edit-review__file-status,
-.agent-edit-review__file.is-selected .agent-edit-review__file-label {
-    color: var(--text-on-accent);
-}
-.agent-edit-review__file.is-skipped {
-    opacity: 0.5;
+.agent-edit-review__file.is-skipped .agent-edit-review__file-label {
     text-decoration: line-through;
+    opacity: 0.55;
 }
 .agent-edit-review__file-status {
-    width: 14px;
-    text-align: center;
-    color: var(--text-muted);
-    font-weight: 600;
+    color: var(--text-faint);
+    font-family: var(--font-monospace);
 }
 .agent-edit-review__file-label {
-    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* ── Right: diff view ────────────────────────────────────────────── */
+/* Diff pane ----------------------------------------------------------- */
 .agent-edit-review__diff {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
 }
 .agent-edit-review__diff-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
+    gap: 10px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--background-modifier-border);
-    background: var(--background-primary-alt);
 }
 .agent-edit-review__diff-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+.agent-edit-review__stats {
+    font-size: var(--font-ui-smaller);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+.agent-edit-review__stats.is-changed {
+    color: var(--text-muted);
+}
+.agent-edit-review__edit-btn,
+.agent-edit-review__skip-btn {
+    padding: 3px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    cursor: pointer;
+    box-shadow: none;
+    white-space: nowrap;
+}
+.agent-edit-review__edit-btn:hover,
+.agent-edit-review__skip-btn:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+.agent-edit-review__edit-btn.is-active,
+.agent-edit-review__skip-btn.is-active {
+    color: var(--text-on-accent);
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+}
+
+/* Column headings ------------------------------------------------------ */
+.agent-edit-review__edit-discard-btn {
+    padding: 3px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    cursor: pointer;
+    box-shadow: none;
+    white-space: nowrap;
+}
+.agent-edit-review__edit-discard-btn:hover {
+    color: var(--text-error);
+    background: var(--background-modifier-hover);
+}
+.agent-edit-review__edit-discard-btn.is-hidden {
+    display: none;
+}
+
+.agent-edit-review__colheads {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+}
+.agent-edit-review__colhead {
+    padding: 5px 14px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.agent-edit-review__colhead + .agent-edit-review__colhead {
+    box-shadow: inset 1px 0 0 0 var(--background-modifier-border);
+}
+
+/* THE single scroll container ------------------------------------------ */
+.agent-edit-review__body {
+    flex: 1;
+    overflow-y: auto;
+    /* Prose wraps. It is never scrolled sideways. */
+    overflow-x: hidden;
+    /* Proportional, not monospace: this is German prose, not code. Monospace
+     * eats 20-30 % more width for the same characters and reads as "code". */
+    font-family: var(--font-text);
+    font-size: var(--font-ui-medium);
+    line-height: 1.6;
+    padding: 6px 0 24px;
+}
+.agent-edit-review.is-editing .agent-edit-review__body,
+.agent-edit-review.is-editing .agent-edit-review__colheads {
+    display: none;
+}
+
+.agent-edit-review__empty-diff {
+    padding: 24px 14px;
+    color: var(--text-faint);
+    text-align: center;
+}
+
+/* Sticky section heading: in a note THIS is what orients you, not a line
+ * number. Nobody references line 47 of a transcript. */
+.agent-edit-review__hunk-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 4px 14px;
+    background: var(--background-secondary);
+    border-top: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--background-modifier-border);
+    font-size: var(--font-ui-smaller);
     font-weight: 600;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.agent-edit-review__skip-btn {
-    background: transparent;
-    color: var(--text-muted);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 3px 10px;
-    cursor: pointer;
+
+/* One row = one diff line = both columns. The row is as tall as its tallest
+ * cell, which is the entire alignment mechanism. */
+.agent-edit-review__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+
+    /* Free virtualization: the browser skips layout and paint for rows that are
+     * off-screen. `auto` in contain-intrinsic-size makes it remember the height
+     * it last measured, which is what variable-height wrapped rows need. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 26px;
+}
+.agent-edit-review__row--collapsed {
+    grid-template-columns: 1fr;
+}
+.agent-edit-review__collapsed {
+    width: 100%;
+    padding: 3px 14px;
+    margin: 3px 0;
+    background: var(--background-secondary);
+    border: none;
+    border-top: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--background-modifier-border);
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--text-faint);
     font-size: var(--font-ui-smaller);
+    text-align: center;
+    cursor: pointer;
 }
-.agent-edit-review__skip-btn:hover {
-    color: var(--text-normal);
-    border-color: var(--background-modifier-border-hover);
-}
-.agent-edit-review__skip-btn.is-active {
-    background: var(--background-modifier-error-hover);
-    color: var(--text-error);
-    border-color: var(--text-error);
+.agent-edit-review__collapsed:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-muted);
 }
 
-.agent-edit-review__columns {
-    flex: 1;
+.agent-edit-review__cell {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    min-height: 0;
-    gap: 1px;
-    background: var(--background-modifier-border);
-}
-.agent-edit-review__column {
-    display: flex;
-    flex-direction: column;
-    background: var(--background-primary);
+    /* Marker slot | text. Row-invariant, so the text edges line up down the
+     * whole column. */
+    grid-template-columns: 1.5em minmax(0, 1fr);
+    align-items: start;
+    /* Grid blowout guard. Together with minmax(0,1fr) and overflow-wrap:anywhere
+     * below, this is what stops one long URL from bursting the column. */
     min-width: 0;
-    min-height: 0;
+    /* The change bar slot is ALWAYS there, so a changed line does not shift the
+     * text by 3px relative to an unchanged one. */
+    border-left: 3px solid transparent;
+    padding: 1px 12px 1px 0;
 }
-.agent-edit-review__column-label {
-    padding: 6px 12px;
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+.agent-edit-review__cell--new {
+    box-shadow: inset 1px 0 0 0 var(--background-modifier-border);
+}
+
+.agent-edit-review__cell.is-del {
+    background: var(--vo-del-row);
+    border-left-color: var(--vo-del-bar);
+}
+.agent-edit-review__cell.is-add {
+    background: var(--vo-add-row);
+    border-left-color: var(--vo-add-bar);
+}
+.agent-edit-review__cell.is-pad {
     background: var(--background-secondary);
-    border-bottom: 1px solid var(--background-modifier-border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
+    opacity: 0.4;
 }
-.agent-edit-review__column-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px 14px;
+
+/* Redundant, non-colour cue (WCAG 1.4.1: meaning must not rest on colour
+ * alone -- ~8 % of men cannot separate red from green). */
+.agent-edit-review__marker {
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.6;
+    text-align: center;
+    color: var(--text-faint);
+    user-select: none;
+}
+.agent-edit-review__cell.is-del .agent-edit-review__marker {
+    color: var(--vo-del-bar);
+}
+.agent-edit-review__cell.is-add .agent-edit-review__marker {
+    color: var(--vo-add-bar);
+}
+
+.agent-edit-review__text {
+    min-width: 0;
+    white-space: pre-wrap;
+    /* `anywhere`, NOT `break-word`. Only `anywhere` is honoured when the browser
+     * computes min-content, so a 200-character URL cannot force the grid track
+     * wider than its share. With `break-word` the column still bursts. */
+    overflow-wrap: anywhere;
+}
+.agent-edit-review__text.is-mono {
     font-family: var(--font-monospace);
     font-size: var(--font-ui-small);
-    line-height: 1.5;
-}
-.agent-edit-review__line {
-    display: grid;
-    grid-template-columns: 44px 16px 1fr;
-    align-items: baseline;
-    white-space: pre-wrap;
-    padding: 0;
-    border-radius: 0;
-    min-height: 1.4em;
-    gap: 4px;
-}
-.agent-edit-review__lineno {
-    color: var(--text-faint);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-    padding-right: 8px;
-    user-select: none;
-    border-right: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    font-size: var(--font-ui-smaller);
-}
-.agent-edit-review__line-status {
-    color: var(--text-muted);
-    font-weight: 700;
-    text-align: center;
-    user-select: none;
-    font-family: var(--font-monospace);
-}
-.agent-edit-review__line-text {
-    padding-right: 8px;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-.agent-edit-review__column--before .agent-edit-review__line.is-removed .agent-edit-review__line-status {
-    color: var(--text-error);
-}
-.agent-edit-review__column--after .agent-edit-review__line.is-added .agent-edit-review__line-status {
-    color: var(--color-green);
-}
-/* Padding rows fill vertical space so Zeile N left lines up with Zeile N
-   right. They are non-editable and rendered as a faint dashed-out gap. */
-.agent-edit-review__line--padding {
-    background: repeating-linear-gradient(
-        45deg,
-        var(--background-secondary),
-        var(--background-secondary) 6px,
-        transparent 6px,
-        transparent 12px
-    );
-    color: transparent;
-    user-select: none;
-    pointer-events: none;
-}
-/* Left-side removed lines: subtle red tint across the row. */
-.agent-edit-review__column--before .agent-edit-review__line.is-removed {
-    background: rgba(220, 53, 69, 0.13);
-}
-.agent-edit-review__column--before .agent-edit-review__line.is-removed .agent-edit-review__lineno {
-    background: rgba(220, 53, 69, 0.22);
-    color: var(--text-error);
-}
-/* Right-side added lines: subtle green tint across the row. */
-.agent-edit-review__column--after .agent-edit-review__line.is-added {
-    background: rgba(40, 167, 69, 0.14);
-}
-.agent-edit-review__column--after .agent-edit-review__line.is-added .agent-edit-review__lineno {
-    background: rgba(40, 167, 69, 0.22);
-    color: var(--color-green);
-}
-/* Fallback (un-typed) yellow tint for ambiguous changes. */
-.agent-edit-review__line.is-changed:not(.is-removed):not(.is-added) {
-    background: rgba(255, 200, 0, 0.16);
 }
 
-.agent-edit-review__editor {
+/* The word-level highlight. The row tint says WHICH line changed; this says
+ * WHAT changed in it. That contrast is the whole readability gain. */
+.agent-edit-review__word {
+    border-radius: 3px;
+    padding: 0 1px;
+}
+.agent-edit-review__word.is-del-word {
+    background: var(--vo-del-word);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: var(--vo-del-bar);
+}
+.agent-edit-review__word.is-add-word {
+    background: var(--vo-add-word);
+}
+
+/* Editing surface: a plain textarea. Separate from the diff on purpose -- the
+ * old contenteditable WAS the diff, so the highlighting fell apart as soon as
+ * you typed, and the text had to be scraped back out of the mangled DOM. */
+.agent-edit-review__textarea {
+    display: none;
     flex: 1;
+    width: 100%;
     margin: 0;
     border: none;
-    padding: 12px 14px;
+    border-radius: 0;
+    padding: 12px 16px;
     background: var(--background-primary);
     color: var(--text-normal);
-    font-family: var(--font-monospace);
-    font-size: var(--font-ui-small);
-    line-height: 1.5;
+    font-family: var(--font-text);
+    font-size: var(--font-ui-medium);
+    line-height: 1.6;
+    resize: none;
     outline: none;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    min-height: 0;
 }
-.agent-edit-review__editor:focus {
-    box-shadow: inset 0 0 0 2px var(--interactive-accent);
-}
-/* Stats badge in the after-column label (right side). */
-.agent-edit-review__stats {
-    color: var(--text-muted);
-    font-size: var(--font-ui-smaller);
-    font-weight: 600;
-    text-transform: none;
-    letter-spacing: 0;
-}
-.agent-edit-review__stats.is-changed {
-    color: var(--text-accent);
+.agent-edit-review.is-editing .agent-edit-review__textarea {
+    display: block;
 }
 
-/* ── Footer ─────────────────────────────────────────────────────── */
+/* Deleting: the whole note is the loss. Say so, do not just tint it. */
+.agent-edit-review.is-deleting .agent-edit-review__colhead + .agent-edit-review__colhead {
+    color: var(--vo-del-bar);
+}
+
+/* Footer -------------------------------------------------------------- */
 .agent-edit-review__footer {
     display: flex;
     justify-content: flex-end;
@@ -8462,18 +8691,23 @@
     border-top: 1px solid var(--background-modifier-border);
     background: var(--background-secondary);
 }
-.agent-edit-review__discard-btn,
-.agent-edit-review__apply-btn,
-.agent-edit-review__restore-btn {
-    padding: 6px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: var(--font-ui-small);
-}
-.agent-edit-review__discard-btn {
+.agent-edit-review__apply-run-btn,
+.agent-edit-review__apply-session-btn {
+    border: 1px solid var(--background-modifier-border);
     background: transparent;
     color: var(--text-muted);
+    box-shadow: none;
+}
+.agent-edit-review__apply-run-btn:hover,
+.agent-edit-review__apply-session-btn:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+.agent-edit-review__discard-btn {
     border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
 }
 .agent-edit-review__discard-btn:hover {
     color: var(--text-normal);

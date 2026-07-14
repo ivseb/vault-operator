@@ -17,6 +17,7 @@ import type { ToolDefinition } from '../core/tools/types';
 import { RequestRateLimiter, requestRateLimiter } from './RequestRateLimiter';
 import { ProviderHealth, providerHealth } from './ProviderHealth';
 import { classifyProviderError } from './retry';
+import { logAuthErrorDiagnostics } from './authDiagnostics';
 
 export type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ContentBlock, ModelInfo } from './types';
 
@@ -79,7 +80,16 @@ export function withCircuitBreaker(
                 yield* handler.createMessage(systemPrompt, messages, tools, abortSignal);
                 health.reportSuccess(providerType);
             } catch (err) {
-                health.reportFailure(providerType, classifyProviderError(err));
+                const cls = classifyProviderError(err);
+                // FIX-54-11 follow-up: structured diagnostic line on auth-class
+                // errors so scope-restriction, quota-as-401 and continuation-
+                // restriction are distinguishable in the console without a
+                // repro. Field report 2026-07-14 (gpt-5.6-sol succeeded on
+                // turn 1, 401ed on the follow-up tool_result call).
+                if (cls === 'auth') {
+                    logAuthErrorDiagnostics(err, { providerType, model: handler.getModel().id });
+                }
+                health.reportFailure(providerType, cls);
                 throw err;
             }
         })();

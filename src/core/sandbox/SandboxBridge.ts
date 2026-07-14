@@ -10,10 +10,13 @@
 import { TFile, TFolder, Notice } from 'obsidian';
 import https from 'https';
 import http from 'http';
+import { MAX_RESPONSE_BYTES, readCappedResponseBody } from '../utils/httpBodyCap';
 import type ObsidianAgentPlugin from '../../main';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import { atomicAdapterWrite, atomicAdapterWriteBinary } from '../utils/atomicAdapterWrite';
 import { followAllowlistedRedirects, type HopResponse } from './redirectGuard';
+import { getInternalAgentFolderPath, DEFAULT_AGENT_FOLDER } from '../utils/agentFolder';
+import { isProtectedAgentConfigPath } from '../governance/agentFolderGuard';
 
 // ---------------------------------------------------------------------------
 // SandboxBridge
@@ -45,6 +48,14 @@ export class SandboxBridge {
     ];
 
     constructor(private plugin: ObsidianAgentPlugin) {}
+
+    // FIX-44-04 / FIX-44-43: this bridge is a warm singleton shared by every
+    // task, so the governance taskId is NOT bridge state. It travels with each
+    // write operation (executor resolves the execution's taskId and passes it
+    // per call). The predecessor design -- a single mutable slot plus a
+    // refcount -- was last-writer-wins: with two overlapping sandbox
+    // executions from different tasks, the earlier task's writes were
+    // checkpointed under the wrong taskId and restore_checkpoint missed them.
 
     async vaultRead(path: string): Promise<string> {
         this.checkCircuitBreaker();
@@ -145,7 +156,12 @@ export class SandboxBridge {
         }
     }
 
-    async vaultWrite(path: string, content: string): Promise<void> {
+    /**
+     * @param governanceTaskId FIX-44-43: the task of the execution that issued
+     * this write (threaded per operation by the executor). Snapshot attribution
+     * only -- validation and rate limits apply regardless.
+     */
+    async vaultWrite(path: string, content: string, governanceTaskId?: string): Promise<void> {
         this.checkCircuitBreaker();
         this.validateVaultPath(path, true);
         // M-2: Write-Size-Limit
@@ -153,6 +169,7 @@ export class SandboxBridge {
             throw new Error(`Write too large: ${content.length} bytes (max ${SandboxBridge.MAX_WRITE_SIZE})`);
         }
         this.checkWriteRateLimit();
+        await this.snapshotBeforeWrite(path, governanceTaskId);
         this.logBridgeOp('vault-write', `${path} (${content.length} chars)`);
         // FEAT-29-05: adapter.write for hidden folders (Vault.create skips them).
         // FIX-01-07-04 parity: atomic temp+rename so a skill bug or crash
@@ -182,6 +199,10 @@ export class SandboxBridge {
         try {
             const normalised = normaliseVaultPath(path);
             this.validateVaultPath(normalised, true);
+            // AUDIT 2026-07-14 (Codex) M-5: mkdir is a write and must count
+            // against the write rate limit, like vaultWrite. Otherwise delayed
+            // or looping sandbox code can spam folder creation unbounded.
+            this.checkWriteRateLimit();
             this.logBridgeOp('vault-mkdir', normalised);
             const adapter = this.plugin.app.vault.adapter;
             const segments = normalised.split('/').filter((s) => s.length > 0);
@@ -199,7 +220,8 @@ export class SandboxBridge {
         }
     }
 
-    async vaultWriteBinary(path: string, content: ArrayBuffer): Promise<void> {
+    /** @param governanceTaskId FIX-44-43: see {@link vaultWrite}. */
+    async vaultWriteBinary(path: string, content: ArrayBuffer, governanceTaskId?: string): Promise<void> {
         this.checkCircuitBreaker();
         this.validateVaultPath(path, true);
         // M-2: Write-Size-Limit
@@ -207,6 +229,7 @@ export class SandboxBridge {
             throw new Error(`Write too large: ${content.byteLength} bytes (max ${SandboxBridge.MAX_WRITE_SIZE})`);
         }
         this.checkWriteRateLimit();
+        await this.snapshotBeforeWrite(path, governanceTaskId);
         this.logBridgeOp('vault-write-binary', `${path} (${content.byteLength} bytes)`);
         if (this.isHiddenPath(path)) {
             // FIX-01-07-04 parity: see vaultWrite above.
@@ -282,27 +305,36 @@ export class SandboxBridge {
                     },
                 },
                 (res) => {
-                    const chunks: Buffer[] = [];
-                    res.on('data', (chunk: Buffer) => chunks.push(chunk));
-                    res.on('end', () => {
-                        const headers: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(res.headers)) {
-                            if (typeof v === 'string') headers[k] = v;
-                            else if (Array.isArray(v)) headers[k] = v.join(', ');
-                        }
-                        resolve({
-                            status: res.statusCode ?? 0,
-                            headers,
-                            text: Buffer.concat(chunks).toString('utf8'),
-                        });
-                    });
-                    res.on('error', (err: Error) => reject(err));
+                    // AUDIT 2026-07-14 (Codex) M-7 / SEC-039-M2: cap the buffered
+                    // body while streaming instead of after Buffer.concat.
+                    readCappedResponseBody(res, () => req.destroy(), MAX_RESPONSE_BYTES)
+                        .then((text) => {
+                            const headers: Record<string, string> = {};
+                            for (const [k, v] of Object.entries(res.headers)) {
+                                if (typeof v === 'string') headers[k] = v;
+                                else if (Array.isArray(v)) headers[k] = v.join(', ');
+                            }
+                            resolve({
+                                status: res.statusCode ?? 0,
+                                headers,
+                                text,
+                            });
+                        })
+                        .catch(reject);
                 },
             );
             req.on('error', (err: Error) => reject(err));
+            // Idle timeout.
             req.setTimeout(15_000, () => {
                 req.destroy(new Error('Sandbox request timed out after 15s'));
             });
+            // AUDIT 2026-07-14 (Codex) M-7 / SEC-039-M3: absolute ceiling so a
+            // slow-drip response cannot hold the request open indefinitely.
+            const hardDeadline = setTimeout(() => {
+                req.destroy(new Error('Sandbox request exceeded absolute time budget of 45s'));
+            }, 45_000);
+            if (typeof hardDeadline === 'object' && 'unref' in hardDeadline) hardDeadline.unref();
+            req.on('close', () => clearTimeout(hardDeadline));
             if (options?.body && method !== 'GET' && method !== 'HEAD') {
                 req.write(options.body);
             }
@@ -436,9 +468,90 @@ export class SandboxBridge {
         // safeStorage-encrypted credentials) and exfiltrate it via
         // requestUrl(). Symmetric read+write block makes configDir an
         // absolute deny-zone for sandboxed skill code.
+        // H-3 (AUDIT 2026-07-14): case-insensitive so `.Obsidian/...` cannot slip
+        // past on case-insensitive filesystems. The IgnoreService pass below
+        // enforces the same zone; this inline check is the first line.
         const configDir = this.plugin.app.vault.configDir;
-        if (safe.startsWith(`${configDir}/`) || safe === configDir) {
+        const safeLower = safe.toLowerCase();
+        const cfgLower = configDir.toLowerCase();
+        if (safeLower.startsWith(`${cfgLower}/`) || safeLower === cfgLower) {
             throw new Error(`Sandbox ${isWrite ? 'write' : 'read'} blocked: ${configDir}/ is protected`);
+        }
+
+        // FIX-44-22 / FIX-44-24: the agent's own data root holds the security
+        // knobs -- settings.json (autoApproval flags, provider apiKeys), the MCP
+        // config, and the skill definitions whose `source: pro` decides trust.
+        // configDir (.obsidian) was a deny-zone; .vault-operator/ was not, so a
+        // sandboxed script could grant itself every permission or forge a paid
+        // skill. Close it: inside the agent folder the sandbox may only touch
+        // skill-data/ (its own runtime state), and may READ (not write) skills/.
+        this.checkAgentFolderAccess(safe, isWrite);
+
+        // FIX-44-04: obey the same IgnoreService the vault tools obey. Ignored
+        // paths are off-limits entirely; protected paths are read-only. Without
+        // this, .obsidian-agentprotected meant nothing to sandbox code.
+        const ignore = this.plugin.ignoreService;
+        if (ignore) {
+            if (ignore.isIgnored(safe)) {
+                throw new Error(`Sandbox blocked: ${ignore.getDenialReason(safe)}`);
+            }
+            if (isWrite && ignore.isProtected(safe)) {
+                throw new Error(`Sandbox write blocked: ${ignore.getDenialReason(safe)}`);
+            }
+        }
+    }
+
+    /**
+     * FIX-44-22: enforce the agent-folder deny-zone.
+     *
+     * The agent folder holds the security-critical configuration -- settings.json
+     * (autoApproval flags, provider apiKeys), the MCP config, and the cache. A
+     * sandboxed script could write settings.json and grant itself every
+     * auto-approval flag; configDir was blocked, this root was not. Close it.
+     *
+     * The two exceptions are the skill workspace, which legitimately belongs to
+     * the sandbox:
+     *   - `skills/`     -- the skill-creator's `init_skill` script writes SKILL.md
+     *                      and scripts here. It is NOT a trust hole: a skill's
+     *                      trust class comes from the materializer manifest, not
+     *                      from its frontmatter (resolveSkillSource, FIX-44-05),
+     *                      so a script-authored skill is always `user`.
+     *   - `skill-data/` -- a skill's own persistent runtime state.
+     * Everything else under the agent folder (settings.json, mcp config, provider
+     * configs, cache) is denied for both read and write.
+     */
+    private checkAgentFolderAccess(safe: string, isWrite: boolean): void {
+        let root: string;
+        try {
+            root = getInternalAgentFolderPath(this.plugin);
+        } catch {
+            // No settings in scope (e.g. a bare unit test): fall back to the
+            // default folder name so the deny-zone still applies fail-safe.
+            root = DEFAULT_AGENT_FOLDER;
+        }
+        if (!isProtectedAgentConfigPath(safe, root)) return;
+
+        throw new Error(
+            `Sandbox ${isWrite ? 'write' : 'read'} blocked: ${root}/ is protected ` +
+            `(agent configuration: settings, credentials, cache). ` +
+            `Only skills/ and skill-data/ are accessible.`,
+        );
+    }
+
+    /**
+     * FIX-44-04: snapshot the target before a sandbox write, so a bad script is
+     * recoverable via restore_checkpoint just like a bad tool write. No-op when
+     * no task travelled with the write (FIX-44-43: the executor resolves the
+     * issuing execution's taskId and passes it per operation) or checkpoints are
+     * off. Never throws -- a failed snapshot must not block the write path.
+     */
+    private async snapshotBeforeWrite(path: string, taskId: string | undefined): Promise<void> {
+        if (!taskId) return;
+        if (this.plugin.settings?.enableCheckpoints === false) return;
+        try {
+            await this.plugin.checkpointService?.snapshot(taskId, [path], 'sandbox:write');
+        } catch (e) {
+            console.warn('[SandboxBridge] Checkpoint failed (non-fatal):', e);
         }
     }
 

@@ -15,7 +15,7 @@ import { wrapVaultContentForMcp } from '../McpBridge';
 import { FactStore } from '../../core/memory/FactStore';
 import { cosine } from '../../core/memory/cosine';
 import {
-    validateSourceInterface,
+    resolveExternalSourceInterface,
     type SourceInterface,
 } from '../../core/memory/SourceInterface';
 import type { Fact, FactKind } from '../../core/memory/FactStore';
@@ -36,8 +36,10 @@ export async function handleRecallMemory(
     const kindFilter = (typeof args.kind === 'string' && VALID_KINDS.includes(args.kind as FactKind))
         ? args.kind as FactKind
         : undefined;
+    // AUDIT 2026-07-14 (Codex) H-1: a provided 'obsilo' is coerced to 'unknown'
+    // so an external client cannot read the plugin-internal fact partition.
     const sourceFilter: SourceInterface | undefined = args.source_interface !== undefined
-        ? validateSourceInterface(args.source_interface)
+        ? resolveExternalSourceInterface(args.source_interface)
         : undefined;
 
     // AUDIT-015 M-3: strictSourceIsolation erzwingt source_interface

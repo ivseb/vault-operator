@@ -11,7 +11,7 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import type { IncomingMessage } from 'http';
-import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, getModelEffortLevels, modelUsesBudgetTokensThinking } from '../../types/model-registry';
+import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, resolveEffortLevels, modelUsesBudgetTokensThinking, isEffortWithToolsUnsupported } from '../../types/model-registry';
 import { validateProviderUrl } from './providerUrlGuard';
 import { logCacheStat } from '../logCacheStat';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
@@ -40,6 +40,10 @@ const THINKING_TOGGLE_PROVIDER_TYPES = new Set<string>(['custom', 'ollama', 'lms
 const QWEN_THINKING_MODEL_REGEX = /qwen3?/i;
 
 // ToolCallAccumulator moved to utils/toolCallFlush.ts (FIX-13-02-01); see import above.
+
+// FIX-54-10: once-per-session-per-model notice when a user-chosen effort is
+// suppressed to 'none' because the model rejects effort with function tools.
+const effortSuppressionNotified = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -281,14 +285,40 @@ export class OpenAiProvider implements ApiHandler {
         //     Claude and non-Claude reasoning models, and merges with the
         //     existing reasoning.max_tokens passthrough).
         //   - openai / github-copilot use the chat-completions reasoning_effort.
-        // Defensive per-family validity: getModelEffortLevels returns the exact
+        // Defensive per-family validity: resolveEffortLevels returns the exact
         // native set for this (model, provider) pair (OpenRouter Claude -> low..
         // max, GPT -> minimal..high), so a cross-family level (a Claude-only
         // xhigh/max accidentally set on a GPT model, or a GPT-only minimal on an
-        // OpenRouter Claude) is dropped, not sent.
+        // OpenRouter Claude) is dropped, not sent. IMP-54-05b: the per-model
+        // opt-in (custom / OpenAI-compatible endpoints, e.g. GLM-5.2) grants
+        // the OpenAI-style set through the same choke point the picker gate
+        // uses, so slider visibility and the wire field can never disagree.
         const effort = this.config.reasoningEffort;
-        const effortLevels = getModelEffortLevels(this.config.model, this.config.type);
+        const effortLevels = resolveEffortLevels(this.config.model, this.config.type, this.config.effortOptIn);
         const effortValid = effort !== undefined && effortLevels.includes(effort);
+        // FIX-54-10: learned per-model restriction. The gpt-5.6 platform
+        // generation 400s when function tools and reasoning_effort are
+        // combined on /v1/chat/completions ("... use /v1/responses or set
+        // reasoning_effort to 'none'"). When the flag is set AND tools are
+        // present, the request must carry the EXPLICIT 'none' the provider
+        // names as the escape, REGARDLESS of whether the user chose an
+        // effort: omitting the field is not equivalent, because reasoning
+        // models apply a non-none default effort server-side and 400 with the
+        // identical message on a field-less request (second field report,
+        // 2026-07-14). Only the chat-completions reasoning_effort branch
+        // consults the flag; OpenRouter's reasoning.effort is a different
+        // wire surface with its own semantics.
+        const suppressEffortForTools = this.config.type !== 'openrouter'
+            && openAiTools !== undefined && openAiTools.length > 0
+            && isEffortWithToolsUnsupported(this.config.model);
+        if (suppressEffortForTools && !effortSuppressionNotified.has(this.config.model)) {
+            effortSuppressionNotified.add(this.config.model);
+            console.debug(
+                `[OpenAi] ${this.config.model}: reasoning_effort forced to 'none' `
+                + `(was ${effortValid ? `'${effort}'` : 'unset, server default'}; `
+                + `model rejects effort combined with function tools; learned flag, FIX-54-10)`,
+            );
+        }
         // OpenRouter reasoning object: merge the existing extended-thinking
         // max_tokens passthrough (if any) with the effort field (if any).
         // The adaptive Claude lineup (Opus 4.7/4.8, Fable, Mythos) removed
@@ -329,8 +359,13 @@ export class OpenAiProvider implements ApiHandler {
                 ? { reasoning: openRouterReasoning } as Record<string, unknown>
                 : {}),
             // openai / github-copilot reasoning effort (chat-completions field).
-            ...(effortValid && this.config.type !== 'openrouter'
-                ? { reasoning_effort: effort } as Record<string, unknown>
+            // FIX-54-10: forced to 'none' when the learned flag says this model
+            // rejects effort with function tools; the flag path fires even
+            // without a user-chosen effort, because a field-less request gets
+            // the server-side default effort and 400s identically ('none' is
+            // not in the SDK's ReasoningEffort union yet, hence the cast).
+            ...(suppressEffortForTools || (effortValid && this.config.type !== 'openrouter')
+                ? { reasoning_effort: suppressEffortForTools ? 'none' : effort } as Record<string, unknown>
                 : {}),
             // OpenRouter: disable automatic model fallback to prevent silent model switches.
             // Without this, OpenRouter can route to a completely different model (e.g. Gemini)

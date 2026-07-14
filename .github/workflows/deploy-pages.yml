@@ -20,28 +20,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit SHAs.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
+      # FIX-28-04: verified lockfile via `npm ci --ignore-scripts` instead of
+      # discarding it and running `npm install` with lifecycle scripts.
       - name: Install dependencies
         run: |
-          rm -f package-lock.json
-          rm -rf node_modules
-          npm install --no-audit --no-fund
-          npm install @rollup/rollup-linux-x64-gnu --no-audit --no-fund --no-save
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu@4.62.2 --no-audit --no-fund --no-save --ignore-scripts
 
       - name: Build VitePress
         run: npx vitepress build docs
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: docs/.vitepress/dist
 
@@ -54,4 +56,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

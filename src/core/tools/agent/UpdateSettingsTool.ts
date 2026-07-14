@@ -15,22 +15,20 @@ import type { AutoApprovalConfig } from '../../../types/settings';
 
 /** Dot-paths that are writable via update_settings */
 export const WRITABLE_PATHS = new Set([
-    // Auto-approval flags
+    // Auto-approval flags. FIX-44-34: read/mode/question/todo/showMenuInChat
+    // removed -- they were dead keys the agent could set to no effect.
     'autoApproval.enabled',
-    'autoApproval.read',
     'autoApproval.noteEdits',
     'autoApproval.vaultChanges',
     'autoApproval.web',
     'autoApproval.mcp',
-    'autoApproval.mode',
     'autoApproval.subtasks',
-    'autoApproval.question',
-    'autoApproval.todo',
     'autoApproval.skills',
     'autoApproval.pluginApiRead',
     'autoApproval.pluginApiWrite',
     'autoApproval.recipes',
-    'autoApproval.showMenuInChat',
+    // sandbox is deliberately NOT writable here: the agent must not be able to
+    // request its own sandbox auto-approval, even via a confirmed settings change.
     // Advanced API
     'advancedApi.condensingEnabled',
     'advancedApi.condensingThreshold',
@@ -77,55 +75,56 @@ export const WRITABLE_PATHS = new Set([
     'debugMode',
 ]);
 
-/** Permission presets */
-const PRESETS: Record<string, Partial<AutoApprovalConfig>> = {
+/**
+ * Permission presets.
+ *
+ * FIX-44-25: every preset sets EVERY gating flag. Leaving `sandbox` (or any
+ * flag) unset made Object.assign preserve whatever value was already there, so
+ * `balanced` could silently keep a stale `sandbox: true` from a past permissive
+ * run. `sandbox` is false in all three presets on purpose -- auto-approving
+ * arbitrary agent-authored code is a deliberate, per-run decision, never a
+ * preset side effect (it still carries its own confirm on the card, FIX-44-03b).
+ * A drift test asserts each preset covers every category key.
+ */
+export const PRESETS: Record<string, Partial<AutoApprovalConfig>> = {
     permissive: {
         enabled: true,
-        read: true,
         noteEdits: true,
         vaultChanges: true,
         web: true,
         mcp: true,
-        mode: true,
         subtasks: true,
-        question: true,
-        todo: true,
         skills: true,
         pluginApiRead: true,
         pluginApiWrite: true,
         recipes: true,
+        sandbox: false,
     },
     balanced: {
         enabled: true,
-        read: true,
         noteEdits: false,
         vaultChanges: false,
         web: true,
         mcp: false,
-        mode: true,
         subtasks: false,
-        question: true,
-        todo: true,
         skills: true,
         pluginApiRead: true,
         pluginApiWrite: false,
         recipes: true,
+        sandbox: false,
     },
     restrictive: {
         enabled: false,
-        read: true,
         noteEdits: false,
         vaultChanges: false,
         web: false,
         mcp: false,
-        mode: false,
         subtasks: false,
-        question: true,
-        todo: true,
         skills: false,
         pluginApiRead: false,
         pluginApiWrite: false,
         recipes: false,
+        sandbox: false,
     },
 };
 
@@ -143,7 +142,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
             description:
                 'Change Vault Operator plugin settings. Use action "set" to change a single setting by path, ' +
                 '"apply_preset" to apply a permission preset, or "open_tab" to open a settings tab for the user. ' +
-                'Available presets: "permissive" (all auto-approved), "balanced" (reads + skills auto, writes ask), "restrictive" (everything asks). ' +
+                'Available presets: "permissive" (writes/web/mcp/skills auto; sandbox, settings and self-modify still ask), "balanced" (reads + web + skills auto, writes ask), "restrictive" (everything that writes asks; reads still run). ' +
                 'Available tabs for open_tab: "providers", "agent-behaviour", "advanced". Sub-tabs: "backup", "models", "permissions", "interface". ' +
                 'This tool cannot change API keys — use configure_model for that.',
             input_schema: {
@@ -302,11 +301,15 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
         }
         await this.plugin.saveSettings();
 
+        // FIX-44-31: describe what the preset ACTUALLY does. Sandbox execution,
+        // plugin-settings changes and agent self-modification always ask, even
+        // under "permissive"; reads always run, even under "restrictive".
         const summary = presetName === 'permissive'
-            ? 'All operations auto-approved. The agent can read, write, and modify without asking.'
+            ? 'Note edits, vault changes, web, MCP, subtasks, skills and recipes auto-approved. '
+              + 'Sandbox code execution, plugin settings changes and agent self-modification still ask.'
             : presetName === 'balanced'
-            ? 'Reads and skills auto-approved. Write operations require confirmation.'
-            : 'All operations require confirmation. Maximum control.';
+            ? 'Reads, web and skills auto-approved. Writes, vault changes, sandbox and MCP ask.'
+            : 'Everything that writes, spends, or leaves the device asks. Reads still run.';
 
         callbacks.pushToolResult(this.formatSuccess(
             `Applied "${presetName}" permission preset. ${summary}`

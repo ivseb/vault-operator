@@ -28,7 +28,10 @@
 const _SI = atob('c2V0SW50ZXJ2YWw='); // setInterval
 const _ST = atob('c2V0VGltZW91dA=='); // setTimeout
 
-const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
+// Exported so a repo test can run every bundled skill script through the real
+// blocklist. Note that stripComments preserves strings, so a script that
+// SEARCHES for these tokens must build them from fragments or it rejects itself.
+export const BLOCKED_PATTERNS: { pattern: RegExp; reason: string }[] = [
     { pattern: /\beval\s*\(/, reason: 'eval() is not allowed' },
     { pattern: /\bnew\s+Function\b/, reason: 'new Function() is not allowed' },
     { pattern: /\brequire\s*\(/, reason: 'require() is not allowed' },

@@ -121,6 +121,10 @@ function generateInlineAssets() {
     function walkSkill(dir, relPrefix, files) {
         for (const entry of readdirSync(dir)) {
             if (entry.startsWith('.')) continue;
+            // A skill's unit tests are development artefacts. Without this they are
+            // bundled and materialised into every user's vault, where they are dead
+            // weight the user cannot explain and the agent may try to read.
+            if (entry === '__tests__') continue;
             const full = join(dir, entry);
             const rel = relPrefix ? `${relPrefix}/${entry}` : entry;
             if (statSync(full).isDirectory()) {

@@ -1,34 +1,47 @@
 /**
- * EditReviewPanel -- einheitliche Side-by-Side Review-UI für jeden Edit, der
- * eine Note ändert (Inline-AI-Actions, Sidebar-Agent-Tasks, Checkpoint-Diff).
+ * EditReviewPanel -- the side-by-side view for every change an agent makes to a
+ * note, and since FEAT-44-10 the APPROVAL GATE itself: it is shown BEFORE the
+ * write, and rejecting it means nothing is written.
  *
  * Layout:
- *   ┌─ Header (Titel + ×) ──────────────────────────────────────────┐
- *   │  Dateien (N)      │  Pfad      [Diese Datei skippen]          │
- *   │  • Notes/Idee.md  │ ┌─ Original ────┐ ┌─ Neu (editierbar) ──┐ │
- *   │    Notes/Plan.md  │ │ Lorem ipsum   │ │ Lorem.              │ │
- *   │                   │ │ Consectetur.. │ │ Kurz und klar.      │ │
- *   │                   │ │ Sed do...     │ │ Sed do...           │ │
- *   │                   │ └───────────────┘ └─────────────────────┘ │
- *   ├─ Footer ──────────────────────────────────────────────────────┤
- *   │              [ Verwerfen ]   [ Anwenden ]                     │
- *   └───────────────────────────────────────────────────────────────┘
+ *   +- Header (title) ----------------------------------------------+
+ *   |  Files (N)     |  path        3 changes   [Edit] [Skip file]  |
+ *   |  Notes/Idee.md | +---------------------+---------------------+|
+ *   |  Notes/Plan.md | |  ## Kontext (sticky heading)              ||
+ *   |                | |  Sie nutzt es [-taeglich-]|[+woechentl.+] ||
+ *   |                | |  ... 14 unchanged lines ...               ||
+ *   |                | +---------------------+---------------------+|
+ *   +- Footer -------------------------------------------------------+
+ *   |                        [ Discard ]   [ Apply ]                 |
+ *   +----------------------------------------------------------------+
  *
- * Grundsätze:
- *   - Rechte Spalte ist von Anfang an editierbar (Textarea), kein Edit-Button.
- *   - Geänderte Zeilen auf der LINKEN Spalte werden dezent gelb getönt.
- *   - Keine Per-Hunk-Buttons. Per-Datei nur ein "Skippen"-Toggle.
- *   - Nur zwei globale Aktionen: Verwerfen / Anwenden.
+ * The three decisions that make this readable, and what each one replaced:
  *
- * Bot-Compliance: keine innerHTML, kein direkter style-Mutation außer
- * style.setProperty, keine Emojis, keine console.log (nur .debug/.warn).
+ * 1. ONE scroll container, ONE row element per diff line, both cells inside it.
+ *    The old build used two independent scroll containers, which is the
+ *    diff2html bug (#99): when a line wraps in one column, the other column
+ *    cannot know about it and the two sides drift apart. With prose in a ~60
+ *    character column, every second line wraps -- so they always drifted. A CSS
+ *    grid row is as tall as its tallest cell, so both sides stay in lock-step
+ *    with zero JavaScript.
  *
- * Related: EPIC-33 Diff-UX-refresh (User-Feedback 2026-06-22).
+ * 2. WORD-LEVEL highlighting inside a changed line (intralineDiff). A German
+ *    paragraph is one line; "this paragraph is gone, this one is new" carries no
+ *    information.
+ *
+ * 3. The right column is NO LONGER contenteditable. It used to be both the diff
+ *    and the editor, so the highlighting fell apart the moment you typed and the
+ *    text had to be scraped back out of the mangled DOM. Editing is now a
+ *    deliberate mode with a plain textarea. The diff stays a diff.
+ *
+ * Bot-compliance: no innerHTML, no style mutation beyond setProperty, no emojis,
+ * no console.log.
  */
 
 import { t } from '../../i18n';
-import { diffLines } from '../../core/utils/diffLines';
+import { diffLines, getDiffStats } from '../../core/utils/diffLines';
 import { buildAlignedDiff, type AlignedLine } from './alignedDiff';
+import { intralineDiff, type IntralineOp } from './intralineDiff';
 
 export interface EditReviewEntry {
     path: string;
@@ -48,6 +61,15 @@ export interface EditReviewDecision {
     skipped: boolean;
 }
 
+/**
+ * How the user applied. FEAT-44-02: "and stop asking me for the rest of this
+ * run". FEAT-44-02a: "and stop asking me until the plugin reloads".
+ */
+export interface EditReviewApplyMeta {
+    rememberForRun: boolean;
+    rememberForSession?: boolean;
+}
+
 export type EditReviewMode = 'edit' | 'checkpoint';
 
 export type SetIconHook = (el: HTMLElement, name: string) => void;
@@ -61,9 +83,30 @@ export interface EditReviewPanelOptions {
     /** Source label (e.g. "Inline-AI: Rewrite") for the header subtitle. */
     sourceLabel?: string;
     /** Called when the user presses "Anwenden" in edit mode. */
-    onApply?: (decisions: EditReviewDecision[]) => void | Promise<void>;
+    onApply?: (decisions: EditReviewDecision[], meta?: EditReviewApplyMeta) => void | Promise<void>;
+    /**
+     * FEAT-44-02: offer "apply, and do not ask again for this run". Only the
+     * pre-write GATE offers this -- a post-task review has nothing left to
+     * pre-approve.
+     */
+    allowRememberForRun?: boolean;
+    /**
+     * FEAT-44-02b: the BATCH approval gate is read-only. The tool writes its
+     * batch internally, so a user edit inside one entry could not be honoured
+     * honestly (the Pipeline drops stray finalContent from batch approvals).
+     * Hides the edit/discard-edit buttons and the textarea; per-file Skip
+     * stays -- per-entry consent is the point of the gate.
+     */
+    readonlyContent?: boolean;
     /** Called when the user presses "Verwerfen" or closes. */
     onDiscard?: () => void;
+    /**
+     * FIX-44-16: the discard button means different things in the two places this
+     * panel is used. As a PRE-write gate it means "do not write". As a POST-task
+     * review the writes already landed, so it means "take them back". The caller
+     * says which, because only the caller knows.
+     */
+    discardLabel?: string;
     /** Called when the user presses "Wiederherstellen" in checkpoint mode. */
     onRestore?: () => void | Promise<void>;
     /** Bridge to Obsidian's setIcon() for Lucide rendering. */
@@ -82,10 +125,13 @@ export class EditReviewPanel {
     private readonly mode: EditReviewMode;
     private readonly title: string;
     private readonly sourceLabel: string;
-    private readonly onApply?: (decisions: EditReviewDecision[]) => void | Promise<void>;
+    private readonly onApply?: (decisions: EditReviewDecision[], meta?: EditReviewApplyMeta) => void | Promise<void>;
+    private readonly allowRememberForRun: boolean;
     private readonly onDiscard?: () => void;
     private readonly onRestore?: () => void | Promise<void>;
+    private readonly discardLabel: string;
     private readonly setIcon: SetIconHook;
+    private readonly readonlyContent: boolean;
 
     private files: FileState[] = [];
     private currentIndex = 0;
@@ -93,10 +139,21 @@ export class EditReviewPanel {
     private rootEl: HTMLElement | null = null;
     private filelistEl: HTMLElement | null = null;
     private diffPathEl: HTMLElement | null = null;
-    private beforeColEl: HTMLElement | null = null;
-    private afterEditorEl: HTMLElement | null = null;
+    /** The ONE scroll container. Both columns live inside it, row by row. */
+    private bodyEl: HTMLElement | null = null;
+    private textareaEl: HTMLTextAreaElement | null = null;
+    private editToggleEl: HTMLElement | null = null;
+    private editDiscardEl: HTMLElement | null = null;
     private afterStatsEl: HTMLElement | null = null;
     private skipBtnEl: HTMLElement | null = null;
+    /** Diff or edit. They are different jobs and no longer share a DOM node. */
+    private editing = false;
+    /**
+     * A diff should show the CHANGE, not the file. Unchanged runs are folded away
+     * -- otherwise a frontmatter edit renders the whole transcript underneath it
+     * and reads as if the body were part of the change. Expanding is one click.
+     */
+    private expanded = false;
 
     constructor(options: EditReviewPanelOptions) {
         this.containerEl = options.containerEl;
@@ -105,8 +162,11 @@ export class EditReviewPanel {
         this.title = options.title ?? (options.mode === 'checkpoint' ? t('ui.editReview.titleCheckpoint') : t('ui.editReview.titleReview'));
         this.sourceLabel = options.sourceLabel ?? '';
         this.onApply = options.onApply;
+        this.allowRememberForRun = options.allowRememberForRun ?? false;
         this.onDiscard = options.onDiscard;
         this.onRestore = options.onRestore;
+        this.readonlyContent = options.readonlyContent ?? false;
+        this.discardLabel = options.discardLabel ?? t('ui.editReview.discard');
         this.setIcon = options.setIcon ?? ((el, _name) => { el.textContent = ''; });
 
         this.files = options.entries.map((e) => ({
@@ -162,18 +222,28 @@ export class EditReviewPanel {
         }
         this.filelistEl = null;
         this.diffPathEl = null;
-        this.beforeColEl = null;
-        this.afterEditorEl = null;
+        this.bodyEl = null;
+        this.textareaEl = null;
+        this.editToggleEl = null;
+        this.editDiscardEl = null;
+        this.afterStatsEl = null;
         this.skipBtnEl = null;
+        this.editing = false;
     }
 
     selectFile(index: number): void {
         if (index < 0 || index >= this.files.length) return;
-        if (this.afterEditorEl !== null) {
-            this.files[this.currentIndex].workingContent = readEditorText(this.afterEditorEl);
-        }
+        this.syncFromTextarea();
         this.currentIndex = index;
+        this.editing = false;
+        this.expanded = false;
         this.renderSelectedFile();
+    }
+
+    /** The textarea is the only editing surface, so this is the only way text flows back. */
+    private syncFromTextarea(): void {
+        if (this.textareaEl === null) return;
+        this.files[this.currentIndex].workingContent = this.textareaEl.value;
     }
 
     private buildHeader(root: HTMLElement, doc: Document): void {
@@ -239,14 +309,47 @@ export class EditReviewPanel {
         const diff = doc.createElement('div');
         diff.classList.add('agent-edit-review__diff');
 
-        const diffHeader = doc.createElement('div');
-        diffHeader.classList.add('agent-edit-review__diff-header');
+        // --- toolbar ---------------------------------------------------------
+        const bar = doc.createElement('div');
+        bar.classList.add('agent-edit-review__diff-header');
 
         const pathEl = doc.createElement('div');
         pathEl.classList.add('agent-edit-review__diff-path');
-        diffHeader.appendChild(pathEl);
+        bar.appendChild(pathEl);
         this.diffPathEl = pathEl;
 
+        const stats = doc.createElement('span');
+        stats.classList.add('agent-edit-review__stats');
+        bar.appendChild(stats);
+        this.afterStatsEl = stats;
+
+        if (this.mode === 'edit' && !this.readonlyContent) {
+            // Two buttons, not one toggle. "Back to diff" said nothing about what
+            // happens to what you just typed -- it kept it, but you had to guess.
+            // Now the two outcomes are named: keep the edit, or throw it away.
+            const editBtn = doc.createElement('button');
+            editBtn.classList.add('agent-edit-review__edit-btn');
+            editBtn.setAttribute('type', 'button');
+            editBtn.textContent = t('ui.editReview.editToggle');
+            editBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                if (this.editing) this.keepEdit();
+                else this.startEditing();
+            });
+            bar.appendChild(editBtn);
+            this.editToggleEl = editBtn;
+
+            const dropBtn = doc.createElement('button');
+            dropBtn.classList.add('agent-edit-review__edit-discard-btn');
+            dropBtn.setAttribute('type', 'button');
+            dropBtn.textContent = t('ui.editReview.discardEdit');
+            dropBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                this.discardEdit();
+            });
+            bar.appendChild(dropBtn);
+            this.editDiscardEl = dropBtn;
+        }
         if (this.mode === 'edit') {
             const skip = doc.createElement('button');
             skip.classList.add('agent-edit-review__skip-btn');
@@ -256,64 +359,85 @@ export class EditReviewPanel {
                 ev.preventDefault();
                 this.toggleSkipCurrent();
             });
-            diffHeader.appendChild(skip);
+            bar.appendChild(skip);
             this.skipBtnEl = skip;
         }
-        diff.appendChild(diffHeader);
+        diff.appendChild(bar);
 
-        const cols = doc.createElement('div');
-        cols.classList.add('agent-edit-review__columns');
+        // --- column headings -------------------------------------------------
+        const heads = doc.createElement('div');
+        heads.classList.add('agent-edit-review__colheads');
+        const hOld = doc.createElement('span');
+        hOld.classList.add('agent-edit-review__colhead');
+        hOld.textContent = t('ui.editReview.original');
+        heads.appendChild(hOld);
+        const hNew = doc.createElement('span');
+        hNew.classList.add('agent-edit-review__colhead');
+        hNew.textContent = this.mode === 'checkpoint'
+            ? t('ui.editReview.snapshot')
+            : t('ui.editReview.proposed');
+        heads.appendChild(hNew);
+        diff.appendChild(heads);
 
-        const beforeCol = doc.createElement('div');
-        beforeCol.classList.add('agent-edit-review__column');
-        beforeCol.classList.add('agent-edit-review__column--before');
-        const beforeLabel = doc.createElement('div');
-        beforeLabel.classList.add('agent-edit-review__column-label');
-        beforeLabel.textContent = t('ui.editReview.original');
-        beforeCol.appendChild(beforeLabel);
-        const beforeBody = doc.createElement('div');
-        beforeBody.classList.add('agent-edit-review__column-body');
-        beforeCol.appendChild(beforeBody);
-        this.beforeColEl = beforeBody;
-        cols.appendChild(beforeCol);
+        // --- the ONE scroll container ---------------------------------------
+        // Both columns are rendered INSIDE this, one row element per diff line.
+        // That is what keeps the two sides aligned when a line wraps.
+        const body = doc.createElement('div');
+        body.classList.add('agent-edit-review__body');
+        diff.appendChild(body);
+        this.bodyEl = body;
 
-        const afterCol = doc.createElement('div');
-        afterCol.classList.add('agent-edit-review__column');
-        afterCol.classList.add('agent-edit-review__column--after');
-        const afterLabel = doc.createElement('div');
-        afterLabel.classList.add('agent-edit-review__column-label');
-        const afterLabelText = doc.createElement('span');
-        afterLabelText.textContent = this.mode === 'checkpoint' ? t('ui.editReview.snapshot') : t('ui.editReview.editableNew');
-        afterLabel.appendChild(afterLabelText);
-        const stats = doc.createElement('span');
-        stats.classList.add('agent-edit-review__stats');
-        afterLabel.appendChild(stats);
-        this.afterStatsEl = stats;
-        afterCol.appendChild(afterLabel);
-
-        const editor = doc.createElement('div');
-        editor.classList.add('agent-edit-review__editor');
-        if (this.mode === 'edit') {
-            // plaintext-only avoids the browser inserting <div>/<br>
-            // markup so textContent stays a clean newline-joined string.
-            // Chromium (Electron / Obsidian) supports this; the read-only
-            // checkpoint mode does not need it.
-            editor.setAttribute('contenteditable', 'plaintext-only');
-            editor.setAttribute('spellcheck', 'true');
+        // --- the editing surface (hidden until the user asks for it) ---------
+        if (this.mode === 'edit' && !this.readonlyContent) {
+            const ta = doc.createElement('textarea');
+            ta.classList.add('agent-edit-review__textarea');
+            ta.setAttribute('spellcheck', 'true');
+            ta.addEventListener('input', () => {
+                const file = this.files[this.currentIndex];
+                file.workingContent = ta.value;
+                this.scheduleStats(file.entry.before, ta.value);
+            });
+            diff.appendChild(ta);
+            this.textareaEl = ta;
         }
-        editor.addEventListener('input', () => {
-            const text = readEditorText(editor);
-            this.files[this.currentIndex].workingContent = text;
-            // Initial highlights are gone once the user types -- we keep
-            // the stat counter live so they still see the change scope.
-            this.refreshStats(this.files[this.currentIndex].entry.before, text);
-        });
-        afterCol.appendChild(editor);
-        this.afterEditorEl = editor;
-        cols.appendChild(afterCol);
 
-        diff.appendChild(cols);
         main.appendChild(diff);
+    }
+
+    private startEditing(): void {
+        if (this.mode !== 'edit') return;
+        this.editing = true;
+        this.renderSelectedFile();
+    }
+
+    /** Keep what the user typed and go back to the diff, which now shows it. */
+    private keepEdit(): void {
+        if (this.mode !== 'edit') return;
+        this.syncFromTextarea();
+        this.editing = false;
+        this.renderSelectedFile();
+    }
+
+    /** Throw the manual edit away and go back to the agent's proposal. */
+    private discardEdit(): void {
+        if (this.mode !== 'edit') return;
+        const file = this.files[this.currentIndex];
+        file.workingContent = file.entry.after;
+        this.editing = false;
+        this.renderSelectedFile();
+    }
+
+    /**
+     * refreshStats runs a full diff. Doing that on every keystroke of a 40k
+     * transcript is how you make a textarea feel broken.
+     */
+    private statsTimer: ReturnType<typeof setTimeout> | null = null;
+    private scheduleStats(before: string, current: string): void {
+        if (this.statsTimer !== null) clearTimeout(this.statsTimer);
+        this.statsTimer = setTimeout(() => {
+            this.statsTimer = null;
+            this.refreshStats(before, current);
+        }, 300);
     }
 
     private buildFooter(root: HTMLElement, doc: Document): void {
@@ -323,7 +447,7 @@ export class EditReviewPanel {
         const discardBtn = doc.createElement('button');
         discardBtn.classList.add('agent-edit-review__discard-btn');
         discardBtn.setAttribute('type', 'button');
-        discardBtn.textContent = t('ui.editReview.discard');
+        discardBtn.textContent = this.discardLabel;
         discardBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             this.handleDiscard();
@@ -342,6 +466,32 @@ export class EditReviewPanel {
             });
             footer.appendChild(restoreBtn);
         } else {
+            if (this.allowRememberForRun) {
+                // FEAT-44-02: the user cannot be shown one diff for the whole run --
+                // the agent only decides its next tool call after seeing this one's
+                // result. What they can do is say yes once and mean it for the run.
+                const applyAllBtn = doc.createElement('button');
+                applyAllBtn.classList.add('agent-edit-review__apply-run-btn');
+                applyAllBtn.setAttribute('type', 'button');
+                applyAllBtn.textContent = t('ui.editReview.applyForRun');
+                applyAllBtn.addEventListener('click', (ev) => {
+                    ev.preventDefault();
+                    this.handleApply('run');
+                });
+                footer.appendChild(applyAllBtn);
+
+                // FEAT-44-02a: one level up -- until the plugin reloads.
+                const applySessionBtn = doc.createElement('button');
+                applySessionBtn.classList.add('agent-edit-review__apply-session-btn');
+                applySessionBtn.setAttribute('type', 'button');
+                applySessionBtn.textContent = t('ui.editReview.applyForSession');
+                applySessionBtn.addEventListener('click', (ev) => {
+                    ev.preventDefault();
+                    this.handleApply('session');
+                });
+                footer.appendChild(applySessionBtn);
+            }
+
             const applyBtn = doc.createElement('button');
             applyBtn.classList.add('agent-edit-review__apply-btn');
             applyBtn.classList.add('mod-cta');
@@ -349,7 +499,7 @@ export class EditReviewPanel {
             applyBtn.textContent = t('ui.editReview.apply');
             applyBtn.addEventListener('click', (ev) => {
                 ev.preventDefault();
-                this.handleApply();
+                this.handleApply('once');
             });
             footer.appendChild(applyBtn);
         }
@@ -375,8 +525,28 @@ export class EditReviewPanel {
             this.diffPathEl.textContent = file.entry.path;
         }
 
-        if (this.beforeColEl !== null && this.afterEditorEl !== null) {
-            this.renderAlignedDiff(this.beforeColEl, this.afterEditorEl, file.entry, file.workingContent);
+        if (this.rootEl !== null) {
+            this.rootEl.classList.toggle('is-editing', this.editing);
+            this.rootEl.classList.toggle('is-deleting', file.entry.isDeleted === true);
+        }
+
+        if (this.textareaEl !== null) {
+            this.textareaEl.value = file.workingContent;
+        }
+        if (this.editToggleEl !== null) {
+            this.editToggleEl.classList.toggle('is-active', this.editing);
+            this.editToggleEl.textContent = this.editing
+                ? t('ui.editReview.keepEdit')
+                : t('ui.editReview.editToggle');
+        }
+        if (this.editDiscardEl !== null) {
+            // Only meaningful while editing, or once an edit exists to throw away.
+            const edited = file.workingContent !== file.entry.after;
+            this.editDiscardEl.classList.toggle('is-hidden', !this.editing && !edited);
+        }
+
+        if (this.bodyEl !== null && !this.editing) {
+            this.renderDiffBody(this.bodyEl, file.entry, file.workingContent);
         }
 
         this.refreshStats(file.entry.before, file.workingContent);
@@ -395,88 +565,145 @@ export class EditReviewPanel {
         return items.indexOf(child);
     }
 
-    private renderAlignedDiff(
-        beforeHost: HTMLElement,
-        afterHost: HTMLElement,
-        entry: EditReviewEntry,
-        currentContent: string,
-    ): void {
+    /**
+     * Render the diff into the single scroll container: one row per aligned line,
+     * both cells inside it. The row is a CSS grid, so its height is the height of
+     * its tallest cell -- which is how the two sides stay aligned even when only
+     * one of them wraps.
+     */
+    private renderDiffBody(host: HTMLElement, entry: EditReviewEntry, currentContent: string): void {
         const doc = this.containerEl.ownerDocument;
-        while (beforeHost.firstChild !== null) beforeHost.removeChild(beforeHost.firstChild);
-        while (afterHost.firstChild !== null) afterHost.removeChild(afterHost.firstChild);
+        while (host.firstChild !== null) host.removeChild(host.firstChild);
 
-        const aligned = buildAlignedDiff(entry.before, currentContent);
+        const aligned = buildAlignedDiff(entry.before, currentContent, { collapse: !this.expanded });
+
         if (aligned.left.length === 0) {
             const empty = doc.createElement('div');
-            empty.classList.add('agent-edit-review__line');
+            empty.classList.add('agent-edit-review__empty-diff');
             empty.textContent = t('ui.editReview.emptyFile');
-            beforeHost.appendChild(empty);
-            const emptyR = doc.createElement('div');
-            emptyR.classList.add('agent-edit-review__line');
-            emptyR.textContent = ' ';
-            afterHost.appendChild(emptyR);
+            host.appendChild(empty);
             return;
         }
+
+        let lastHeading: string | null = null;
         for (let i = 0; i < aligned.left.length; i += 1) {
-            beforeHost.appendChild(this.makeLineEl(doc, aligned.left[i], 'before'));
-            afterHost.appendChild(this.makeLineEl(doc, aligned.right[i], 'after'));
+            const l = aligned.left[i];
+            const r = aligned.right[i];
+
+            // A sticky "## Abschnitt" is what orients you in a note. A line
+            // number is not -- nobody references line 47 of a transcript.
+            const changed = l.type !== 'unchanged' || r.type !== 'unchanged';
+            if (changed && l.heading !== null && l.heading !== lastHeading) {
+                host.appendChild(this.makeHeadingRow(doc, l.heading));
+                lastHeading = l.heading;
+            }
+
+            host.appendChild(this.makeRow(doc, l, r));
         }
     }
 
-    private makeLineEl(doc: Document, line: AlignedLine, side: 'before' | 'after'): HTMLElement {
+    private makeHeadingRow(doc: Document, heading: string): HTMLElement {
         const el = doc.createElement('div');
-        el.classList.add('agent-edit-review__line');
-        if (line.type === 'removed') {
-            el.classList.add('is-removed');
-            el.classList.add('is-changed');
-        } else if (line.type === 'added') {
-            el.classList.add('is-added');
-            el.classList.add('is-changed');
-        } else if (line.type === 'padding') {
-            el.classList.add('agent-edit-review__line--padding');
-            // Padding rows are non-editable in the contenteditable host;
-            // readEditorText additionally filters them out so they never
-            // bleed back into the note.
-            if (side === 'after') el.setAttribute('contenteditable', 'false');
+        el.classList.add('agent-edit-review__hunk-head');
+        el.textContent = heading;
+        return el;
+    }
+
+    private makeRow(doc: Document, left: AlignedLine, right: AlignedLine): HTMLElement {
+        const row = doc.createElement('div');
+        row.classList.add('agent-edit-review__row');
+
+        if (left.type === 'collapsed') {
+            row.classList.add('agent-edit-review__row--collapsed');
+            const bar = doc.createElement('button');
+            bar.classList.add('agent-edit-review__collapsed');
+            bar.setAttribute('type', 'button');
+            bar.textContent = t('ui.editReview.hiddenLines', { count: left.hiddenCount ?? 0 });
+            bar.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                this.expanded = true;
+                this.renderSelectedFile();
+            });
+            row.appendChild(bar);
+            return row;
         }
 
-        // Line-number gutter (GitHub split-view style). Always rendered
-        // so columns stay visually flush; padding rows leave the slot
-        // empty. Carries the change-status icon as a leading hint so
-        // non-tech users see "added / removed" at a glance.
-        const gutter = doc.createElement('span');
-        gutter.classList.add('agent-edit-review__lineno');
-        if (side === 'after') gutter.setAttribute('contenteditable', 'false');
-        gutter.textContent = line.lineNumber === null ? '' : String(line.lineNumber);
-        el.appendChild(gutter);
+        if (left.type !== 'unchanged' || right.type !== 'unchanged') {
+            row.classList.add('is-change');
+        }
+        row.appendChild(this.makeCell(doc, left, 'old'));
+        row.appendChild(this.makeCell(doc, right, 'new'));
+        return row;
+    }
 
-        const status = doc.createElement('span');
-        status.classList.add('agent-edit-review__line-status');
-        if (side === 'after') status.setAttribute('contenteditable', 'false');
-        if (line.type === 'added') status.textContent = '+';
-        else if (line.type === 'removed') status.textContent = '−';
-        else status.textContent = ' ';
-        el.appendChild(status);
+    private makeCell(doc: Document, line: AlignedLine, side: 'old' | 'new'): HTMLElement {
+        const cell = doc.createElement('div');
+        cell.classList.add('agent-edit-review__cell');
+        cell.classList.add(`agent-edit-review__cell--${side}`);
 
-        const textEl = doc.createElement('span');
-        textEl.classList.add('agent-edit-review__line-text');
-        // Empty content -> single space so the line still has visible
-        // height and Zeile N left stays aligned with Zeile N right.
-        textEl.textContent = line.content.length === 0 ? ' ' : line.content;
-        el.appendChild(textEl);
+        if (line.type === 'removed') cell.classList.add('is-del');
+        else if (line.type === 'added') cell.classList.add('is-add');
+        else if (line.type === 'padding') cell.classList.add('is-pad');
 
-        return el;
+        // Redundant, non-colour cue (WCAG 1.4.1: never carry meaning by colour
+        // alone). Rendered in its own grid slot so it cannot disturb the prose.
+        const marker = doc.createElement('span');
+        marker.classList.add('agent-edit-review__marker');
+        marker.setAttribute('aria-hidden', 'true');
+        marker.textContent = line.type === 'added' ? '+' : line.type === 'removed' ? '\u2212' : '';
+        cell.appendChild(marker);
+
+        const text = doc.createElement('span');
+        text.classList.add('agent-edit-review__text');
+        if (isMonospaceLine(line.content)) text.classList.add('is-mono');
+        this.renderLineText(doc, text, line, side);
+        cell.appendChild(text);
+
+        return cell;
+    }
+
+    /**
+     * Word-level highlighting, but only where it is honest: the line must have a
+     * partner it is genuinely a rewrite of (alignedDiff decides that), and the
+     * word diff must not degenerate into confetti (intralineDiff decides that).
+     * Otherwise the whole line carries the mark, which is the truthful fallback.
+     */
+    private renderLineText(doc: Document, host: HTMLElement, line: AlignedLine, side: 'old' | 'new'): void {
+        if (line.type === 'padding') {
+            // Keeps the row height without putting anything in the note.
+            host.textContent = '';
+            return;
+        }
+        if (line.pairedWith === null || line.type === 'unchanged') {
+            host.textContent = line.content;
+            return;
+        }
+
+        const oldText = side === 'old' ? line.content : line.pairedWith;
+        const newText = side === 'old' ? line.pairedWith : line.content;
+        const d = intralineDiff(oldText, newText);
+        if (d === null) {
+            host.textContent = line.content;
+            return;
+        }
+
+        const ops: IntralineOp[] = side === 'old' ? d.left : d.right;
+        for (const op of ops) {
+            if (op.type === 'equal') {
+                host.appendChild(doc.createTextNode(op.text));
+                continue;
+            }
+            const mark = doc.createElement('span');
+            mark.classList.add('agent-edit-review__word');
+            mark.classList.add(op.type === 'del' ? 'is-del-word' : 'is-add-word');
+            mark.textContent = op.text;
+            host.appendChild(mark);
+        }
     }
 
     private refreshStats(before: string, current: string): void {
         if (this.afterStatsEl === null) return;
-        const lines = diffLines(before, current);
-        let added = 0;
-        let removed = 0;
-        for (const l of lines) {
-            if (l.type === 'added') added += 1;
-            else if (l.type === 'removed') removed += 1;
-        }
+        const { added, removed } = getDiffStats(diffLines(before, current));
         if (added === 0 && removed === 0) {
             this.afterStatsEl.textContent = t('ui.editReview.unchanged');
             this.afterStatsEl.classList.remove('is-changed');
@@ -495,17 +722,18 @@ export class EditReviewPanel {
         this.renderSelectedFile();
     }
 
-    private handleApply(): void {
-        if (this.afterEditorEl !== null) {
-            this.files[this.currentIndex].workingContent = readEditorText(this.afterEditorEl);
-        }
+    private handleApply(scope: 'once' | 'run' | 'session' = 'once'): void {
+        this.syncFromTextarea();
         const decisions: EditReviewDecision[] = this.files.map((f) => ({
             path: f.entry.path,
             finalContent: f.workingContent,
             skipped: f.skipped,
         }));
         try {
-            const result = this.onApply?.(decisions);
+            const result = this.onApply?.(decisions, {
+                rememberForRun: scope === 'run',
+                rememberForSession: scope === 'session',
+            });
             if (result instanceof Promise) {
                 void result.catch((e) => console.warn('[edit-review] onApply threw:', e));
             }
@@ -538,36 +766,10 @@ export class EditReviewPanel {
 }
 
 /**
- * Read the editable right-side content. The editor is a contenteditable
- * div with one line-div per source line. textContent would concatenate
- * "<div>A</div><div>B</div>" to "AB" without newlines -- so in real
- * browsers we prefer innerText which respects the rendered line breaks
- * the user sees. In the jsdom unit-test stub innerText is undefined; we
- * then fall back to joining direct-child textContent with '\n'. Padding
- * rows (rendered as visual filler when one side has fewer change lines)
- * are dropped so they never land in the note.
+ * Prose gets a proportional font; code does not. Deliberately conservative: only
+ * fences and indented blocks. Guessing at YAML by looking for "key:" would catch
+ * every German sentence with a colon in it.
  */
-function readEditorText(host: HTMLElement): string {
-    const elementChildren = Array.from(host.children) as HTMLElement[];
-    if (elementChildren.length > 0) {
-        // Structured render: each child is a .agent-edit-review__line
-        // with three spans inside (lineno gutter + status + line-text).
-        // Read the text from the .agent-edit-review__line-text child if
-        // present; fall back to the line element's textContent (and
-        // strip the gutter+status prefix as a safety net).
-        return elementChildren
-            .filter((c) => c.classList.contains('agent-edit-review__line--padding') === false)
-            .map((c) => {
-                const textChild = (Array.from(c.children) as HTMLElement[])
-                    .find((ch) => ch.classList.contains('agent-edit-review__line-text'));
-                if (textChild !== undefined) return textChild.textContent ?? '';
-                return c.textContent ?? '';
-            })
-            .join('\n');
-    }
-    // Flat text-node fallback (user wiped the structured render and
-    // typed free-form). innerText respects rendered line breaks.
-    const it = (host as HTMLElement & { innerText?: string }).innerText;
-    if (typeof it === 'string') return it;
-    return host.textContent ?? '';
+function isMonospaceLine(content: string): boolean {
+    return content.startsWith('```') || /^ {4}\S/.test(content) || content.startsWith('\t');
 }

@@ -11,6 +11,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { ConsoleRingBuffer, LogLevel, LogQueryFilter } from '../../observability/ConsoleRingBuffer';
+import { sanitizeErrorMessage } from '../../memory/MemoryV2Telemetry';
 
 // ---------------------------------------------------------------------------
 // Input
@@ -103,14 +104,21 @@ export class ReadAgentLogsTool extends BaseTool<'read_agent_logs'> {
                 return Promise.resolve();
             }
 
+            // AUDIT 2026-07-14 L-3: the ring buffer captures every console.* call
+            // process-wide, so a message may carry a secret or untrusted vault
+            // content that was logged verbatim. Redact known secret shapes and
+            // wrap the whole block in the untrusted-content boundary so the model
+            // does not treat a logged line as an instruction.
             const lines = entries.map(e => {
                 const time = new Date(e.timestamp).toISOString().slice(11, 23);
                 const tool = e.correlatedTool ? ` [${e.correlatedTool}]` : '';
-                return `[${time}] ${e.level.toUpperCase()}${tool}: ${e.message}`;
+                return `[${time}] ${e.level.toUpperCase()}${tool}: ${sanitizeErrorMessage(e.message)}`;
             });
 
             const header = `${entries.length} log entries (buffer: ${this.ringBuffer.size} total):`;
-            callbacks.pushToolResult(this.formatSuccess(`${header}\n\n${lines.join('\n')}`));
+            callbacks.pushToolResult(
+                this.formatUntrustedContent('agent-logs', `${header}\n\n${lines.join('\n')}`),
+            );
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
         }

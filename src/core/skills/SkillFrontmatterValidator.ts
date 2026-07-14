@@ -28,18 +28,21 @@
  * console.warn plus a Notice.
  */
 
-const NAME_PATTERN_MULTI = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
-const NAME_PATTERN_SINGLE = /^[a-z0-9]$/;
-const RESERVED = ['anthropic', 'claude'];
-const MAX_NAME_LEN = 64;
-const MAX_DESC_LEN = 1024;
+// Exported so a test can pin a skill-side validator against this one. A skill
+// script cannot import them (run_skill_script does not bundle), so every skill
+// that validates frontmatter must copy them. A copy nobody checks is a fork.
+export const NAME_PATTERN_MULTI = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+export const NAME_PATTERN_SINGLE = /^[a-z0-9]$/;
+export const RESERVED = ['anthropic', 'claude'];
+export const MAX_NAME_LEN = 64;
+export const MAX_DESC_LEN = 1024;
 
 /**
  * Keys the validator accepts in frontmatter without raising a warning.
  * The canonical spec is `name` and `description` only; the rest is
  * tolerated for back-compat with skills that pre-date FEAT-29-05.
  */
-const ALLOWED_KEYS: ReadonlySet<string> = new Set([
+export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
     // Canonical spec (hard-required)
     'name',
     'description',

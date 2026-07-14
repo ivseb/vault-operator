@@ -103,6 +103,15 @@ describe('validateProviderUrl', () => {
         it('still refuses AWS IMDS', () => {
             expect(() => validateProviderUrl('custom', 'http://169.254.169.254')).toThrow();
         });
+        // AUDIT 2026-07-14 L-2: the custom branch allows private IPs by design,
+        // so integer/hex/octal-encoded IMDS must be canonicalised and refused
+        // before that branch, not merely detected by isPrivateIpHostname.
+        it('refuses integer/hex-encoded AWS IMDS for custom providers', () => {
+            expect(() => validateProviderUrl('custom', 'http://2852039166/latest/meta-data/'))
+                .toThrow(/blocked metadata/);
+            expect(() => validateProviderUrl('custom', 'http://0xA9FEA9FE/'))
+                .toThrow(/blocked metadata/);
+        });
     });
 
     describe('bedrock gatewayMode (FEAT-26-07)', () => {

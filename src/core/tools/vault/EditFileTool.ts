@@ -15,6 +15,8 @@ import type ObsidianAgentPlugin from '../../../main';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
 import { validateVaultRelativePath } from './pathValidation';
+import { checkFrontmatterIntegrity } from '../../utils/frontmatterGuard';
+import type { EditPreview } from '../editPreview';
 
 interface EditFileInput {
     path: string;
@@ -118,84 +120,33 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                 content = await this.app.vault.read(file);
             }
 
-            // Count occurrences of old_str
-            const occurrences = this.countOccurrences(content, old_str);
+            // FEAT-44-10: one resolver, used by execute AND previewEdit. The diff
+            // the user approves is computed by the same code that then writes.
+            const { newContent, fuzzy } = this.resolveEdit(
+                content, old_str, new_str, expected_replacements, cleanPath,
+            );
+            this.assertFrontmatterIntact(content, newContent, cleanPath);
 
-            if (occurrences === 0) {
-                // Try normalized whitespace match as fallback
-                const fuzzy = this.tryNormalizedMatch(content, old_str, new_str);
-                if (fuzzy.kind === 'ambiguous') {
-                    // FIX-01-05-02: refuse to guess which occurrence the user
-                    // meant. The old behaviour would silently rewrite the first
-                    // hit; better to error out so the agent adds disambiguating
-                    // context.
-                    throw new Error(
-                        `old_str matches ${fuzzy.matches} times in "${cleanPath}" after whitespace normalization. ` +
-                        `Add more surrounding context to old_str so it identifies a single location.`
-                    );
-                }
-                if (fuzzy.kind === 'match') {
-                    const normalized = fuzzy.result;
-                    if (file) {
-                        await this.app.vault.modify(file, normalized);
-                        // FIX-01-07-03: push the new content directly into the
-                        // open CodeMirror buffer so the editor view shows the
-                        // edit immediately. Without this the disk is correct
-                        // but the user sees the pre-edit buffer.
-                        await refreshOpenMarkdownViewsFor(this.app, file, normalized);
-                    } else {
-                        // FIX-01-07-04 parity: non-indexed (dot-path) writes go
-                        // through the atomic temp+rename path, never a raw
-                        // truncate-then-write that can leave a 0-byte file.
-                        await atomicAdapterWrite(this.app.vault.adapter, cleanPath, normalized);
-                    }
-                    const stats = this.diffStats(content, normalized);
-                    const { added, removed } = this.diffNums(content, normalized);
-                    callbacks.pushToolResult(
-                        this.formatSuccess(`Edited ${cleanPath} (fuzzy match applied): ${stats}`) +
-                        `\n<diff_stats added="${added}" removed="${removed}"/>`
-                    );
-                    return;
-                }
-                // BUG-032 / FIX-01-05-01: When new_str is large (>=1000 chars),
-                // edit_file is the wrong tool -- the diff payload is brittle and
-                // JSON-streaming can truncate the tool call. Live test 2026-05-21
-                // showed the agent retried edit_file 5+ times on a missing old_str
-                // because the steer was soft ("prefer write_file"). The threshold
-                // dropped from 2000 to 1000 chars and the wording is now imperative.
-                const newStrSize = (new_str ?? '').length;
-                const sizeHint = newStrSize >= 1000
-                    ? ` Note: new_str is ${newStrSize} chars. Use write_file instead to replace the whole file, or append_to_file to add at the end. edit_file is for targeted small edits, not large rewrites -- retrying with the same large new_str will keep failing.`
-                    : '';
-                throw new Error(
-                    `old_str not found in file "${cleanPath}". ` +
-                    `Read the file first to get the exact bytes (whitespace, blank lines, trailing newlines all count) and retry with a shorter, more unique old_str.${sizeHint}`
-                );
-            }
-
-            if (occurrences > expected_replacements) {
-                throw new Error(
-                    `old_str appears ${occurrences} times in "${cleanPath}" but expected_replacements is ${expected_replacements}. ` +
-                    `Add more surrounding context to old_str to make it unique, or increase expected_replacements.`
-                );
-            }
-
-            // Perform the replacement(s)
-            const newContent = this.replaceFirst(content, old_str, new_str, expected_replacements);
             if (file) {
                 await this.app.vault.modify(file, newContent);
-                // FIX-01-07-03: see note above; same editor-buffer push.
+                // FIX-01-07-03: push the new content directly into the open
+                // CodeMirror buffer so the editor view shows the edit
+                // immediately. Without this the disk is correct but the user
+                // still sees the pre-edit buffer.
                 await refreshOpenMarkdownViewsFor(this.app, file, newContent);
             } else {
-                // FIX-01-07-04 parity: see fuzzy-match branch above.
+                // FIX-01-07-04 parity: non-indexed (dot-path) writes go through
+                // the atomic temp+rename path, never a raw truncate-then-write
+                // that can leave a 0-byte file.
                 await atomicAdapterWrite(this.app.vault.adapter, cleanPath, newContent);
             }
 
             const stats = this.diffStats(content, newContent);
-            const replWord = expected_replacements === 1 ? 'replacement' : 'replacements';
             const { added, removed } = this.diffNums(content, newContent);
+            const replWord = expected_replacements === 1 ? 'replacement' : 'replacements';
+            const how = fuzzy ? 'fuzzy match applied' : `${expected_replacements} ${replWord}`;
             callbacks.pushToolResult(
-                this.formatSuccess(`Edited ${cleanPath} (${expected_replacements} ${replWord}): ${stats}`) +
+                this.formatSuccess(`Edited ${cleanPath} (${how}): ${stats}`) +
                 `\n<diff_stats added="${added}" removed="${removed}"/>`
             );
             callbacks.log(`Successfully edited file: ${cleanPath}`);
@@ -222,6 +173,122 @@ export class EditFileTool extends BaseTool<'edit_file'> {
     /**
      * Replace the first N occurrences of old_str with new_str
      */
+    /**
+     * FEAT-44-10: what would this edit produce? Pure with respect to the vault:
+     * it decides, it does not write.
+     *
+     * This is THE resolver. `execute` writes what it returns, and `previewEdit`
+     * shows what it returns. Any divergence between the two would make the
+     * approval diff a lie, so there is exactly one implementation.
+     *
+     * Throws the same guidance errors the model relied on before (not found,
+     * ambiguous fuzzy match, too many occurrences).
+     */
+    private resolveEdit(
+        content: string,
+        old_str: string,
+        new_str: string,
+        expected_replacements: number,
+        cleanPath: string,
+    ): { newContent: string; fuzzy: boolean } {
+        const occurrences = this.countOccurrences(content, old_str);
+
+        if (occurrences === 0) {
+            // Fall back to a whitespace-normalized match.
+            const fuzzy = this.tryNormalizedMatch(content, old_str, new_str);
+            if (fuzzy.kind === 'ambiguous') {
+                // FIX-01-05-02: refuse to guess which occurrence was meant. The
+                // old behaviour silently rewrote the first hit.
+                throw new Error(
+                    `old_str matches ${fuzzy.matches} times in "${cleanPath}" after whitespace normalization. ` +
+                    `Add more surrounding context to old_str so it identifies a single location.`
+                );
+            }
+            if (fuzzy.kind === 'match') {
+                return { newContent: fuzzy.result, fuzzy: true };
+            }
+            // BUG-032 / FIX-01-05-01: a large new_str means edit_file is the
+            // wrong tool -- the diff payload is brittle and JSON-streaming can
+            // truncate the call. Imperative wording, threshold 1000 chars.
+            const newStrSize = (new_str ?? '').length;
+            const sizeHint = newStrSize >= 1000
+                ? ` Note: new_str is ${newStrSize} chars. Use write_file instead to replace the whole file, or append_to_file to add at the end. edit_file is for targeted small edits, not large rewrites -- retrying with the same large new_str will keep failing.`
+                : '';
+            throw new Error(
+                `old_str not found in file "${cleanPath}". ` +
+                `Read the file first to get the exact bytes (whitespace, blank lines, trailing newlines all count) and retry with a shorter, more unique old_str.${sizeHint}`
+            );
+        }
+
+        if (occurrences > expected_replacements) {
+            throw new Error(
+                `old_str appears ${occurrences} times in "${cleanPath}" but expected_replacements is ${expected_replacements}. ` +
+                `Add more surrounding context to old_str to make it unique, or increase expected_replacements.`
+            );
+        }
+
+        return {
+            newContent: this.replaceFirst(content, old_str, new_str, expected_replacements),
+            fuzzy: false,
+        };
+    }
+
+    /**
+     * FEAT-44-10: the diff the approval card shows. Never writes.
+     *
+     * Returns null when the edit cannot be resolved (file missing, old_str not
+     * found). The Pipeline then falls back to the plain approval card -- never
+     * to no approval at all.
+     */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const path = typeof input['path'] === 'string' ? input['path'] : '';
+            const old_str = typeof input['old_str'] === 'string' ? input['old_str'] : '';
+            const new_str = typeof input['new_str'] === 'string' ? input['new_str'] : '';
+            const rawExpected = input['expected_replacements'];
+            const expected = typeof rawExpected === 'number' ? rawExpected : 1;
+            const cleanPath = validateVaultRelativePath(path);
+            if (!cleanPath) return null;
+
+            const isHidden = cleanPath.split('/').some((seg) => seg.startsWith('.'));
+            let content: string;
+            if (isHidden) {
+                const adapter = this.app.vault.adapter;
+                if (!(await adapter.exists(cleanPath))) return null;
+                content = await adapter.read(cleanPath);
+            } else {
+                const found = this.app.vault.getAbstractFileByPath(cleanPath);
+                if (!(found instanceof TFile)) return null;
+                content = await this.app.vault.read(found);
+            }
+
+            const { newContent } = this.resolveEdit(content, old_str, new_str, expected, cleanPath);
+            return { path: cleanPath, before: content, after: newContent };
+        } catch {
+            // A preview is a courtesy, never a gate. If it fails, the caller
+            // still asks for approval -- just without the diff.
+            return null;
+        }
+    }
+
+    /**
+     * FIX-44-09: refuse to write a result that would leave the YAML frontmatter
+     * broken.
+     *
+     * An old_str is allowed to span the closing "---" of the frontmatter, and a
+     * note whose body contains a horizontal rule right after that fence makes
+     * this depressingly easy to hit: the model picks `"---\n---\n..."`, the match
+     * is genuine, the replacement eats the fence, and the whole body ends up
+     * inside the YAML block. The edit was performed exactly as requested, which
+     * is precisely why the tool has to check the result rather than the request.
+     */
+    private assertFrontmatterIntact(before: string, after: string, path: string): void {
+        const reason = checkFrontmatterIntegrity(before, after);
+        if (reason) {
+            throw new Error(`Refusing to write "${path}": ${reason}`);
+        }
+    }
+
     private replaceFirst(content: string, oldStr: string, newStr: string, count: number): string {
         let result = content;
         let replaced = 0;

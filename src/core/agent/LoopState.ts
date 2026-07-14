@@ -47,6 +47,8 @@ export interface AgentLoopState {
     emergencyRetried: boolean;
     /** ADR-148: one corrective retry per task after an output-cap 400. */
     outputCapRetried: boolean;
+    /** FIX-54-10: one corrective retry per task after an effort-with-tools 400. */
+    effortToolsRetried: boolean;
     advisorCallsUsed: number;
 
     // --- stream / reply bookkeeping ---
@@ -112,6 +114,7 @@ export function createInitialLoopState(opts: { fastPathFired?: boolean } = {}): 
         rateLimitRetries: 0,
         emergencyRetried: false,
         outputCapRetried: false,
+        effortToolsRetried: false,
         advisorCallsUsed: 0,
         hasStreamedText: false,
         streamedTextChars: 0,

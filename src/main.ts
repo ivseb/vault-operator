@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, MarkdownView } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, MarkdownView, normalizePath } from 'obsidian';
 import { formatHotkeyHint, formatSendSelectionToSidebarHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
@@ -17,18 +17,20 @@ import { InflightStore } from './core/agent/InflightStore';
 import { LearnedCapsStore, registerLearnedCapsStore } from './core/agent/LearnedCapsStore';
 import { BackgroundTaskRunner } from './core/background/BackgroundTaskRunner';
 import { createBackgroundTaskExecutor } from './core/background/backgroundTaskExecutor';
-import { fetchProviderModels } from './ui/settings/testModelConnection';
+import { fetchProviderModelLineup } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
+import { sanitizeDirectoryEntry } from './core/tools/BaseTool';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
 import { getPerformanceMarks } from './core/observability/PerformanceMarks';
 import { IgnoreService } from './core/governance/IgnoreService';
 import { OperationLogger } from './core/governance/OperationLogger';
 import { GlobalFileService } from './core/storage/GlobalFileService';
 import * as safeFs from './core/security/safeFs';
-import { getPluginSkillsDir, getSelfAuthoredSkillsDir } from './core/utils/agentFolder';
+import { getPluginSkillsDir, getSelfAuthoredSkillsDir, getAgentDataDir, getInternalAgentFolderPath } from './core/utils/agentFolder';
+import { SkillProvenanceStore } from './core/skills/SkillProvenanceStore';
 import { isSafePathSegment } from './core/utils/safePathName';
 import { confirmModal } from './ui/modals/PromptModal';
 import { GlobalSettingsService } from './core/storage/GlobalSettingsService';
@@ -171,6 +173,23 @@ export default class ObsidianAgentPlugin extends Plugin {
      * Wired in onload after settings load. ProvidersTab consumes it.
      */
     modelDiscovery: ModelDiscoveryService | null = null;
+    /**
+     * FEAT-44-02a (session scope): grant keys the user approved "for this
+     * session". Lives on the plugin instance so every pipeline (parent,
+     * subtasks, the next task) sees the same set without explicit sharing.
+     * Deliberately in-memory only: NEVER persisted, dies with plugin reload.
+     * config/self-modify can never enter it (guarded at the insert in
+     * ToolExecutionPipeline.askOrDeny and by the alwaysAsk lookup order).
+     */
+    readonly sessionApprovedGrants = new Set<import('./core/tools/toolEffects').ApprovalGrantKey>();
+    /**
+     * FEAT-44-07 (kill switch, part a): in-memory revocation epoch for
+     * run-scope grants. The run sets live per task inside the pipelines,
+     * which the settings tab cannot reach; bumping this counter makes every
+     * pipeline clear its (shared) run set lazily on the next approval check.
+     * In-memory on purpose: run grants themselves never survive a reload.
+     */
+    approvalRevocationEpoch = 0;
     ignoreService: IgnoreService;
     operationLogger: OperationLogger;
     checkpointService: GitCheckpointService;
@@ -838,7 +857,11 @@ export default class ObsidianAgentPlugin extends Plugin {
                     sessionToken: provider.awsSessionToken,
                     region: provider.awsRegion,
                 } : undefined;
-                const raw = await fetchProviderModels(
+                // Review finding AL1 (2026-07-14): the lineup variant carries
+                // its provenance in-band so ModelDiscoveryService can refuse
+                // to persist a static fallback lineup (chatgpt-oauth) over
+                // previously discovered live data on the auto-refresh paths.
+                const lineup = await fetchProviderModelLineup(
                     provider.type,
                     provider.apiKey ?? '',
                     provider.baseUrl,
@@ -850,7 +873,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // (OpenRouter ships them inline with /v1/models); other
                 // providers leave them undefined and ModelDiscoveryService
                 // falls back to its built-in heuristics.
-                return raw.map((r): RawDiscoveredModel => ({
+                const models = lineup.models.map((r): RawDiscoveredModel => ({
                     id: r.id,
                     displayName: r.label,
                     contextWindow: r.contextWindow,
@@ -858,6 +881,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                     pricingPromptUsd: r.pricingPromptUsd,
                     pricingCompletionUsd: r.pricingCompletionUsd,
                 }));
+                return { models, source: lineup.source };
             },
         );
         // Refresh stale provider lists in the background -- non-blocking.
@@ -1121,8 +1145,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
 
-        // Governance: ignore/protected path rules
-        this.ignoreService = new IgnoreService(this.app.vault);
+        // Governance: ignore/protected path rules. FIX-44-24: pass the agent
+        // folder root so its config zone (settings, mcp config, provenance
+        // manifest) is write-protected against the agent's own vault tools.
+        this.ignoreService = new IgnoreService(this.app.vault, getInternalAgentFolderPath(this));
         await this.ignoreService.load();
 
         // Rules loader (Sprint 3.2) — now uses global storage
@@ -1269,6 +1295,19 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (report.errors.length > 0 || report.skipped.length > 0 || report.written.length > 0) {
                 console.debug('[Plugin] Builtin skill materialization:', report);
             }
+
+            // FIX-44-05: reconcile the provenance manifest so the loader can tell
+            // a genuinely materialized trusted skill from a forged `source: pro`.
+            // The manifest lives in the protected config zone (not skills/), so a
+            // sandboxed script cannot write it. Freshly written skills are
+            // authoritative; grandfathered ones (ADR-152) are preserved.
+            const provenanceStore = new SkillProvenanceStore(
+                this.app.vault.adapter,
+                normalizePath(`${getAgentDataDir(this)}/skill-provenance.json`),
+            );
+            await provenanceStore.load();
+            await provenanceStore.reconcile(getSelfAuthoredSkillsDir(this), report.written);
+            this.selfAuthoredSkillLoader.setProvenanceStore(provenanceStore);
         } catch (e) {
             console.warn('[Plugin] Builtin skill materialization failed (non-fatal):', e);
         }
@@ -2938,14 +2977,29 @@ export default class ObsidianAgentPlugin extends Plugin {
         const advApi = this.settings.advancedApi as unknown as Record<string, unknown>;
         if ('useCustomTemperature' in advApi) delete advApi['useCustomTemperature'];
         if ('temperature' in advApi) delete advApi['temperature'];
-        // Migrate: autoApproval.write split into noteEdits + vaultChanges
+        // Migrate: autoApproval.write split into noteEdits + vaultChanges.
+        // FIX-44-35: migrate ONLY when the new key is strictly undefined. The old
+        // `|| === false` clauses re-armed a flag the user had deliberately turned
+        // off, every load, as long as a stale write:true lingered.
         const ap = this.settings.autoApproval as unknown as Record<string, unknown>;
+        let autoApprovalMigrated = false;
         if (ap['write'] !== undefined) {
             const writeVal = ap['write'] as boolean;
-            if (ap['noteEdits'] === undefined || ap['noteEdits'] === false) ap['noteEdits'] = writeVal;
-            if (ap['vaultChanges'] === undefined || ap['vaultChanges'] === false) ap['vaultChanges'] = writeVal;
+            if (ap['noteEdits'] === undefined) ap['noteEdits'] = writeVal;
+            if (ap['vaultChanges'] === undefined) ap['vaultChanges'] = writeVal;
             delete ap['write'];
+            autoApprovalMigrated = true;
         }
+        // FIX-44-34: drop dead keys from stored settings so they do not linger in
+        // data.json. They have no consumer; reads are always auto.
+        for (const deadKey of ['read', 'showMenuInChat', 'mode', 'question', 'todo']) {
+            if (deadKey in ap) {
+                delete ap[deadKey];
+                autoApprovalMigrated = true;
+            }
+        }
+        // Persist the cleanup exactly once so the next load sees a clean object.
+        if (autoApprovalMigrated) this.markSettingsDirty();
         // Ensure new fields exist for users upgrading from older versions
         ap.noteEdits = ap.noteEdits ?? false;
         ap.vaultChanges = ap.vaultChanges ?? false;
@@ -3245,7 +3299,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         );
         const userLines = filteredUserSkills
             .filter(s => !selfAuthoredNames.has(s.name))
-            .map(s => `- ${s.name}: ${s.description}`);
+            // AUDIT 2026-07-14 (Codex re-review, M-1): sanitise untrusted user
+            // skill metadata; getSkillDirectorySection defangs the assembled
+            // block as the security backstop.
+            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
         const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
         if (blocks.length === 0) return undefined;
         return blocks.join('\n');
@@ -3411,9 +3468,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     async saveSettings() {
         await this.saveData(this.encryptSettingsForSave(this.settings));
-        // Dual-write: persist global keys to ~/.obsidian-agent/settings.json
+        // Dual-write: persist global keys to ~/.obsidian-agent/settings.json.
+        // FIX-44-36: the global file wins on load, so a failed write silently
+        // reverts permission changes on restart. Surface it instead of hiding it.
         if (this.globalSettingsService) {
-            await this.globalSettingsService.saveGlobal(this.settings);
+            const ok = await this.globalSettingsService.saveGlobal(this.settings);
+            if (!ok) {
+                new Notice(t('notice.globalSettingsSaveFailed'));
+            }
         }
         this.initApiHandler();
         this.settingsDirty = false;

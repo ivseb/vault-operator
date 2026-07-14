@@ -427,10 +427,16 @@ export class EsbuildWasmManager {
     }
 
     /**
-     * M-2: TOFU (Trust On First Use) integrity for CDN packages.
-     * - First download: compute SHA-256, store in manifest
-     * - Version change: re-trust with new hash
-     * - Subsequent downloads: verify against stored hash, reject on mismatch
+     * TOFU (Trust On First Use) integrity for CDN packages, hardened per
+     * AUDIT 2026-07-14 (Codex) M-8.
+     * - First download: compute SHA-256, pin hash + version in the manifest.
+     * - Subsequent downloads: the package is requested at the PINNED version
+     *   (see ensurePackage), so the content hash must match. A mismatch is a
+     *   tamper signal and is rejected.
+     * - Version change: NO longer silently re-trusted. Previously a shifted
+     *   `latest` (a compromised freshly published version) was auto-accepted on
+     *   the next run. Now the pin is authoritative; upgrading is a deliberate
+     *   act (clear the manifest entry).
      */
     private async verifyPackageIntegrity(key: string, content: string, version?: string | null): Promise<void> {
         if (!this.hashManifestLoaded) await this.loadHashManifest();
@@ -439,30 +445,27 @@ export class EsbuildWasmManager {
         const entry = this.hashManifest[key];
 
         if (!entry) {
-            // First use -- trust and store
+            // First use -- pin and store.
             this.hashManifest[key] = {
                 hash,
                 version: version ?? undefined,
                 pinnedAt: new Date().toISOString(),
             };
             await this.saveHashManifest();
-            console.debug(`[EsbuildWasmManager] TOFU: Stored hash for "${key}": ${hash.slice(0, 16)}...`);
+            console.debug(`[EsbuildWasmManager] TOFU: pinned "${key}"@${version ?? '?'}: ${hash.slice(0, 16)}...`);
             return;
         }
 
-        // Version changed -- re-trust with new hash
+        // AUDIT 2026-07-14 (Codex) M-8: refuse to auto-upgrade a pinned version.
         if (version && entry.version && version !== entry.version) {
-            console.debug(`[EsbuildWasmManager] Version change for "${key}": ${entry.version} -> ${version}, re-trusting`);
-            this.hashManifest[key] = {
-                hash,
-                version,
-                pinnedAt: new Date().toISOString(),
-            };
-            await this.saveHashManifest();
-            return;
+            throw new Error(
+                `Package "${key}" is pinned to ${entry.version} but ${version} was requested. ` +
+                `Refusing to auto-upgrade to a newly published version (supply-chain guard). ` +
+                `Delete ${this.cacheDir}/package-hashes.json to deliberately re-pin.`
+            );
         }
 
-        // Same version -- verify hash
+        // Same version -- verify hash.
         if (hash !== entry.hash) {
             throw new Error(
                 `Package integrity check failed for "${key}". ` +
@@ -510,8 +513,13 @@ export class EsbuildWasmManager {
             throw new Error(`Invalid package name: ${name}`);
         }
 
-        // M-2: Resolve version from npm registry for pinning + deprecation check
-        const version = await this.resolvePackageVersion(name);
+        // AUDIT 2026-07-14 (Codex) M-8: if a version was pinned on first use,
+        // keep requesting THAT version instead of following `latest`. A shifted
+        // `latest` (a compromised freshly published version) is never
+        // auto-followed; upgrading requires deliberately clearing the pin.
+        if (!this.hashManifestLoaded) await this.loadHashManifest();
+        const pinnedVersion = this.hashManifest[name]?.version;
+        const version = pinnedVersion ?? await this.resolvePackageVersion(name);
         const versionedName = version ? `${name}@${version}` : name;
 
         // Prefer esm.sh ?bundle with pinned version

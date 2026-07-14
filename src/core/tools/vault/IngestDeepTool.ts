@@ -23,6 +23,8 @@ import type { OutputMode } from '../../ingest/OutputModeGenerator';
 import { normalizeDomain } from '../../knowledge/ClusterSourceStatsStore';
 import { PdfMarkdownMirror } from '../../ingest/PdfMarkdownMirror';
 import { readSourceAsMarkdown } from '../../ingest/SourceReader';
+import type { BatchEditPreview, EditPreview } from '../editPreview';
+import { t } from '../../../i18n';
 
 interface IngestDeepInput {
     /** Vault-relative path of the source note (or PDF). */
@@ -59,6 +61,69 @@ export class IngestDeepTool extends BaseTool<'ingest_deep'> {
     readonly isWriteOperation = true;
 
     constructor(plugin: ObsidianAgentPlugin) { super(plugin); }
+
+    /**
+     * FIX-44-13b: scope-only preview for the RECOMMENDED path (source-only,
+     * the mode the /ingest-deep skill always uses). Names the files the
+     * source pass touches: the source note itself (block anchors, marker
+     * annotations) and, when the cluster's MOC page exists and carries the
+     * obsilo auto block, that MOC page (marker-block refresh).
+     *
+     * Returns null -- honest plain card -- for the paths whose file set is
+     * NOT computable before the run: the multi-file output modes (zettel /
+     * summary notes are named by the pipeline while it runs) and the PDF
+     * markdown-mirror path (the mirror file is created and named at run
+     * time). A scope card that underlists its writes would be worse than
+     * the name card it replaces.
+     */
+    async previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null> {
+        const {
+            source_path,
+            output_mode = 'source-only',
+            cluster: clusterHint,
+        } = input as unknown as IngestDeepInput;
+        if (output_mode !== 'source-only') return null;
+        const safePath = validateVaultPath(source_path);
+        if (!safePath) return null;
+        const file = this.plugin.app.vault.getAbstractFileByPath(safePath);
+        if (!(file instanceof TFile)) return null;
+        if (file.extension === 'pdf'
+            && this.plugin.settings.vaultIngest?.pdfStrategy === 'markdown-mirror') {
+            return null;
+        }
+        try {
+            const entries: EditPreview[] = [{ path: file.path, before: '', after: '' }];
+
+            // Mirror execute's cluster resolution, then execute's MOC-update
+            // precondition: page exists AND carries the auto block.
+            let cluster = clusterHint ?? '';
+            if (!cluster && this.plugin.knowledgeDB?.isOpen()) {
+                const db = this.plugin.knowledgeDB.getDB();
+                const r = db.exec(`SELECT cluster FROM ontology WHERE entity_path = ? ORDER BY confidence DESC LIMIT 1`,
+                    [file.path]);
+                cluster = (r[0]?.values?.[0]?.[0] as string) ?? '';
+            }
+            if (cluster && cluster !== '_unsorted_') {
+                const mocFile = this.plugin.app.vault.getAbstractFileByPath(`${cluster}.md`);
+                if (mocFile instanceof TFile) {
+                    const { findAutoBlock } = await import('../../ingest/MOCMaintainer');
+                    const content = await this.plugin.app.vault.read(mocFile);
+                    if (findAutoBlock(content, 'moc-header')) {
+                        entries.push({ path: mocFile.path, before: '', after: '' });
+                    }
+                }
+            }
+
+            return {
+                entries,
+                summary: t('ui.approval.scope.ingestDeep', { source: file.path }),
+                scopeOnly: true,
+            };
+        } catch (err) {
+            console.warn('[IngestDeepTool] previewBatch failed (card fallback):', err);
+            return null;
+        }
+    }
 
     getDefinition(): ToolDefinition {
         return {
@@ -129,6 +194,19 @@ export class IngestDeepTool extends BaseTool<'ingest_deep'> {
         // Single notes folder for every ingest output. Strips trailing
         // slash so path joins (`${folder}/${name}.md`) stay clean.
         const notesFolder = (this.plugin.settings.defaultOutputFolder ?? 'Inbox/').replace(/\/+$/, '') || 'Inbox';
+
+        // BYP-3 (AUDIT 2026-07-14 round 2): the real writes land in notesFolder
+        // (defaultOutputFolder), which validatePaths never sees because the tool
+        // is registered on its READ path (source_path). Honour the same
+        // ignore/protected governance here before writing anything.
+        const ignore = this.plugin.ignoreService;
+        if (ignore && (ignore.isIgnored(notesFolder) || ignore.isProtected(notesFolder))) {
+            ctx.callbacks.pushToolResult(this.formatError(
+                `Output folder "${notesFolder}" is ignored or write-protected. ` +
+                `Adjust the default output folder or the .obsidian-agentignore/-protected rules.`,
+            ));
+            return;
+        }
 
         // FEAT-19-29: PDF-Markdown-Mirror wenn Setting opt-in plus PDF.
         // Mirror landet im notesFolder (Inbox/) statt im PDF-Folder --
@@ -281,6 +359,10 @@ export class IngestDeepTool extends BaseTool<'ingest_deep'> {
         const onMOCPageUpdated = async (clusterName: string) => {
             // Suche MOC-Page des Clusters und aktualisiere ihren Marker-Block
             const mocPath = `${clusterName}.md`;
+            // BYP-3: the MOC file name derives from the cluster label; keep it
+            // inside the ignore/protected governance even though the write only
+            // modifies an existing moc-header file.
+            if (ignore && (ignore.isIgnored(mocPath) || ignore.isProtected(mocPath))) return;
             const mocFile = this.plugin.app.vault.getAbstractFileByPath(mocPath);
             if (mocFile instanceof TFile) {
                 const { findAutoBlock, replaceOrInsertAutoBlock } = await import('../../ingest/MOCMaintainer');

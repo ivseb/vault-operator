@@ -9,7 +9,8 @@
  * Related: FEAT-33-01 (Settings-Surface), FEAT-33-09 (Vault-RAG).
  */
 
-import type { InlineActionsSettings } from '../../types/settings';
+import type { InlineActionsSettings, ObsidianAgentSettings } from '../../types/settings';
+import { resolveTierModel } from '../routing/tierResolution';
 
 export interface ResolvedInlineActionsSettings {
     enabled: boolean;
@@ -58,5 +59,32 @@ export function resolveInlineActionsSettings(
         showVaultSourcesInTooltip: raw.showVaultSourcesInTooltip ?? INLINE_ACTIONS_DEFAULTS.showVaultSourcesInTooltip,
         skillsTopN: topN,
         inlineChatDisplay: display,
+    };
+}
+
+/**
+ * Resolve the model id + provider for the inline settings snapshot.
+ *
+ * Review finding B1 (2026-07-14): the first-run wizard writes only the
+ * canonical `providerConfigs[]` store (FIX-26-99-03), so the snapshot must
+ * read that first. Uses the same tier slot `initApiHandler` resolves
+ * (`defaultMainModelTier`, default `mid`, with the mid -> fast cascade).
+ * The legacy `activeModels[]` lookup stays as fallback for setups that have
+ * not run the provider migration yet.
+ */
+export function resolveInlineModelSnapshot(
+    settings: Pick<ObsidianAgentSettings,
+        'activeProviderId' | 'providerConfigs' | 'activeModels' | 'activeModelKey'
+    > & Partial<Pick<ObsidianAgentSettings, 'defaultMainModelTier' | 'defaultProvider'>>,
+): { modelId: string; provider: string } {
+    const canonical = resolveTierModel(settings, settings.defaultMainModelTier ?? 'mid');
+    if (canonical) {
+        return { modelId: canonical.name, provider: canonical.provider };
+    }
+    const activeKey = settings.activeModelKey;
+    const legacy = settings.activeModels.find((m) => m.name === activeKey) ?? settings.activeModels[0];
+    return {
+        modelId: legacy?.name ?? '',
+        provider: legacy?.provider ?? settings.defaultProvider ?? 'anthropic',
     };
 }

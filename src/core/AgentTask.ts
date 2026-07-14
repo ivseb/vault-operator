@@ -23,6 +23,7 @@ import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
 import { TOOL_METADATA } from './tools/toolMetadata';
+import { PROGRESSIVE_DISCLOSURE_META_TOOLS } from './tools/toolEffects';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults, shouldDeferMicrocompact } from './context/MicroCompactor';
@@ -44,7 +45,7 @@ import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInte
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay, parseOutputCapLimit } from '../api/retry';
 import { resolveOutputBudget, getModelContextWindow as registryContextWindow } from '../types/model-registry';
-import { learnOutputCap } from './agent/LearnedCapsStore';
+import { learnOutputCap, learnEffortToolsUnsupported } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
@@ -141,7 +142,12 @@ export interface AgentTaskCallbacks {
     /** Called when ask_followup_question is invoked — pauses loop until resolved */
     onQuestion?: (question: string, options: string[] | undefined, resolve: (answer: string) => void, allowMultiple?: boolean) => void;
     /** Called when a write tool needs user approval — pauses loop until user decides */
-    onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
+    onApprovalRequired?: (
+        toolName: string,
+        input: Record<string, unknown>,
+        preview?: import('./tools/editPreview').EditPreview,
+        batch?: import('./tools/editPreview').BatchEditPreview,
+    ) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
     /**
      * Called when a tool needs an optional asset (office bundle, pdfjs
      * bundle, reranker WASM, ...) that is not installed. Renders an
@@ -185,6 +191,13 @@ export interface AgentTaskCallbacks {
     onCondenseTelemetry?: (event: CondenseTelemetryEvent) => void;
     /** Called when a checkpoint is saved before a write tool */
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
+    /**
+     * FIX-44-44: called when a write tool ran successfully WITHOUT an
+     * individual diff approval (settings-auto, run-scope grant, or a
+     * name-only card for a tool without previewEdit). The sidebar tracks
+     * this per task to decide whether the post-task review must open.
+     */
+    onUnreviewedWrite?: (toolName: string) => void;
     /**
      * Called once per task in the finally-block with the complete episode
      * payload (ADR-133). The callback fires for every exit path
@@ -284,6 +297,12 @@ export interface AgentTaskRunConfig {
      * Used only by spawnSubtask when `new_task` was called with `profile='...'`.
      */
     subagentAllowedTools?: ToolName[];
+    /**
+     * FEAT-44-02: the parent run's approved-effects set, shared so "for the rest
+     * of this run" survives into a subtask / invoked skill. The child pipeline
+     * adopts this exact Set; alwaysAsk effects can never be in it.
+     */
+    parentRunApprovedEffects?: import('./tool-execution/ToolExecutionPipeline').RunGrantStore;
     /**
      * FEAT-32-01 PR 1.3 / ADR-131: pre-computed recipe matches for the user
      * message. When set, AgentTask uses these instead of calling
@@ -613,6 +632,17 @@ export class AgentTask {
         // pipeline rejects hallucinated dispatches outside the profile.
         // Top-level tasks pass undefined and keep the legacy behaviour.
         pipeline.setSubagentAllowedTools(subagentAllowedTools);
+        // FIX-44-29: bind the mode service so the AUDIT-034 M-9 runtime mode gate
+        // actually runs. Without this it was dead (only tests ever set it), so a
+        // restricted Custom Agent could still call any tool. The default 'agent'
+        // mode includes every group, so unrestricted runs are unaffected; dynamic
+        // custom_* skill tools are exempted inside the gate.
+        if (this.modeService) pipeline.setModeService(this.modeService);
+        // FEAT-44-02: adopt the parent run's approved-effects set so a
+        // "for this run" grant is honoured inside subtasks and invoked skills.
+        if (config.parentRunApprovedEffects) {
+            pipeline.setRunApprovedEffects(config.parentRunApprovedEffects);
+        }
 
         // FIX-H/I (ADR-090 follow-up): set of files read during this task.
         // Declared early so FastPath (which runs before the main loop) can
@@ -729,6 +759,16 @@ export class AgentTask {
                     // complete. Iteration 0 marks pre-loop dispatches.
                     (tool, input, summary) =>
                         repetitionDetector.recordForEpisodeOnly(tool, input, summary, 0),
+                    // FIX-44-33: forward the approval + checkpoint callbacks so a
+                    // recipe step that is not auto-approved asks the user instead
+                    // of being silently denied.
+                    {
+                        onApprovalRequired: this.taskCallbacks.onApprovalRequired,
+                        onCheckpoint: this.taskCallbacks.onCheckpoint,
+                        // FIX-44-44: FastPath writes count toward the
+                        // post-task-review decision like model writes.
+                        onUnreviewedWrite: this.taskCallbacks.onUnreviewedWrite,
+                    },
                 );
             },
         });
@@ -906,9 +946,13 @@ export class AgentTask {
                     // bubble through the pipeline.
                     onApprovalRequired: this.taskCallbacks.onApprovalRequired === undefined
                         ? undefined
-                        : async (toolName, input) => {
+                        : async (toolName, input, preview, batch) => {
                             try {
-                                const result = await this.taskCallbacks.onApprovalRequired!(toolName, input);
+                                // FEAT-44-10: the diff must survive the hop into a
+                                // subtask, otherwise a skill's edits are approved
+                                // blind while the parent's are not. FEAT-44-02b:
+                                // same for the batch preview.
+                                const result = await this.taskCallbacks.onApprovalRequired!(toolName, input, preview, batch);
                                 return result ?? { decision: 'rejected' };
                             } catch (e) {
                                 console.warn('[AgentTask] subtask approval callback threw, failing closed:', e);
@@ -953,6 +997,8 @@ export class AgentTask {
                 pluginSkillsSection: profile ? undefined : pluginSkillsSection,
                 subagentRoleOverride: profile?.roleDefinition,
                 subagentAllowedTools: effectiveAllowedTools,
+                // FEAT-44-02: share the parent's run-scope grants with the child.
+                parentRunApprovedEffects: pipeline.getRunApprovedEffects(),
                 configDir,
             });
             return childText;
@@ -1045,14 +1091,14 @@ export class AgentTask {
             // disabling the meta-tools would silently disable progressive
             // disclosure for the whole task.
             const allFromRegistry = this.toolRegistry.getToolDefinitions();
-            for (const name of ['find_tool', 'read_skill'] as const) {
+            for (const name of PROGRESSIVE_DISCLOSURE_META_TOOLS) {
                 if (cachedTools.some((t) => t.name === name)) continue;
                 const def = allFromRegistry.find((t) => t.name === name);
                 if (!def) continue;
                 // Respect subagent profile allowlists explicitly: if the profile
                 // chose to exclude a meta-tool, do not override.
                 if (subagentAllowedTools && subagentAllowedTools.length > 0
-                    && !subagentAllowedTools.includes(name)) continue;
+                    && !subagentAllowedTools.includes(name as ToolName)) continue;
                 cachedTools.push(def);
             }
 
@@ -1454,6 +1500,7 @@ export class AgentTask {
                         onOptionalAssetRequired: this.taskCallbacks.onOptionalAssetRequired,
                         updateTodos: todoUpdateForTools,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
+                        onUnreviewedWrite: this.taskCallbacks.onUnreviewedWrite,
                         invalidateToolCache,
                         activateDeferredTool,
                         conversationId,
@@ -1707,6 +1754,7 @@ export class AgentTask {
                 maxRetries: RATE_LIMIT_MAX_RETRIES,
                 emergencyRetried: loopState.emergencyRetried,
                 outputCapRetried: loopState.outputCapRetried,
+                effortToolsRetried: loopState.effortToolsRetried,
                 historyLength: history.length,
                 rateLimitBaseWaitMs: RATE_LIMIT_BASE_WAIT_MS,
             });
@@ -1717,6 +1765,28 @@ export class AgentTask {
             // into resolveOutputBudget, so every later request (this task and
             // future ones) is clamped — then retry once.
             if (errorAction.action === 'corrective-retry') {
+                // FIX-54-10: the provider rejected function tools combined
+                // with reasoning_effort (gpt-5.6 platform generation on
+                // chat/completions). Learn the per-model flag (persisted and
+                // injected into the registry, so the OpenAI request builder
+                // forces reasoning_effort 'none' with tools from now on),
+                // then retry once. The provider names 'none' as the accepted
+                // escape; omitting the field is NOT equivalent (reasoning
+                // models default to a non-none effort server-side).
+                if (errorAction.cls === 'effort-tools-unsupported') {
+                    loopState.effortToolsRetried = true;
+                    const effortModelId = this.api.getModel().id;
+                    await learnEffortToolsUnsupported(effortModelId);
+                    console.warn(
+                        `[EffortTools] ${effortModelId}: provider rejected reasoning_effort combined with `
+                        + `function tools; learned effortWithToolsUnsupported -- retrying with effort 'none'`,
+                    );
+                    this.taskCallbacks.onText(
+                        `\n\n*${effortModelId} does not support reasoning effort together with tools -- `
+                        + `automatically retrying with effort 'none'...*\n\n`,
+                    );
+                    continue;
+                }
                 loopState.outputCapRetried = true;
                 const capModelId = this.api.getModel().id;
                 const parsed = parseOutputCapLimit(error);

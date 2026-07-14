@@ -30,6 +30,21 @@ export function validateSourceInterface(value: unknown): SourceInterface {
         : 'unknown';
 }
 
+/**
+ * Resolve a source_interface that arrived from an EXTERNAL MCP client argument.
+ *
+ * AUDIT 2026-07-14 (Codex) H-1: `'obsilo'` is the plugin-internal trust anchor
+ * (the real Vault Operator sidebar, which never reaches these handlers through
+ * the external MCP surface). A client that CLAIMS `source_interface='obsilo'`
+ * used to unlock personal memory in get_context and read the obsilo history/fact
+ * partition. At the MCP boundary we therefore reject a client-supplied 'obsilo'
+ * and coerce it to 'unknown'. Internal callers keep using validateSourceInterface.
+ */
+export function resolveExternalSourceInterface(value: unknown): SourceInterface {
+    const validated = validateSourceInterface(value);
+    return validated === 'obsilo' ? 'unknown' : validated;
+}
+
 // --------------------------------------------------------------
 // Sync-Mode (FEAT-23-04, ADR-108)
 // --------------------------------------------------------------

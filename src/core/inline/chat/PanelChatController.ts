@@ -32,6 +32,7 @@ import { ModeService } from '../../modes/ModeService';
 import { buildAgentRuntimeContext } from '../../agent/AgentRuntimeContext';
 import type { ConversationStore, UiMessage } from '../../history/ConversationStore';
 import { getModelKey } from '../../../types/settings';
+import { resolveTierModel } from '../../routing/tierResolution';
 import { t } from '../../../i18n';
 import { Notice } from 'obsidian';
 import type ObsidianAgentPlugin from '../../../main';
@@ -245,9 +246,7 @@ export class PanelChatController {
                 new Notice(t('notice.inlineChat.historyStoreNotReady'));
             } else {
                 try {
-                    const modelKey = this.plugin.settings.activeModelKey;
-                    const model = this.plugin.settings.activeModels.find(m => getModelKey(m) === modelKey);
-                    const modelDisplay = model?.displayName ?? model?.name ?? modelKey ?? 'inline-chat';
+                    const modelDisplay = this.resolveConversationModelDisplay();
                     this.activeConversationId = await convStore.create(mode.slug, modelDisplay);
                     console.debug(`[PanelChatController] conversation created: ${this.activeConversationId} (mode=${mode.slug}, model=${modelDisplay})`);
                 } catch (e) {
@@ -383,9 +382,7 @@ export class PanelChatController {
         const mode = this.modeService.getActiveMode();
         if (this.activeConversationId === null) {
             try {
-                const modelKey = this.plugin.settings.activeModelKey;
-                const model = this.plugin.settings.activeModels.find(m => getModelKey(m) === modelKey);
-                const modelDisplay = model?.displayName ?? model?.name ?? modelKey ?? 'inline-chat';
+                const modelDisplay = this.resolveConversationModelDisplay();
                 this.activeConversationId = await convStore.create(mode.slug, modelDisplay);
                 console.debug(`[PanelChatController] quick-action conversation created: ${this.activeConversationId}`);
             } catch (e) {
@@ -419,6 +416,23 @@ export class PanelChatController {
         } catch (e) {
             console.debug('[PanelChatController] dispatch quick-action refresh event failed:', e);
         }
+    }
+
+    /**
+     * Resolve the model display name stamped on a new ConversationStore
+     * entry. Review finding B1 (2026-07-14): the canonical providerConfigs[]
+     * store is read first (same tier slot initApiHandler uses), the legacy
+     * activeModels[] lookup stays as fallback for not-yet-migrated setups.
+     * The first-run wizard writes only providerConfigs[] (FIX-26-99-03);
+     * reading activeModels alone stamped 'inline-chat' after a wizard install.
+     */
+    private resolveConversationModelDisplay(): string {
+        const settings = this.plugin.settings;
+        const canonical = resolveTierModel(settings, settings.defaultMainModelTier ?? 'mid');
+        if (canonical) return canonical.displayName ?? canonical.name;
+        const modelKey = settings.activeModelKey;
+        const model = settings.activeModels.find(m => getModelKey(m) === modelKey);
+        return model?.displayName ?? model?.name ?? modelKey ?? 'inline-chat';
     }
 
     private async persistConversation(

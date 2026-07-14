@@ -83,6 +83,29 @@ describe('OperationLogger.sanitizeParams (REF-11)', () => {
         expect(p.other).toBe('kept');
     });
 
+    // AUDIT 2026-07-14 (Codex) M-4: the result field was only length-capped,
+    // never token-scrubbed. A tool result echoing a Bearer token / sk- key
+    // persisted it in clear text to the 30-day log.
+    it('scrubs credential tokens from the result field', async () => {
+        const entry = makeBaseEntry({});
+        entry.result = 'Fetched page. Authorization: Bearer sk-abcdef0123456789ABCDEF and Bearer ya29.SOME_TOKEN_VALUE';
+        await logger.log(entry);
+        const logged = await lastEntry(fa);
+        const result = logged.result as string;
+        expect(result).toContain('[REDACTED]');
+        expect(result).not.toContain('sk-abcdef0123456789ABCDEF');
+        expect(result).not.toContain('ya29.SOME_TOKEN_VALUE');
+    });
+
+    it('still truncates overlong results after scrubbing', async () => {
+        const entry = makeBaseEntry({});
+        entry.result = 'x'.repeat(5000);
+        await logger.log(entry);
+        const result = (await lastEntry(fa)).result as string;
+        expect(result.length).toBeLessThanOrEqual(2000 + 20);
+        expect(result.endsWith('...[truncated]')).toBe(true);
+    });
+
     // M-12: camelCase credential keys must be caught.
     it('redacts camelCase credential keys (apiKey, accessToken, clientSecret, awsSessionToken)', async () => {
         await logger.log(makeBaseEntry({

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ProviderConfig } from '../../../types/settings';
 import {
     buildChatModelDropdownOptions,
+    resolveEffortLevelsForPin,
     resolveOverrideModel,
     resolveStickyChatModel,
 } from '../chatModelDropdown';
@@ -152,5 +153,56 @@ describe('resolveStickyChatModel (Issue #54.3)', () => {
         expect(resolveStickyChatModel(makeProvider(), map, 'other-provider', true)).toBeNull();
         expect(resolveStickyChatModel(makeProvider(), map, null, true)).toBeNull();
         expect(resolveStickyChatModel(makeProvider(), undefined, 'anthropic-main', true)).toBeNull();
+    });
+});
+
+describe('resolveEffortLevelsForPin (IMP-54-05b)', () => {
+    it('returns [] when nothing is pinned (Auto mode never shows the slider)', () => {
+        expect(resolveEffortLevelsForPin(makeProvider(), null)).toEqual([]);
+    });
+
+    it('resolves the static family levels for a pinned known model', () => {
+        expect(resolveEffortLevelsForPin(makeProvider(), 'claude-opus-4-6')).toEqual([]);
+        const provider = makeProvider({
+            discoveredModels: [{ id: 'claude-opus-4-8', displayName: 'Opus 4.8', autoTier: 'flagship' }],
+        });
+        expect(resolveEffortLevelsForPin(provider, 'claude-opus-4-8'))
+            .toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    });
+
+    it('grants the OpenAI level set for an opted-in model on a custom provider', () => {
+        const provider = makeProvider({
+            type: 'custom',
+            discoveredModels: [{ id: 'GLM-5.2' }],
+            tierMapping: {},
+            effortOptIn: { 'GLM-5.2': true },
+        });
+        expect(resolveEffortLevelsForPin(provider, 'GLM-5.2'))
+            .toEqual(['minimal', 'low', 'medium', 'high']);
+    });
+
+    it('grants the OpenAI level set for an opted-in MANUAL tier-override id (FIX-55-01 rows)', () => {
+        const provider = makeProvider({
+            type: 'custom',
+            discoveredModels: [],
+            tierMapping: {},
+            tierOverrides: { flagship: 'GLM-5.2' },
+            effortOptIn: { 'GLM-5.2': true },
+        });
+        expect(resolveEffortLevelsForPin(provider, 'GLM-5.2'))
+            .toEqual(['minimal', 'low', 'medium', 'high']);
+    });
+
+    it('returns [] for a pinned custom model without opt-in (unchanged behavior)', () => {
+        const provider = makeProvider({
+            type: 'custom',
+            discoveredModels: [{ id: 'GLM-5.2' }],
+            tierMapping: {},
+        });
+        expect(resolveEffortLevelsForPin(provider, 'GLM-5.2')).toEqual([]);
+    });
+
+    it('returns [] for an unknown pin id (deprovisioned model)', () => {
+        expect(resolveEffortLevelsForPin(makeProvider(), 'ghost-model')).toEqual([]);
     });
 });

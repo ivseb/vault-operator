@@ -6,8 +6,8 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
-import { AGENT_INTERNAL_TOOLS } from '../McpBridge';
-import { validateSourceInterface } from '../../core/memory/SourceInterface';
+import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
+import { resolveExternalSourceInterface } from '../../core/memory/SourceInterface';
 
 export async function handleGetContext(
     plugin: ObsidianAgentPlugin,
@@ -21,9 +21,8 @@ export async function handleGetContext(
     // of memory content. This prevents shared-account connectors (e.g.
     // ChatGPT, Perplexity) from pulling personal memory context.
     const crossSurface = plugin.settings?.memory?.crossSurface;
-    const sourceInterface = args.source_interface !== undefined
-        ? validateSourceInterface(args.source_interface)
-        : 'unknown';
+    // AUDIT 2026-07-14 (Codex) H-1: an external client cannot claim 'obsilo'.
+    const sourceInterface = resolveExternalSourceInterface(args.source_interface);
     const strictMode = (crossSurface?.strictSourceIsolation ?? false)
         && sourceInterface !== 'obsilo';
 

@@ -108,7 +108,17 @@ export function validateProviderUrl(
 
     const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
-    if (BLOCKED_HOSTNAMES.has(hostname) || BLOCKED_HOSTNAMES.has(parsed.hostname.toLowerCase())) {
+    // AUDIT 2026-07-14 L-2: fold alternate IP encodings (decimal/hex/octal)
+    // to dotted-quad before the metadata denylist. Otherwise `http://2852039166/`
+    // (= 169.254.169.254) slips past BLOCKED_HOSTNAMES and, in the custom-provider
+    // branch below (private IPs allowed), reaches AWS/GCP IMDS -- a blind SSRF
+    // that contradicts the "IMDS always refused" contract.
+    const canonicalIp = normalizeIpv4Encoding(hostname);
+    if (
+        BLOCKED_HOSTNAMES.has(hostname) ||
+        BLOCKED_HOSTNAMES.has(parsed.hostname.toLowerCase()) ||
+        (canonicalIp !== null && BLOCKED_HOSTNAMES.has(canonicalIp))
+    ) {
         throw new Error(`Provider URL targets a blocked metadata or wildcard host: "${parsed.host}"`);
     }
 

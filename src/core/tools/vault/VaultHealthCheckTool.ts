@@ -13,6 +13,8 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
+import type { BatchEditPreview } from '../editPreview';
+import { t } from '../../../i18n';
 
 export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
     readonly name = 'vault_health_check' as const;
@@ -30,6 +32,57 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
 
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+    }
+
+    /**
+     * FEAT-44-02b: the motivating card-fatigue case. A repair action mutates
+     * frontmatter across many notes INSIDE VaultHealthService -- the gate
+     * used to see only the tool name. previewBatch surfaces the planned
+     * target list (planRepairTargets shares the selection code with the
+     * repair itself, pinned by parity tests) so the user approves a defined
+     * scope in ONE card.
+     *
+     * scopeOnly: the exact per-note mutation is decided inside
+     * processFrontMatter at write time; a simulated diff that can drift from
+     * the write is worse than an honest path list. The scope card is
+     * all-or-nothing, so no user-picked subsets arrive -- but since
+     * FIX-44-56 the Pipeline passes the FULL planned set as
+     * approvedBatchPaths, and execute threads it into the fix methods as
+     * their targetFilter: the repair provably writes only what the card
+     * showed, even when the vault drifted while the card was open.
+     *
+     * check / refresh / cleanup_edges return null: they write no vault
+     * files, the plain card stays honest for them.
+     */
+    // eslint-disable-next-line @typescript-eslint/require-await -- interface contract is async; the plan itself is synchronous reads
+    async previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null> {
+        const action = (input.action as string) || 'check';
+        if (action !== 'fix_backlinks' && action !== 'cleanup' && action !== 'fix_categories') {
+            return null;
+        }
+        const healthService = this.plugin.vaultHealthService;
+        if (!healthService) return null;
+        try {
+            // Same property arguments the execute branches pass to the fix
+            // methods, so plan and repair select the same targets.
+            const targets = healthService.planRepairTargets(
+                action,
+                'Notizen',
+                this.plugin.settings.categoryProperty ?? 'Kategorie',
+            );
+            if (targets.length === 0) return null;
+            return {
+                entries: targets.map((path) => ({ path, before: '', after: '' })),
+                summary: t('ui.approval.scope.vaultHealth', {
+                    action,
+                    count: String(targets.length),
+                }),
+                scopeOnly: true,
+            };
+        } catch (err) {
+            console.warn('[VaultHealthCheck] previewBatch failed (card fallback):', err);
+            return null;
+        }
     }
 
     /**
@@ -81,6 +134,12 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
 
         const action = (input.action as string) || 'check';
 
+        // FIX-44-56: the planned scope the user approved on the gate. The
+        // fix methods re-run their selection at execute time; pinning them
+        // to this set keeps the repair inside what the card showed even when
+        // the vault changed while the card was open.
+        const approvedScope = context.approvedBatchPaths;
+
         try {
             if (action === 'refresh' || action === 'check') {
                 // Refresh graph + ontology (always for refresh, before check to get fresh data)
@@ -128,6 +187,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 const result = await healthService.fixMissingBacklinks(
                     'Notizen',
                     this.plugin.settings.categoryProperty ?? 'Kategorie',
+                    approvedScope,
                 );
                 callbacks.pushToolResult(
                     `Missing backlinks fixed: ${result.entitiesFixed} entities updated, ` +
@@ -144,6 +204,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 const result = await healthService.cleanupInvalidBacklinks(
                     'Notizen',
                     this.plugin.settings.categoryProperty ?? 'Kategorie',
+                    approvedScope,
                 );
                 callbacks.pushToolResult(
                     `Cleanup complete: ${result.notesProcessed} notes processed, ${result.linksRemoved} invalid links removed.\n` +
@@ -156,7 +217,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
             } else if (action === 'fix_categories') {
                 await this.takeRepairSnapshot('fix_categories');
                 try {
-                    const result = await healthService.fixCategoryMismatches();
+                    const result = await healthService.fixCategoryMismatches(approvedScope);
                     callbacks.pushToolResult(
                         `Category mismatches fixed: ${result.notesFixed} notes updated, ${result.valuesMovied} values moved.\n` +
                         `Thema/Konzept values moved to correct property.\n` +

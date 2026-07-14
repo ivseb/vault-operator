@@ -23,8 +23,8 @@ vi.mock('../../../agent/AgentTaskRunner', () => {
             cb.onText?.('lo');
             cb.onToolStart?.('search_vault', {});
             cb.onComplete?.();
-            (config.history as unknown[]).push({ role: 'user', content: config.userMessage } as never);
-            (config.history as unknown[]).push({ role: 'assistant', content: 'hello' } as never);
+            (config.history).push({ role: 'user', content: config.userMessage });
+            (config.history).push({ role: 'assistant', content: 'hello' });
         }
     }
     return { AgentTaskRunner: FakeAgentTaskRunner };
@@ -55,7 +55,7 @@ function makeHandle(): InlinePanelHandle & { _stream: string[]; _status: string[
         close: () => {},
         _stream: stream,
         _status: status,
-    } as InlinePanelHandle & { _stream: string[]; _status: string[] };
+    };
 }
 
 function makePlugin(): import('../../../../main').default {
@@ -175,5 +175,38 @@ describe('PanelChatController', () => {
         await controller.sendTurn({ userInput: 'first', handle: makeHandle(), assistantBubbleId: 'b1' });
         controller.abort();
         expect(controller.isRunning).toBe(false);
+    });
+
+    it('resolves the conversation model display from providerConfigs[] (review finding B1)', async () => {
+        // The first-run wizard writes only providerConfigs[] (FIX-26-99-03).
+        // Reading activeModels[] alone left the history entry model-blind
+        // ("inline-chat") after a wizard install.
+        const plugin = makePlugin();
+        const settings = plugin.settings as unknown as Record<string, unknown>;
+        settings.activeModels = [];
+        settings.activeModelKey = null;
+        settings.activeProviderId = 'anthropic-main';
+        settings.providerConfigs = [{
+            id: 'anthropic-main',
+            type: 'anthropic',
+            displayName: 'Anthropic',
+            enabled: true,
+            apiKey: 'sk-live',
+            discoveredModels: [{ id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' }],
+            lastRefreshAt: 0,
+            tierMapping: { mid: 'claude-sonnet-4-6' },
+            tierOverrides: {},
+        }];
+        const create = vi.fn<(modeSlug: string, modelDisplay: string) => Promise<string>>(async () => 'conv-1');
+        (plugin as unknown as Record<string, unknown>).conversationStore = {
+            create,
+            save: vi.fn(async () => undefined),
+        };
+
+        const controller = new PanelChatController({ plugin, ctx: makeCtx() });
+        await controller.sendTurn({ userInput: 'hi', handle: makeHandle(), assistantBubbleId: 'b1' });
+
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(create.mock.calls[0][1]).toBe('Claude Sonnet 4.6');
     });
 });

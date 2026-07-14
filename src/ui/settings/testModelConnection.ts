@@ -440,6 +440,39 @@ async function testEmbeddingViaRequestUrl(model: CustomModel): Promise<TestResul
 }
 
 /**
+ * Fetch result with in-band provenance (review finding AL1, 2026-07-14).
+ * `source: 'fallback'` marks a static built-in lineup served because the
+ * live endpoint could not be queried (currently only chatgpt-oauth).
+ */
+export interface FetchedModelLineup {
+    models: FetchedModelEntry[];
+    source: 'live' | 'fallback';
+}
+
+/**
+ * Like fetchProviderModels, but the result carries its provenance in-band
+ * so the ModelDiscoveryService can refuse to persist a static fallback
+ * lineup over previously discovered live data (review finding AL1).
+ */
+async function fetchProviderModelLineup(
+    provider: ProviderType,
+    apiKey: string,
+    baseUrl?: string,
+    apiVersion?: string,
+    bedrockCreds?: BedrockFetchCredentials,
+): Promise<FetchedModelLineup> {
+    if (provider === 'chatgpt-oauth') {
+        const { fetchChatGptOAuthModelLineup } = await import('../../api/providers/chatgpt-oauth');
+        const lineup = await fetchChatGptOAuthModelLineup();
+        return { models: lineup.models, source: lineup.source };
+    }
+    return {
+        models: await fetchProviderModels(provider, apiKey, baseUrl, apiVersion, bedrockCreds),
+        source: 'live',
+    };
+}
+
+/**
  * Fetch the current model list from a provider's API.
  * Returns { id, label } pairs for display in the Quick Pick dropdown.
  */
@@ -878,6 +911,6 @@ function maxTemperature(provider: ProviderType): number {
 }
 
 
-export { testModelConnection, testEmbeddingConnection, fetchProviderModels, fetchOllamaModels, fetchEmbeddingModels, isTemperatureFixed, maxTemperature };
+export { testModelConnection, testEmbeddingConnection, fetchProviderModels, fetchProviderModelLineup, fetchOllamaModels, fetchEmbeddingModels, isTemperatureFixed, maxTemperature };
 
 /* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

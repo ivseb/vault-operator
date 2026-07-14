@@ -35,6 +35,11 @@ describe('MODEL_SUGGESTIONS chatgpt-oauth alignment with KNOWN_MODELS', () => {
         expect(ids).toContain('gpt-5.5');
     });
 
+    it('offers the 2026-07 frontier model gpt-5.6 (FIX-55-03, issue #55)', () => {
+        const ids = suggestions.map((s) => s.id);
+        expect(ids).toContain('gpt-5.6');
+    });
+
     it('no longer offers retired ids (gpt-5, gpt-5-codex)', () => {
         const ids = suggestions.map((s) => s.id);
         expect(ids).not.toContain('gpt-5');

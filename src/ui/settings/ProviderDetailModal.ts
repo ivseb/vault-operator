@@ -31,14 +31,20 @@ import {
 import { purgeProviderLegacyState } from '../../core/security/providerLegacyPurge';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
 import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
+import {
+    CHATGPT_OAUTH_DEFAULT_TEST_MODEL,
+    getLastChatGptOAuthModelFetch,
+} from '../../api/providers/chatgpt-oauth';
 import { isOpenAIChatCompletionModel } from './testModelConnection';
 import { t } from '../../i18n';
 import { openInfoPopover } from './utils';
 import {
+    MANUAL_TIER_INPUT_CLS,
     MANUAL_TIER_OPTION_VALUE,
     providerSupportsManualModelId,
     resolveTierSlotView,
 } from './manualModelEntry';
+import { buildEffortOptInView, type EffortOptInView } from './effortOptIn';
 
 const TIER_ORDER: ModelTier[] = ['fast', 'mid', 'flagship'];
 
@@ -80,6 +86,14 @@ export class ProviderDetailModal extends Modal {
     private lastRefreshAt: number;
     private tierMapping: ProviderConfig['tierMapping'];
     private tierOverrides: ProviderConfig['tierOverrides'];
+
+    /**
+     * IMP-54-05b (issue #54): per-model reasoning-effort opt-in draft.
+     * Only ids with an explicit true live in the map (toggling off deletes
+     * the entry), so an empty map saves as undefined and untouched configs
+     * stay byte-identical.
+     */
+    private effortOptIn: Record<string, boolean>;
 
     /**
      * IMP-20-06-01 W4-T2 / ADR-135. User-affirmed Zero-Data-Retention
@@ -130,6 +144,7 @@ export class ProviderDetailModal extends Modal {
         this.lastRefreshAt = seed.lastRefreshAt ?? 0;
         this.tierMapping = { ...(seed.tierMapping ?? {}) };
         this.tierOverrides = { ...(seed.tierOverrides ?? {}) };
+        this.effortOptIn = { ...(seed.effortOptIn ?? {}) };
         this.formZdrCapable = seed.zdrCapable ?? false;
     }
 
@@ -360,6 +375,16 @@ export class ProviderDetailModal extends Modal {
                 warn.createSpan({ text: ' ' + t('settings.providers.advisorDisabled') });
             }
 
+            // IMP-54-05b (issue #54): reasoning-effort opt-in for custom /
+            // OpenAI-compatible endpoints whose reasoning models the static
+            // registry cannot know. Hidden entirely when the provider type
+            // cannot carry the field or there is nothing to opt in.
+            const effortView = this.buildEffortOptInDraftView();
+            if (effortView && (effortView.optedIn.length > 0 || effortView.available.length > 0)) {
+                this.mkSection(form, t('settings.providers.modal.section.effort'));
+                this.renderEffortOptInSection(form, effortView);
+            }
+
             // IMP-20-06-01 W4-T2: ZDR affirmation. Single toggle inside
             // a labelled sub-section. Frontier escalation for the
             // freshness verifier needs at least one provider with this
@@ -501,6 +526,7 @@ export class ProviderDetailModal extends Modal {
             useGateway: this.formType === 'anthropic' ? this.formUseGateway : undefined,
             tierMapping: this.tierMapping,
             tierOverrides: this.tierOverrides,
+            effortOptIn: Object.keys(this.effortOptIn).length > 0 ? this.effortOptIn : undefined,
             zdrCapable: this.formZdrCapable || undefined,
         };
         this.plugin.settings.providerConfigs = list;
@@ -624,7 +650,9 @@ export class ProviderDetailModal extends Modal {
         // backend (HTTP 400 "model not found"). Use a known-good Codex model
         // instead so Test Connection still works right after sign-in, before
         // the background discovery has populated tierMapping/discoveredModels.
-        if (this.formType === 'chatgpt-oauth') return 'gpt-5';
+        // FIX-55-03: was the hardcoded 'gpt-5', an id the backend retired
+        // (400s as "not supported"); the shared constant tracks the lineup.
+        if (this.formType === 'chatgpt-oauth') return CHATGPT_OAUTH_DEFAULT_TEST_MODEL;
         // Provider-default placeholder for fresh drafts -- enough to ping the
         // /v1/models endpoint via testModelConnection which calls fetchProviderModels.
         return 'test-probe';
@@ -1016,7 +1044,15 @@ export class ProviderDetailModal extends Modal {
             this.discoveredModels = result;
             this.lastRefreshAt = persisted?.lastRefreshAt ?? Date.now();
             this.tierMapping = { ...(persisted?.tierMapping ?? {}) };
-            new Notice(t('settings.providers.refreshDone'));
+            // FIX-55-03 (issue #55): the ChatGPT OAuth live discovery used to
+            // fall back to the static lineup silently, so a failed fetch
+            // looked like a successful refresh. Tell the user when the list
+            // shown is the built-in fallback, not the account's live lineup.
+            if (this.formType === 'chatgpt-oauth' && getLastChatGptOAuthModelFetch().source === 'fallback') {
+                new Notice(t('settings.providers.refreshCodexFallback'));
+            } else {
+                new Notice(t('settings.providers.refreshDone'));
+            }
         } catch (e) {
             console.warn('[ProviderDetailModal] refresh failed:', e);
             new Notice(t('settings.providers.refreshFailed', { msg: (e as Error).message }));
@@ -1139,8 +1175,10 @@ export class ProviderDetailModal extends Modal {
      * error surfaces if the id is wrong.
      */
     private renderManualTierControl(parent: HTMLElement, tier: ModelTier, value: string): void {
+        // FIX-55-02 (issue #55): no 'dropdown' class here -- Obsidian styles
+        // it for <select> elements and breaks a text input visually.
         const input = parent.createEl('input', {
-            cls: 'dropdown mcm-tier-dropdown mcm-tier-manual-input',
+            cls: MANUAL_TIER_INPUT_CLS,
             attr: { type: 'text' },
         });
         input.value = value;
@@ -1167,6 +1205,66 @@ export class ProviderDetailModal extends Modal {
 
     private resolveDraftTierSlot(tier: ModelTier): string | undefined {
         return this.tierOverrides?.[tier] ?? this.tierMapping?.[tier];
+    }
+
+    // ── Reasoning-effort opt-in (IMP-54-05b, existing providers only) ──
+
+    /** Assemble the current draft into the shape the pure view helper reads. */
+    private buildEffortOptInDraftView(): EffortOptInView | null {
+        return buildEffortOptInView({
+            id: this.originalId ?? 'draft',
+            type: this.formType,
+            enabled: this.formEnabled,
+            discoveredModels: this.discoveredModels,
+            lastRefreshAt: this.lastRefreshAt,
+            tierMapping: this.tierMapping,
+            tierOverrides: this.tierOverrides,
+            effortOptIn: this.effortOptIn,
+        });
+    }
+
+    /**
+     * One compact toggle row per opted-in model (toggle off removes it) plus
+     * a dropdown to opt in another candidate. Candidates are the pinnable
+     * models whose static registry levels are [] -- models with native levels
+     * never show up here. Persisted on Save like every other draft field.
+     */
+    private renderEffortOptInSection(parent: HTMLElement, view: EffortOptInView): void {
+        parent.createDiv({
+            cls: 'mcm-hint',
+            text: t('settings.providers.effortOptInDesc'),
+        });
+        for (const id of view.optedIn) {
+            this.compactRow(parent, {
+                label: id,
+                build: (ctrl) => this.compactToggle(ctrl, {
+                    value: true,
+                    onChange: () => {
+                        this.effortOptIn = { ...this.effortOptIn };
+                        delete this.effortOptIn[id];
+                        this.render();
+                    },
+                }),
+            });
+        }
+        if (view.available.length > 0) {
+            this.compactRow(parent, {
+                label: t('settings.providers.effortOptInAdd'),
+                desc: t('settings.providers.effortOptInAddDesc'),
+                build: (ctrl) => this.compactSelect(ctrl, {
+                    value: '',
+                    options: [
+                        { value: '', label: t('settings.providers.effortOptInSelect') },
+                        ...view.available.map((id) => ({ value: id, label: id })),
+                    ],
+                    onChange: (v) => {
+                        if (!v) return;
+                        this.effortOptIn = { ...this.effortOptIn, [v]: true };
+                        this.render();
+                    },
+                }),
+            });
+        }
     }
 
     private displayNameForId(modelId: string): string {

@@ -29,6 +29,12 @@ class DynamicTool extends BaseTool {
     ) {
         super(plugin);
         this.name = definition.name as ToolName;
+        // ADR-153: this self-report from the skill's source now only drives
+        // checkpoints and cache. It is irrelevant for approval: every custom_*
+        // tool runs sandboxed code with a vault.write bridge and is pinned to
+        // 'sandbox' in toolEffects.ts. Before, a skill dropped into the vault
+        // could declare `false` here (or omit the field) and thereby get a tool
+        // with no approval gate at all.
         this.isWriteOperation = definition.isWriteOperation ?? false;
     }
 
@@ -43,7 +49,14 @@ class DynamicTool extends BaseTool {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         try {
-            const result = await this.sandboxExecutor.execute(this.compiledJs, input);
+            // FIX-44-45: bind the governance task for this execution, exactly
+            // like evaluate_expression / run_skill_script (FIX-44-04/44-43).
+            // Without it, SandboxBridge.snapshotBeforeWrite no-ops and vault
+            // writes from custom_* skill tools are unrecoverable via
+            // restore_checkpoint.
+            const result = await this.sandboxExecutor.execute(this.compiledJs, input, {
+                governanceTaskId: context.taskId,
+            });
             const output = typeof result === 'string'
                 ? result
                 : JSON.stringify(result, null, 2);

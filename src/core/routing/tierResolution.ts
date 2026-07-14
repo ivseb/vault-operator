@@ -17,6 +17,7 @@ import type {
     ObsidianAgentSettings,
     ProviderConfig,
 } from '../../types/settings';
+import { isEffortOptedIn } from '../../types/model-registry';
 
 /** Return the currently active provider config, or null when none is selected / enabled. */
 export function resolveActiveProvider(
@@ -90,6 +91,10 @@ export function providerConfigToCustomModel(
         apiVersion: provider.apiVersion,
         enabled: true,
         maxTokens: discovered?.maxOutputTokens,
+        // IMP-54-05b: thread the per-model effort opt-in to the wire config.
+        // Kept undefined (not false) when absent so untouched configs stay
+        // byte-identical.
+        effortOptIn: isEffortOptedIn(provider.effortOptIn, modelId) || undefined,
         awsRegion: provider.awsRegion,
         awsAuthMode: provider.awsAuthMode,
         awsApiKey: provider.awsApiKey,

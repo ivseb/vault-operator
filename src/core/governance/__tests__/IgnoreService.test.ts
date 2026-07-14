@@ -45,6 +45,58 @@ describe('IgnoreService', () => {
         });
     });
 
+    describe('FIX-44-24: agent config-zone protection', () => {
+        let svc: IgnoreService;
+        beforeEach(async () => {
+            svc = new IgnoreService(makeVault({}), '.vault-operator');
+            await svc.load();
+        });
+
+        it('write-protects the global settings file', () => {
+            expect(svc.isProtected('.vault-operator/data/settings.json')).toBe(true);
+        });
+
+        it('write-protects the provenance manifest and mcp config', () => {
+            expect(svc.isProtected('.vault-operator/data/skill-provenance.json')).toBe(true);
+            expect(svc.isProtected('.vault-operator/data/mcp-servers.json')).toBe(true);
+        });
+
+        it('leaves the skill workspace writable (skills/ and skill-data/)', () => {
+            expect(svc.isProtected('.vault-operator/data/skills/mine/SKILL.md')).toBe(false);
+            expect(svc.isProtected('.vault-operator/data/skill-data/mine/state.json')).toBe(false);
+        });
+
+        it('does nothing when no agent root is configured', () => {
+            const bare = new IgnoreService(makeVault({}));
+            return bare.load().then(() => {
+                expect(bare.isProtected('.vault-operator/data/settings.json')).toBe(false);
+            });
+        });
+
+        // AUDIT 2026-07-14 H-2: the config zone must also be READ-blocked, not
+        // just write-protected. A remote MCP client or read_file could otherwise
+        // exfiltrate settings.json (provider apiKeys, MCP auth headers).
+        it('read-blocks (isIgnored) the settings/data/provenance zone', () => {
+            expect(svc.isIgnored('.vault-operator/data/settings.json')).toBe(true);
+            expect(svc.isIgnored('.vault-operator/data/skill-provenance.json')).toBe(true);
+            expect(svc.isIgnored('.vault-operator/data/mcp-servers.json')).toBe(true);
+        });
+
+        it('keeps the skill workspace and tmp results readable', () => {
+            expect(svc.isIgnored('.vault-operator/data/skills/mine/SKILL.md')).toBe(false);
+            expect(svc.isIgnored('.vault-operator/data/skill-data/mine/state.json')).toBe(false);
+            // Externalised tool results (BUG-020) must stay readable.
+            expect(svc.isIgnored('.vault-operator/tmp/task-42/result.md')).toBe(false);
+        });
+
+        // H-3: `.Vault-Operator/...` resolves to the same file on case-insensitive
+        // filesystems, so the secret-zone deny must be case-insensitive.
+        it('read-blocks the config zone case-insensitively (provenance forge, cred leak)', () => {
+            expect(svc.isIgnored('.Vault-Operator/data/settings.json')).toBe(true);
+            expect(svc.isIgnored('.VAULT-OPERATOR/data/skill-provenance.json')).toBe(true);
+        });
+    });
+
     describe('always-blocked paths', () => {
         let svc: IgnoreService;
         beforeEach(async () => {
@@ -63,8 +115,22 @@ describe('IgnoreService', () => {
             expect(svc.isIgnored('.obsidian/cache')).toBe(true);
         });
 
-        it('does NOT block .obsidian plugins folder (agent has to read its own plugin)', () => {
-            expect(svc.isIgnored('.obsidian/plugins/vault-operator/main.js')).toBe(false);
+        // AUDIT 2026-07-14 H-1/H-2: configDir is a full read+write deny-zone.
+        // The prior behaviour (plugin folder readable "so the agent can read its
+        // own plugin") let a write reach `.obsidian/plugins/<x>/main.js` (RCE on
+        // reload) and let read_file/MCP exfiltrate any plugin's data.json.
+        it('blocks the entire configDir tree read+write (main.js RCE, data.json creds)', () => {
+            expect(svc.isIgnored('.obsidian/plugins/vault-operator/main.js')).toBe(true);
+            expect(svc.isIgnored('.obsidian/plugins/vault-operator/data.json')).toBe(true);
+            expect(svc.isIgnored('.obsidian/plugins/other-plugin/data.json')).toBe(true);
+            expect(svc.isIgnored('.obsidian/community-plugins.json')).toBe(true);
+        });
+
+        // H-3: case-insensitive so a `.Obsidian/...` variant cannot slip past on
+        // macOS/APFS, Windows/NTFS or iOS.
+        it('blocks configDir case-insensitively', () => {
+            expect(svc.isIgnored('.Obsidian/plugins/vault-operator/data.json')).toBe(true);
+            expect(svc.isIgnored('.OBSIDIAN/community-plugins.json')).toBe(true);
         });
 
         it('allows normal vault paths', () => {

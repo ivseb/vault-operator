@@ -16,6 +16,15 @@ import type { ProviderType } from '../../types/settings';
 export const MANUAL_TIER_OPTION_VALUE = '__manual__';
 
 /**
+ * Class list for the free-text model-id input (FIX-55-02, issue #55).
+ * Deliberately NOT 'dropdown' / 'mcm-tier-dropdown': Obsidian core styles
+ * `.dropdown` for <select> elements (appearance:none, chevron background
+ * image, select padding), which visually breaks a text input. The input has
+ * its own rule in styles.css instead.
+ */
+export const MANUAL_TIER_INPUT_CLS = 'mcm-tier-manual-input';
+
+/**
  * Provider types whose tier slots accept a manually typed model id.
  *
  * Two cases qualify, both because the model list cannot be relied on:

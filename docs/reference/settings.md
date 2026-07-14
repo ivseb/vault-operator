@@ -158,20 +158,27 @@ The earlier Ask + Agent split was removed in v2.11. For read-only behaviour, eit
 
 Control what the agent can do without asking. See the [safety and control guide](/guides/safety-control) for details.
 
-The seven approval categories map to the seven `ToolGroup` values in `TOOL_GROUP_MAP` (`builtinModes.ts`).
+Since ADR-153 the toggles map to **effect classes** (`EFFECT_POLICY` in `src/core/tools/toolEffects.ts`), not to tool groups. A master switch (default **off**) gates the categories below; reads always run and are not a toggle; two effects can never be auto-approved at all.
 
-| Setting | What it does | Default | Source |
-|---------|--------------|---------|--------|
-| Read | Auto-approve file reads, searches, listings, checkpoint inspectors | Off | `read` group: `read_file`, `read_document`, `list_files`, `search_files`, `list_checkpoints`, `read_checkpoint`, `diff_checkpoint` |
-| Vault | Auto-approve vault intelligence (semantic search, frontmatter, daily note, memory recall) | Off | `vault` group: `semantic_search`, `query_base`, `get_frontmatter`, `search_by_tag`, `vault_health_check`, `recall_memory`, `mark_for_memory`, `search_history`, etc. |
-| Edit | Auto-approve writes (file create, edit, append, move, delete, frontmatter update, ingest, checkpoint restore) | Off | `edit` group: `write_file`, `edit_file`, `append_to_file`, `create_folder`, `delete_file`, `move_file`, `update_frontmatter`, `generate_canvas`, `create_excalidraw`, `create_base`, `create_pptx`, `create_docx`, `create_xlsx`, `ingest_document`, `ingest_deep`, `ingest_triage`, `restore_checkpoint` |
-| Web | Auto-approve `web_fetch`, `web_search`, `anti_echo_search` | Off | `web` group |
-| Agent | Auto-approve agent control (followup questions, completion, todo updates, sub-tasks, agent switches, settings updates, skill invocation) | Off | `agent` group |
-| MCP | Auto-approve calls to external MCP servers (`use_mcp_tool`, `read_mcp_tool`) | Off | `mcp` group |
-| Skill | Auto-approve plugin command execution, recipes, plugin API calls, sandbox scripts | Off | `skill` group: `execute_command`, `execute_recipe`, `call_plugin_api`, `resolve_capability_gap`, `enable_plugin`, `probe_plugin`, `run_skill_script` |
+| Toggle | What it auto-approves | Default |
+|--------|-----------------------|---------|
+| (none) Reads | `read_file`, `search_files`, `semantic_search`, listings -- always run, master-independent | Always on |
+| Note edits | `write_file`, `edit_file`, `append_to_file`, `update_frontmatter`, ingest | Off |
+| Vault changes | `create_folder`, `move_file`, `delete_file`, `extract_zip`, `restore_checkpoint`, canvas/office creators | Off |
+| Web | `web_fetch`, `web_search`, `anti_echo_search` | Off |
+| MCP | `use_mcp_tool`, `invoke_mcp_server` | Off |
+| Subtasks | `new_task` | Off |
+| Skills | `invoke_skill` (trusted built-in / Pro only; imported skills still prompt) | Off |
+| Recipes | `execute_recipe` | Off |
+| Plugin API reads / writes | `call_plugin_api`, split by call shape into two toggles | reads on, writes off |
+| Sandbox | `evaluate_expression`, `run_skill_script`, dynamic `custom_*` tools (confirm required) | Off |
+
+**Never auto-approvable, regardless of these toggles or any preset:** `config` (`update_settings`, `configure_model`, `manage_mcp_server`) and `self-modify` (`update_soul`, `mark_for_memory`, `manage_source`). The agent cannot enable its own permissions.
+
+A drift test (`autoApprovalConfigDrift.test.ts`) enforces that every stored toggle gates a real effect and every effect resolves to a real toggle, so this table cannot silently rot again.
 
 :::warning Permissive combination warning
-Turning on **Web** together with **Edit** (or **Vault** writes) triggers a security warning. That combination lets the agent fetch internet content and write it into your vault without asking.
+Turning on **Web** together with a write category lights up a "Permissive" indicator in the Permissions tab. That combination lets the agent fetch internet content and act on it without asking.
 :::
 
 ### Loop
