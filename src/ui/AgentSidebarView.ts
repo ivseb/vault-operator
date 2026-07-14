@@ -12,7 +12,7 @@ import { ModeService } from '../core/modes/ModeService';
 // ADR-153: the approval card consumes the same effect registry as the Pipeline.
 // No second, drifting copy of the group mapping.
 import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
-import { grantAutoApproval } from '../core/tools/autoApprovalGrant';
+import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
 import type { MessageParam, ContentBlock } from '../api/types';
@@ -5401,17 +5401,21 @@ export class AgentSidebarView extends ItemView {
             // approve before seeing the affected-note count. The Deny-
             // button stays enabled so the user can always bail out. A 2s
             // hard timeout re-enables Allow even if the plugin call hangs.
+            // Adversarial review 2026-07-14: the run and session buttons
+            // grant MORE than the one-shot Allow, so the "see the count
+            // first" rationale applies to them with more force -- same gate.
             if (previewPromise) {
-                allowBtn.disabled = true;
-                if (enableBtn) enableBtn.disabled = true;
-                const releaseTimeout = window.setTimeout(() => {
-                    allowBtn.disabled = false;
-                    if (enableBtn) enableBtn.disabled = false;
-                }, 2000);
+                const gatedButtons = [allowBtn, runBtn, sessionBtn, enableBtn];
+                const setGated = (disabled: boolean) => {
+                    for (const btn of gatedButtons) {
+                        if (btn) btn.disabled = disabled;
+                    }
+                };
+                setGated(true);
+                const releaseTimeout = window.setTimeout(() => setGated(false), 2000);
                 void previewPromise.finally(() => {
                     window.clearTimeout(releaseTimeout);
-                    allowBtn.disabled = false;
-                    if (enableBtn) enableBtn.disabled = false;
+                    setGated(false);
                 });
             }
 
@@ -5451,7 +5455,28 @@ export class AgentSidebarView extends ItemView {
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
             runBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForRun: true }); });
-            sessionBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForSession: true }); });
+            sessionBtn?.addEventListener('click', () => {
+                void (async () => {
+                    // Adversarial review 2026-07-14 (FEAT-44-02a): a session
+                    // grant for the sandbox effect auto-approves ALL agent-
+                    // authored code execution until the plugin reloads --
+                    // functionally close to the standing grant, which
+                    // FIX-44-03b gates behind an explicit confirm on both
+                    // surfaces. Same friction here; the run scope stays one
+                    // click because it dies with the task.
+                    if (scopeGrantNeedsConfirm(permKey, 'session')) {
+                        const ok = await confirmModal(this.app, {
+                            title: t('ui.approval.sandbox'),
+                            message: t('ui.approval.sandboxGrantWarning'),
+                            confirmLabel: t('ui.approval.allowForSession'),
+                            destructive: true,
+                        });
+                        if (!ok) return; // leave the card open, grant nothing
+                    }
+                    cleanup();
+                    resolve({ decision: 'approved', rememberForSession: true });
+                })();
+            });
             denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
             if (enableBtn && permKey) {
                 enableBtn.addEventListener('click', () => {
@@ -5463,7 +5488,7 @@ export class AgentSidebarView extends ItemView {
                         // agent-authored code writes the vault without a further
                         // prompt. Require an explicit confirm, as the Settings tab
                         // does -- a single card click must not arm it silently.
-                        if (permKey === 'sandbox') {
+                        if (scopeGrantNeedsConfirm(permKey, 'standing')) {
                             const ok = await confirmModal(this.app, {
                                 title: t('ui.approval.sandbox'),
                                 message: t('ui.approval.sandboxGrantWarning'),

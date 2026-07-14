@@ -28,6 +28,27 @@ export function grantAutoApproval(cfg: Record<string, unknown>, permKey: string)
     cfg[permKey] = true;
 }
 
+/** The three grant scopes a card can arm beyond a one-shot Allow. */
+export type ApprovalGrantScope = 'run' | 'session' | 'standing';
+
+/**
+ * FIX-44-03b follow-up (adversarial review 2026-07-14): which scope grants
+ * need an explicit destructive confirm before they are armed.
+ *
+ * Sandbox auto-approval means arbitrary agent-authored code writes the vault
+ * without further prompts. The standing grant (settings toggle, "Always
+ * allow") already requires a confirm on both surfaces; the session grant
+ * lives until the plugin reloads -- days, in practice -- and is functionally
+ * close to the standing grant, so it gets the same friction. The run grant
+ * dies with the task and stays one click.
+ */
+export function scopeGrantNeedsConfirm(
+    permKey: string | null,
+    scope: ApprovalGrantScope,
+): boolean {
+    return permKey === 'sandbox' && scope !== 'run';
+}
+
 /**
  * FEAT-44-07 (kill switch, part a): what the plugin instance must offer so the
  * reset can revoke every approval scope. Structural (not the concrete plugin
