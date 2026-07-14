@@ -10,6 +10,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
+import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
 import { assertSafeVaultPath } from './vaultPathGuard';
 import type { EditPreview } from '../editPreview';
 
@@ -74,13 +75,27 @@ export class AppendToFileTool extends BaseTool<'append_to_file'> {
             assertSafeVaultPath(path, { paramName: 'path' });
 
             const existing = this.app.vault.getAbstractFileByPath(path);
-            if (!existing) {
-                // The file will be created; the whole content is the addition.
-                return { path, before: '', after: content, isNew: true };
-            }
-            if (!(existing instanceof TFile)) return null;
+            if (existing && !(existing instanceof TFile)) return null;
 
-            const currentContent = await this.app.vault.read(existing);
+            let currentContent: string;
+            if (existing instanceof TFile) {
+                currentContent = await this.app.vault.read(existing);
+            } else {
+                // FIX-44-41: dot-paths (`.vault-operator/...`) are not in the
+                // Obsidian file index, so the lookup above returns null for
+                // files that very much exist. Without this adapter fallback the
+                // preview claimed "new file" with only the appended chunk as
+                // after-content -- and a user-edited approve then wrote that
+                // chunk as the FULL file, truncating it. Same fallback as
+                // WriteFileTool/EditFileTool (FIX-01-07-04 class).
+                const adapter = this.app.vault.adapter;
+                if (!(await adapter.exists(path))) {
+                    // The file will be created; the whole content is the addition.
+                    return { path, before: '', after: content, isNew: true };
+                }
+                currentContent = await adapter.read(path);
+            }
+
             return {
                 path,
                 before: currentContent,
@@ -103,6 +118,10 @@ export class AppendToFileTool extends BaseTool<'append_to_file'> {
             assertSafeVaultPath(path, { paramName: 'path' });
 
             const existing = this.app.vault.getAbstractFileByPath(path);
+            // FIX-44-41: existing-but-unindexed dot-path files must be appended
+            // to, not "created" over. Mirrors the previewEdit fallback so the
+            // approved diff is exactly what lands on disk.
+            const existsUnindexed = !existing && (await this.app.vault.adapter.exists(path));
 
             if (existing) {
                 if (!(existing instanceof TFile)) {
@@ -115,6 +134,19 @@ export class AppendToFileTool extends BaseTool<'append_to_file'> {
                 // CodeMirror buffer so the editor view shows the append
                 // immediately.
                 await refreshOpenMarkdownViewsFor(this.app, existing, newContent);
+                const appendedLines = content.split('\n').length;
+                callbacks.pushToolResult(
+                    this.formatSuccess(`Appended to ${path} (+${appendedLines} lines)`) +
+                    `\n<diff_stats added="${appendedLines}" removed="0"/>`
+                );
+            } else if (existsUnindexed) {
+                const adapter = this.app.vault.adapter;
+                const currentContent = await adapter.read(path);
+                const newContent = this.resolveAppend(currentContent, content, separator);
+                // FIX-01-07-04 parity: non-indexed writes go through the atomic
+                // temp+rename path, never a raw truncate-then-write that can
+                // leave a 0-byte file.
+                await atomicAdapterWrite(adapter, path, newContent);
                 const appendedLines = content.split('\n').length;
                 callbacks.pushToolResult(
                     this.formatSuccess(`Appended to ${path} (+${appendedLines} lines)`) +
