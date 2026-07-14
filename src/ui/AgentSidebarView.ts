@@ -2840,6 +2840,9 @@ export class AgentSidebarView extends ItemView {
                                     ? turnCheckpoints.map(toPersistedCheckpointMarker)
                                     : undefined,
                             });
+                            // FIX-44-12: markers of the finalized turn were
+                            // just persisted; the next turn starts empty.
+                            turnCheckpoints = [];
                         }
                         // Render user answer as a regular chat message
                         this.addUserMessage(answer);
@@ -2863,9 +2866,12 @@ export class AgentSidebarView extends ItemView {
                         stepsHasError = false;
                         loadingRemoved = false;
                         activeToolGroup = null;
-                        // FIX-44-12: markers of the finalized turn were just
-                        // persisted above; the next turn starts empty.
-                        turnCheckpoints = [];
+                        // FIX-44-12 (review follow-up): turnCheckpoints is
+                        // deliberately NOT reset here. When the turn had no
+                        // assistant text, nothing was persisted above -- the
+                        // markers ride along and persist with the NEXT push
+                        // instead of vanishing on reload. The reset lives
+                        // inside the `if (accumulatedText)` block.
                         // Scroll and continue agent loop
                         scheduleScroll();
                         resolve(answer);
@@ -5730,7 +5736,9 @@ export class AgentSidebarView extends ItemView {
         const files = checkpoint.filesChanged.map((f) => f.split('/').pop()).join(', ');
         const newFileNames = checkpoint.newFiles?.map((f) => f.split('/').pop()).join(', ');
         const allFiles = [files, newFileNames].filter(Boolean).join(', ');
-        const time = new Date(checkpoint.timestamp).toLocaleTimeString('de-DE', {
+        // Locale-neutral like every other timestamp in this file (EPIC-42
+        // ships a 9-locale UI; a hardcoded 'de-DE' leaked in here once).
+        const time = new Date(checkpoint.timestamp).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
         });
@@ -6087,7 +6095,9 @@ export class AgentSidebarView extends ItemView {
             .map((f) => f.split('/').pop())
             .filter(Boolean)
             .join(', ');
-        const time = new Date(marker.timestamp).toLocaleTimeString('de-DE', {
+        // Locale-neutral, matching renderCheckpointMarker and the rest of
+        // the file's timestamps.
+        const time = new Date(marker.timestamp).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
         });

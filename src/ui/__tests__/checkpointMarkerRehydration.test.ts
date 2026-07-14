@@ -172,6 +172,97 @@ describe('planCheckpointMarkerRehydration', () => {
         expect(plan.has(1)).toBe(false);
     });
 
+    // Review follow-up 2026-07-14: a turn that ends with empty assistant text
+    // never persists its markers (uiMessages.push is text-gated). If ANOTHER
+    // message of the same task did persist markers, the persistedTasks
+    // exclusion also removed the legacy last-bubble anchor -- so the
+    // unpersisted turn's checkpoints rendered NOWHERE even though the shadow
+    // repo still had them (a regression vs the pre-fix legacy path). Repo
+    // checkpoints no persisted marker references now append at the task's
+    // last bubble.
+    describe('orphan checkpoints (repo has them, no persisted marker references them)', () => {
+        it('appends orphans of a mixed task at the last bubble instead of dropping them', async () => {
+            const persisted = cp('task-1', 'a'.repeat(40));
+            const orphan = cp('task-1', 'b'.repeat(40), ['Notes/frontmatter.md']);
+            const loader = vi.fn(async () => [persisted, orphan]);
+
+            const plan = await planCheckpointMarkerRehydration(
+                [
+                    { taskId: 'task-1', checkpoints: [toPersistedCheckpointMarker(persisted)] },
+                    { taskId: 'task-1' }, // text-less turn's bubble, no persisted markers
+                ],
+                loader,
+            );
+
+            expect(plan.get(0)).toEqual([{ kind: 'live', checkpoint: persisted }]);
+            expect(plan.get(1)).toEqual([{ kind: 'live', checkpoint: orphan }]);
+        });
+
+        it('appends orphans AFTER the persisted markers when the last bubble is the persisting one', async () => {
+            const persisted = cp('task-1', 'c'.repeat(40));
+            const orphan = cp('task-1', 'd'.repeat(40));
+            const loader = vi.fn(async () => [persisted, orphan]);
+
+            const plan = await planCheckpointMarkerRehydration(
+                [{ taskId: 'task-1', checkpoints: [toPersistedCheckpointMarker(persisted)] }],
+                loader,
+            );
+
+            expect(plan.get(0)).toEqual([
+                { kind: 'live', checkpoint: persisted },
+                { kind: 'live', checkpoint: orphan },
+            ]);
+        });
+
+        it('adds nothing when every repo checkpoint is referenced by a persisted marker', async () => {
+            const persisted = cp('task-1', 'e'.repeat(40));
+            const loader = vi.fn(async () => [persisted]);
+
+            const plan = await planCheckpointMarkerRehydration(
+                [
+                    { taskId: 'task-1', checkpoints: [toPersistedCheckpointMarker(persisted)] },
+                    { taskId: 'task-1' },
+                ],
+                loader,
+            );
+
+            expect(plan.get(0)).toEqual([{ kind: 'live', checkpoint: persisted }]);
+            expect(plan.has(1)).toBe(false);
+        });
+
+        it('does not double-load the repo for orphan detection', async () => {
+            const persisted = cp('task-1', 'f'.repeat(40));
+            const orphan = cp('task-1', '0'.repeat(40));
+            const loader = vi.fn(async () => [persisted, orphan]);
+
+            await planCheckpointMarkerRehydration(
+                [
+                    { taskId: 'task-1', checkpoints: [toPersistedCheckpointMarker(persisted)] },
+                    { taskId: 'task-1' },
+                ],
+                loader,
+            );
+
+            expect(loader).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps expired persisted markers AND surfaces orphans in the same task', async () => {
+            const gone = toPersistedCheckpointMarker(cp('task-1', '1'.repeat(40)));
+            const orphan = cp('task-1', '2'.repeat(40));
+            const loader = vi.fn(async () => [orphan]);
+
+            const plan = await planCheckpointMarkerRehydration(
+                [{ taskId: 'task-1', checkpoints: [gone] }],
+                loader,
+            );
+
+            expect(plan.get(0)).toEqual([
+                { kind: 'expired', marker: gone },
+                { kind: 'live', checkpoint: orphan },
+            ]);
+        });
+    });
+
     it('messages without taskId and without markers are skipped', async () => {
         const loader = vi.fn(async () => [] as CheckpointInfo[]);
 

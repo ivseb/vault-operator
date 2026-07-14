@@ -15,6 +15,9 @@
  *     tooltip; never silently dropped)
  *   - legacy message (taskId, no checkpoints field)      -> FIX-01-07-02
  *     behavior: every loaded checkpoint at the task's last bubble
+ *   - repo checkpoint of a persisting task that NO marker references (a turn
+ *     that ended without assistant text never persisted its markers)
+ *     -> LIVE at the task's last bubble instead of vanishing
  *
  * Pure logic, no DOM: the sidebar walks the returned map and renders via
  * renderCheckpointMarker / renderExpiredCheckpointMarker.
@@ -90,6 +93,10 @@ export async function planCheckpointMarkerRehydration(
         }
     }
 
+    // Oids any persisted marker references, per task. Everything the repo
+    // holds beyond these is an orphan (see fallback below).
+    const referencedOids = new Map<string, Set<string>>();
+
     for (let i = 0; i < messages.length; i++) {
         const m = messages[i];
 
@@ -101,6 +108,12 @@ export async function planCheckpointMarkerRehydration(
                 items.push(live !== undefined
                     ? { kind: 'live', checkpoint: live }
                     : { kind: 'expired', marker });
+                let refs = referencedOids.get(marker.taskId);
+                if (!refs) {
+                    refs = new Set<string>();
+                    referencedOids.set(marker.taskId, refs);
+                }
+                refs.add(marker.commitOid);
             }
             plan.set(i, items);
             continue;
@@ -112,6 +125,30 @@ export async function planCheckpointMarkerRehydration(
                 plan.set(i, [...byOid.values()].map((checkpoint) => ({ kind: 'live', checkpoint })));
             }
         }
+    }
+
+    // Orphan fallback (review follow-up 2026-07-14): a turn that ended with
+    // empty assistant text never persisted its markers (uiMessages.push is
+    // text-gated). For a task where SOME message did persist markers, the
+    // persistedTasks exclusion also removed the legacy anchor, so those
+    // commits rendered nowhere despite still living in the shadow repo.
+    // Append them LIVE at the task's last bubble. Uses only the loads cached
+    // above (persisting tasks are always in byTask), no extra repo IO.
+    const lastBubble = new Map<string, number>();
+    for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (m.taskId && persistedTasks.has(m.taskId)) lastBubble.set(m.taskId, i);
+    }
+    for (const taskId of persistedTasks) {
+        const byOid = byTask.get(taskId);
+        const anchor = lastBubble.get(taskId);
+        if (!byOid || anchor === undefined) continue;
+        const refs = referencedOids.get(taskId);
+        const orphans = [...byOid.values()].filter((cp) => !refs?.has(cp.commitOid));
+        if (orphans.length === 0) continue;
+        const items = plan.get(anchor) ?? [];
+        for (const checkpoint of orphans) items.push({ kind: 'live', checkpoint });
+        plan.set(anchor, items);
     }
 
     return plan;
