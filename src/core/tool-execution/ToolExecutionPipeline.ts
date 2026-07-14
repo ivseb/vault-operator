@@ -29,8 +29,9 @@ import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
 import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect, type ApprovalGrantKey } from '../tools/toolEffects';
-import { hasEditPreview, type EditPreview } from '../tools/editPreview';
+import { hasEditPreview, hasNonFileEffects, type EditPreview } from '../tools/editPreview';
 import { safeNoteWrite } from '../utils/safeNoteWrite';
+import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import type { AutoApprovalConfig } from '../../types/settings';
 import { scanUnreadSources } from '../quality-gates';
 import { computeReadBudgetChars } from '../../types/model-registry';
@@ -168,6 +169,14 @@ export interface ApprovalResult {
     rememberForSession?: boolean;
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
+    /**
+     * FIX-44-13a: vault path of the previewed file, attached by askOrDeny when
+     * the approval carries user-edited finalContent. Authoritative over
+     * `toolCall.input.path`: tools address their target as `path`, `note_path`
+     * or a normalized variant of it, but the preview always names the file
+     * whose before/after the user actually saw and edited.
+     */
+    editedPath?: string;
     /**
      * IMP-41-01-02: optional rejection context surfaced to the model (e.g.
      * "Approval timed out after 10 minutes"). Without it the tool_result
@@ -595,7 +604,7 @@ export class ToolExecutionPipeline {
             // instead of the previous O(N) substring scan over every
             // cached key.
             if (tool.isWriteOperation) {
-                const affectedPath = toolCall.input?.path as string | undefined;
+                const affectedPath = this.writeTargetPath(toolCall);
                 if (affectedPath) {
                     const keys = this.pathIndex.get(affectedPath);
                     if (keys) {
@@ -608,7 +617,7 @@ export class ToolExecutionPipeline {
             // 4. Checkpoint before each write — snapshot the file BEFORE it is modified.
             //    Every write gets its own checkpoint for granular restore (Kilo Code pattern).
             if (tool.isWriteOperation && (this.plugin.settings.enableCheckpoints ?? true)) {
-                const path = toolCall.input?.path as string | undefined;
+                const path = this.writeTargetPath(toolCall);
                 if (path) {
                     try {
                         const cp = await this.plugin.checkpointService?.snapshot(
@@ -635,10 +644,33 @@ export class ToolExecutionPipeline {
             // read cache holding the pre-write content. A write the user made by
             // hand deserves exactly the same safety net as one the agent made.
             if (approval.decision === 'approved' && typeof approval.finalContent === 'string') {
-                const editedPath = typeof toolCall.input?.path === 'string' ? toolCall.input.path : '';
+                // FIX-44-13a: the previewed path wins -- `input.path` is '' for
+                // tools that say `note_path` (the memory-source pair), and the
+                // preview names the file whose diff the user actually edited.
+                const editedPath = approval.editedPath
+                    ?? (typeof toolCall.input?.path === 'string' ? toolCall.input.path : '');
                 const written = await safeNoteWrite(this.plugin.app, editedPath, approval.finalContent);
                 if (!written.ok) {
                     return this.errorResult(toolCall.id, `Approved edit was refused: ${written.reason}`);
+                }
+                // FIX-44-50: for tools whose effect is not purely the file
+                // (memory-source pair: the store registration), skipping
+                // execute() must not skip that effect. unmark is the sharp
+                // case: the approved diff removed the marker from the note,
+                // but without store.remove the note stayed registered and
+                // kept being extracted into memory -- after the user approved
+                // revoking exactly that. Failures are reported, not swallowed:
+                // the gate just showed this change as done.
+                let effectsWarning = '';
+                if (hasNonFileEffects(tool)) {
+                    try {
+                        await tool.applyNonFileEffects(toolCall.input, approval.finalContent);
+                    } catch (e) {
+                        console.warn(`[Pipeline] applyNonFileEffects failed for ${toolCall.name}:`, e);
+                        effectsWarning =
+                            ` WARNING: the file write landed, but the tool's non-file effect FAILED: `
+                            + `${e instanceof Error ? e.message : String(e)}`;
+                    }
                 }
                 this.logOperation(toolCall, true, 0);
                 return {
@@ -647,7 +679,7 @@ export class ToolExecutionPipeline {
                     content:
                         `<success>Applied the user's edited version of ${editedPath}. `
                         + `They changed the content you proposed, so the file now holds THEIR version, not yours. `
-                        + `Re-read it before your next edit.</success>`,
+                        + `Re-read it before your next edit.${effectsWarning}</success>`,
                     is_error: false,
                 };
             }
@@ -862,6 +894,17 @@ export class ToolExecutionPipeline {
         ],
         restore_checkpoint: [
             { key: 'path', write: true },
+        ],
+        // FIX-44-51: the memory-source pair addresses its note via `note_path`,
+        // which is neither `path` nor was it listed here -- ignore/protected
+        // rules never ran for them, so a note under an ignored folder could be
+        // frontmatter-tagged AND registered for memory extraction entirely
+        // outside governance. Write-side: both tools modify the note.
+        mark_note_as_memory_source: [
+            { key: 'note_path', write: true },
+        ],
+        unmark_note_as_memory_source: [
+            { key: 'note_path', write: true },
         ],
     };
 
@@ -1185,13 +1228,40 @@ export class ToolExecutionPipeline {
                 console.debug(`[Pipeline] '${grantKey}' approved for this session`);
             }
         }
+        // FIX-44-13a: remember WHICH file the edited finalContent belongs to.
+        // The write branch used to fall back to `toolCall.input.path`, which is
+        // '' for tools that address their note via `note_path` (the
+        // memory-source pair) -- safeNoteWrite then refused the user's version.
+        const editedPath = preview && result.decision === 'approved' && typeof result.finalContent === 'string'
+            ? preview.path
+            : undefined;
         // FIX-44-44: only the Pipeline decides whether this approval was given on
         // a real diff. The flag from the UI (if any) is overwritten -- a caller
         // must not be able to claim a diff review that never happened.
         return {
             ...result,
+            ...(editedPath !== undefined ? { editedPath } : {}),
             diffReviewed: result.decision === 'approved' && preview !== undefined,
         };
+    }
+
+    /**
+     * FIX-44-13a: the vault path a write tool is about to touch. Most tools
+     * say `path`; the memory-source pair says `note_path`. Cache invalidation
+     * and the pre-write checkpoint must cover both, otherwise a frontmatter
+     * write via mark/unmark got no snapshot and left stale cached reads.
+     */
+    private writeTargetPath(toolCall: ToolUse): string | undefined {
+        const raw = toolCall.input?.path ?? toolCall.input?.note_path;
+        if (typeof raw !== 'string' || raw.length === 0) return undefined;
+        // FIX-44-52: key checkpoint + cache on the path the write actually
+        // lands on. The tools normalize via validateVaultRelativePath
+        // (backslashes -> '/', leading '/' stripped); snapshotting the raw
+        // string ('Notes\\N.md') snapshots a file that does not exist while
+        // the real one changes unprotected. Fall back to the raw string when
+        // validation rejects -- such a call is denied downstream anyway, and
+        // invalidating whatever was cached under the raw key stays harmless.
+        return validateVaultRelativePath(raw) ?? raw;
     }
 
     /**

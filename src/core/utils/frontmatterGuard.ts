@@ -25,29 +25,7 @@
  */
 
 import { parseYaml } from 'obsidian';
-
-interface FrontmatterBlock {
-    /** Raw YAML text between the fences, without the fences themselves. */
-    raw: string;
-    /** Index of the line holding the closing fence. */
-    closingLine: number;
-}
-
-/**
- * Extract the frontmatter block. Returns null when the text does not open with
- * a fence, or when the opening fence is never closed (an unterminated block is
- * exactly the corruption we are hunting, so the caller distinguishes the two).
- */
-function extractFrontmatter(text: string): FrontmatterBlock | null {
-    const lines = text.split('\n');
-    if (lines[0] !== '---') return null;
-    for (let i = 1; i < lines.length; i++) {
-        if (lines[i] === '---') {
-            return { raw: lines.slice(1, i).join('\n'), closingLine: i };
-        }
-    }
-    return null;
-}
+import { splitNoteFrontmatter } from './frontmatterSplit';
 
 /** A markdown heading has no business inside a frontmatter block. */
 const MARKDOWN_HEADING = /^#{1,6}\s+\S/;
@@ -63,20 +41,23 @@ function hasMarkdownHeading(raw: string): boolean {
  *          when the edit is safe to write.
  */
 export function checkFrontmatterIntegrity(before: string, after: string): string | null {
-    const openedBefore = before.split('\n')[0] === '---';
-    if (!openedBefore) return null;
+    // FIX-44-42: the shared splitter tolerates CRLF line endings and a leading
+    // BOM. The previous exact-'---' line comparison made the guard blind on
+    // Windows notes -- the one class of file where update_frontmatter used to
+    // produce exactly the double-block corruption this guard exists to catch.
+    const beforeSplit = splitNoteFrontmatter(before);
+    if (!beforeSplit.opensWithFence) return null;
 
-    const beforeBlock = extractFrontmatter(before);
-    // The file was already broken before this edit. Not our business to block
-    // an edit that might well be the repair.
-    if (!beforeBlock) return null;
+    // The file was already broken before this edit (opening fence never
+    // closed). Not our business to block an edit that might well be the repair.
+    if (beforeSplit.fmText === null) return null;
 
+    const afterSplit = splitNoteFrontmatter(after);
     // The edit removed the frontmatter block cleanly. That is a legitimate,
     // intentional operation, not corruption.
-    if (after.split('\n')[0] !== '---') return null;
+    if (!afterSplit.opensWithFence) return null;
 
-    const afterBlock = extractFrontmatter(after);
-    if (!afterBlock) {
+    if (afterSplit.fmText === null) {
         return (
             'this edit would leave the YAML frontmatter unterminated: the opening "---" ' +
             'survives but the closing "---" is gone, so the whole body would be parsed as ' +
@@ -88,7 +69,7 @@ export function checkFrontmatterIntegrity(before: string, after: string): string
     // The classic corruption: the closing fence was eaten, so the next "---"
     // further down (a horizontal rule, or the fence of nothing at all) becomes
     // the closing fence and the body in between is swallowed.
-    if (hasMarkdownHeading(afterBlock.raw) && !hasMarkdownHeading(beforeBlock.raw)) {
+    if (hasMarkdownHeading(afterSplit.fmText) && !hasMarkdownHeading(beforeSplit.fmText)) {
         return (
             'this edit would pull body content (a markdown heading) into the YAML ' +
             'frontmatter block, which means the closing "---" of the frontmatter was ' +
@@ -99,7 +80,7 @@ export function checkFrontmatterIntegrity(before: string, after: string): string
     // Whatever ends up between the fences must still be a YAML mapping.
     let parsed: unknown;
     try {
-        parsed = parseYaml(afterBlock.raw);
+        parsed = parseYaml(afterSplit.fmText);
     } catch (e) {
         return (
             'this edit would leave the YAML frontmatter unparseable ' +

@@ -101,6 +101,69 @@ describe('FEAT-44-10: update_frontmatter preview matches what execute writes', (
     });
 });
 
+describe('FIX-44-42: CRLF and BOM notes keep exactly one frontmatter block', () => {
+    const CRLF_FM = '---\r\ntitle: Old\r\ntags:\r\n  - a\r\n---\r\n\r\n### Transkript\r\n\r\nbody\r\n';
+    const BOM_FM = '\uFEFF---\ntitle: Old\n---\n\nbody\n';
+
+    /** Fence lines in the note, CRLF/BOM-tolerant on purpose: the bug under test IS the intolerance. */
+    function countFences(note: string): number {
+        return note
+            .replace(/^\uFEFF/, '')
+            .split('\n')
+            .filter((l) => l === '---' || l === '---\r').length;
+    }
+
+    it('update_frontmatter on a CRLF note updates the block instead of prepending a second one', async () => {
+        const { tool, written } = makeTool(CRLF_FM);
+        const { context } = makeCtx();
+        await tool.execute({ path: 'Inbox/M.md', updates: { title: 'New' } }, context);
+
+        expect(written).toHaveLength(1);
+        const out = written[0];
+        expect(countFences(out)).toBe(2);            // ONE block, not two
+        expect(out).toContain('title: New');
+        expect(out).not.toContain('title: Old');     // the old block was replaced, not buried
+    });
+
+    it('preserves the CRLF line-ending style of the note (no silent LF conversion)', async () => {
+        const { tool, written } = makeTool(CRLF_FM);
+        const { context } = makeCtx();
+        await tool.execute({ path: 'Inbox/M.md', updates: { title: 'New' } }, context);
+
+        const out = written[0];
+        // The rebuilt frontmatter block uses the file's own style ...
+        expect(out.startsWith('---\r\ntitle: New\r\ntags:\r\n  - a\r\n---\r\n')).toBe(true);
+        // ... and the body is byte-identical to what was there before.
+        expect(out.endsWith('\r\n### Transkript\r\n\r\nbody\r\n')).toBe(true);
+        // No stray lone-LF lines were introduced anywhere.
+        expect(out.replace(/\r\n/g, '')).not.toContain('\n');
+    });
+
+    it('CRLF preview matches what execute writes (the gate must not lie on Windows notes)', async () => {
+        const input = { path: 'Inbox/M.md', updates: { title: 'New' } };
+        const preview = await makeTool(CRLF_FM).tool.previewEdit(input);
+        expect(preview).not.toBeNull();
+
+        const { tool, written } = makeTool(CRLF_FM);
+        const { context } = makeCtx();
+        await tool.execute(input, context);
+        expect(preview!.after).toBe(written[0]);
+    });
+
+    it('a leading BOM does not hide the existing block, and survives the write', async () => {
+        const { tool, written } = makeTool(BOM_FM);
+        const { context } = makeCtx();
+        await tool.execute({ path: 'Inbox/M.md', updates: { title: 'New' } }, context);
+
+        expect(written).toHaveLength(1);
+        const out = written[0];
+        expect(out.startsWith('\uFEFF---\n')).toBe(true);
+        expect(countFences(out)).toBe(2);
+        expect(out).toContain('title: New');
+        expect(out).not.toContain('title: Old');
+    });
+});
+
 describe('splitFrontmatter', () => {
     it('handles the empty block that the regex form silently misses', () => {
         // /^---\n[\s\S]*?\n---/ does NOT match "---\n---", which is exactly the
