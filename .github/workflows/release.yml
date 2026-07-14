@@ -37,11 +37,10 @@ jobs:
       # (the .npmrc `omit=optional` skips it under ci, so it is added explicitly).
       - name: Install dependencies
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          # .npmrc `omit=optional` skips the platform binaries esbuild/rollup
-          # need, so install them explicitly (pinned to the lockfile versions).
-          npm install @rollup/rollup-linux-x64-gnu@4.62.2 --no-audit --no-fund --no-save --ignore-scripts
-          npm install @esbuild/linux-x64@0.28.1 --no-audit --no-fund --no-save --ignore-scripts
+          # --include=optional overrides the .npmrc `omit=optional` so the
+          # platform binaries esbuild/rollup (incl. vitepress's) install from the
+          # verified lockfile; --ignore-scripts keeps the H-3 lifecycle guard.
+          npm ci --include=optional --ignore-scripts --no-audit --no-fund
 
       - name: Build plugin
         run: node esbuild.config.mjs production
