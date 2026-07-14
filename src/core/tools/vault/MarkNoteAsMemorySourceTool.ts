@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
  * mark_note_as_memory_source -- FEAT-03-25 / ADR-109.
  *
@@ -17,6 +16,10 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { validateVaultRelativePath } from './pathValidation';
+import type { EditPreview } from '../editPreview';
+import { resolveFrontmatterUpdate } from './frontmatterEdit';
+import { checkFrontmatterIntegrity } from '../../utils/frontmatterGuard';
+import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 
 interface Input {
     note_path: string;
@@ -51,6 +54,36 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
         };
     }
 
+    /**
+     * FIX-44-13a: the diff the approval gate shows. Never writes.
+     *
+     * The frontmatter change (`memory-source: true`) is resolved by the same
+     * `resolveFrontmatterUpdate` that `execute` writes through, so the diff the
+     * user approves is by construction what lands on disk. Returns null when
+     * there is nothing to diff (write_frontmatter=false, marker already set,
+     * missing note) -- the Pipeline then falls back to the plain card, never to
+     * no approval.
+     */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const { note_path, write_frontmatter = true } = input as unknown as Input;
+            if (!write_frontmatter) return null;   // only the DB-side marker changes
+            if (!note_path || typeof note_path !== 'string') return null;
+            const safe = validateVaultRelativePath(note_path);
+            if (!safe) return null;
+            const file = this.plugin.app.vault.getAbstractFileByPath(safe);
+            if (!(file instanceof TFile) || file.extension !== 'md') return null;
+
+            const content = await this.plugin.app.vault.read(file);
+            const { newContent } = resolveFrontmatterUpdate(content, { 'memory-source': true });
+            if (newContent === content) return null;   // already marked: nothing to show
+            return { path: safe, before: content, after: newContent };
+        } catch {
+            // A preview is a courtesy, never a gate. Fall back to the plain card.
+            return null;
+        }
+    }
+
     async execute(input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<void> {
         const { note_path, write_frontmatter = true } = input as unknown as Input;
         if (!note_path || typeof note_path !== 'string') {
@@ -82,9 +115,22 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
 
         if (write_frontmatter) {
             try {
-                await this.plugin.app.fileManager.processFrontMatter(file, (fm) => {
-                    fm['memory-source'] = true;
-                });
+                // FIX-44-13a: resolve + write through the same function whose
+                // result the approval gate previewed. The old
+                // fileManager.processFrontMatter reads/mutates/writes in one
+                // atomic step and cannot say what it is ABOUT to write, so the
+                // gate could only ever show a name card.
+                const content = await this.plugin.app.vault.read(file);
+                const { newContent } = resolveFrontmatterUpdate(content, { 'memory-source': true });
+                if (newContent !== content) {
+                    // FIX-44-09: never leave the frontmatter broken.
+                    const reason = checkFrontmatterIntegrity(content, newContent);
+                    if (reason) throw new Error(reason);
+                    await this.plugin.app.vault.modify(file, newContent);
+                    // FIX-01-07-03: push into the open CodeMirror buffer,
+                    // otherwise the stale buffer saves itself back over the write.
+                    await refreshOpenMarkdownViewsFor(this.plugin.app, file, newContent);
+                }
             } catch (e) {
                 console.warn(`[mark_note_as_memory_source] frontmatter write failed for ${safe}:`, e);
             }
@@ -103,5 +149,3 @@ export class MarkNoteAsMemorySourceTool extends BaseTool<'mark_note_as_memory_so
         ));
     }
 }
-
-/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

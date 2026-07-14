@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
  * unmark_note_as_memory_source -- FEAT-03-25 / ADR-109.
  *
@@ -13,11 +12,18 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { validateVaultRelativePath } from './pathValidation';
+import type { EditPreview } from '../editPreview';
+import { resolveFrontmatterUpdate } from './frontmatterEdit';
+import { checkFrontmatterIntegrity } from '../../utils/frontmatterGuard';
+import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 
 interface Input {
     note_path: string;
     clear_frontmatter?: boolean;
 }
+
+/** Every spelling of the marker that has ever been written or hand-typed. */
+const MARKER_KEYS = ['memory-source', 'memory_source', 'memorySource'];
 
 export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memory_source'> {
     readonly name = 'unmark_note_as_memory_source' as const;
@@ -47,6 +53,33 @@ export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memor
         };
     }
 
+    /**
+     * FIX-44-13a: the diff the approval gate shows. Never writes.
+     *
+     * Same one-resolver pattern as MarkNoteAsMemorySourceTool. Returns null
+     * when no marker key is present -- writing in that case would ADD an empty
+     * frontmatter block to a note that never had one.
+     */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const { note_path, clear_frontmatter = true } = input as unknown as Input;
+            if (!clear_frontmatter) return null;   // only the DB-side marker changes
+            if (!note_path || typeof note_path !== 'string') return null;
+            const safe = validateVaultRelativePath(note_path);
+            if (!safe) return null;
+            const file = this.plugin.app.vault.getAbstractFileByPath(safe);
+            if (!(file instanceof TFile) || file.extension !== 'md') return null;
+
+            const content = await this.plugin.app.vault.read(file);
+            const { newContent, changed } = resolveFrontmatterUpdate(content, {}, MARKER_KEYS);
+            if (changed.length === 0 || newContent === content) return null;
+            return { path: safe, before: content, after: newContent };
+        } catch {
+            // A preview is a courtesy, never a gate. Fall back to the plain card.
+            return null;
+        }
+    }
+
     async execute(input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<void> {
         const { note_path, clear_frontmatter = true } = input as unknown as Input;
         if (!note_path || typeof note_path !== 'string') {
@@ -72,11 +105,22 @@ export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memor
             const file = this.plugin.app.vault.getAbstractFileByPath(safe);
             if (file instanceof TFile && file.extension === 'md') {
                 try {
-                    await this.plugin.app.fileManager.processFrontMatter(file, (fm) => {
-                        delete fm['memory-source'];
-                        delete fm['memory_source'];
-                        delete fm['memorySource'];
-                    });
+                    // FIX-44-13a: resolve + write through the same function whose
+                    // result the approval gate previewed (was: an un-previewable
+                    // fileManager.processFrontMatter).
+                    const content = await this.plugin.app.vault.read(file);
+                    const { newContent, changed } = resolveFrontmatterUpdate(content, {}, MARKER_KEYS);
+                    // Only write when a marker actually left the block; the
+                    // resolver would otherwise add an empty frontmatter block
+                    // to a note that never had one.
+                    if (changed.length > 0 && newContent !== content) {
+                        // FIX-44-09: never leave the frontmatter broken.
+                        const reason = checkFrontmatterIntegrity(content, newContent);
+                        if (reason) throw new Error(reason);
+                        await this.plugin.app.vault.modify(file, newContent);
+                        // FIX-01-07-03: push into the open CodeMirror buffer.
+                        await refreshOpenMarkdownViewsFor(this.plugin.app, file, newContent);
+                    }
                 } catch (e) {
                     console.warn(`[unmark_note_as_memory_source] frontmatter clear failed for ${safe}:`, e);
                 }
@@ -90,5 +134,3 @@ export class UnmarkNoteAsMemorySourceTool extends BaseTool<'unmark_note_as_memor
         ));
     }
 }
-
-/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

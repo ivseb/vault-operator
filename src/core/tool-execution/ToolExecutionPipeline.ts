@@ -161,6 +161,14 @@ export interface ApprovalResult {
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
     /**
+     * FIX-44-13a: vault path of the previewed file, attached by askOrDeny when
+     * the approval carries user-edited finalContent. Authoritative over
+     * `toolCall.input.path`: tools address their target as `path`, `note_path`
+     * or a normalized variant of it, but the preview always names the file
+     * whose before/after the user actually saw and edited.
+     */
+    editedPath?: string;
+    /**
      * IMP-41-01-02: optional rejection context surfaced to the model (e.g.
      * "Approval timed out after 10 minutes"). Without it the tool_result
      * carries the generic "denied by user" line.
@@ -551,7 +559,7 @@ export class ToolExecutionPipeline {
             // instead of the previous O(N) substring scan over every
             // cached key.
             if (tool.isWriteOperation) {
-                const affectedPath = toolCall.input?.path as string | undefined;
+                const affectedPath = this.writeTargetPath(toolCall);
                 if (affectedPath) {
                     const keys = this.pathIndex.get(affectedPath);
                     if (keys) {
@@ -564,7 +572,7 @@ export class ToolExecutionPipeline {
             // 4. Checkpoint before each write — snapshot the file BEFORE it is modified.
             //    Every write gets its own checkpoint for granular restore (Kilo Code pattern).
             if (tool.isWriteOperation && (this.plugin.settings.enableCheckpoints ?? true)) {
-                const path = toolCall.input?.path as string | undefined;
+                const path = this.writeTargetPath(toolCall);
                 if (path) {
                     try {
                         const cp = await this.plugin.checkpointService?.snapshot(
@@ -591,7 +599,11 @@ export class ToolExecutionPipeline {
             // read cache holding the pre-write content. A write the user made by
             // hand deserves exactly the same safety net as one the agent made.
             if (approval.decision === 'approved' && typeof approval.finalContent === 'string') {
-                const editedPath = typeof toolCall.input?.path === 'string' ? toolCall.input.path : '';
+                // FIX-44-13a: the previewed path wins -- `input.path` is '' for
+                // tools that say `note_path` (the memory-source pair), and the
+                // preview names the file whose diff the user actually edited.
+                const editedPath = approval.editedPath
+                    ?? (typeof toolCall.input?.path === 'string' ? toolCall.input.path : '');
                 const written = await safeNoteWrite(this.plugin.app, editedPath, approval.finalContent);
                 if (!written.ok) {
                     return this.errorResult(toolCall.id, `Approved edit was refused: ${written.reason}`);
@@ -1028,7 +1040,25 @@ export class ToolExecutionPipeline {
             this.runApprovedEffects.add(effect);
             console.debug(`[Pipeline] '${effect}' approved for the rest of this run`);
         }
+        // FIX-44-13a: remember WHICH file the edited finalContent belongs to.
+        // The write branch used to fall back to `toolCall.input.path`, which is
+        // '' for tools that address their note via `note_path` (the
+        // memory-source pair) -- safeNoteWrite then refused the user's version.
+        if (preview && result.decision === 'approved' && typeof result.finalContent === 'string') {
+            return { ...result, editedPath: preview.path };
+        }
         return result;
+    }
+
+    /**
+     * FIX-44-13a: the vault path a write tool is about to touch. Most tools
+     * say `path`; the memory-source pair says `note_path`. Cache invalidation
+     * and the pre-write checkpoint must cover both, otherwise a frontmatter
+     * write via mark/unmark got no snapshot and left stale cached reads.
+     */
+    private writeTargetPath(toolCall: ToolUse): string | undefined {
+        const raw = toolCall.input?.path ?? toolCall.input?.note_path;
+        return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
     }
 
     /**
