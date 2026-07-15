@@ -2,7 +2,7 @@
 import { withBase } from 'vitepress'
 
 /* Keep in sync with manifest.json on every release. */
-const PLUGIN_VERSION = '3.2.4'
+const PLUGIN_VERSION = '3.2.5'
 </script>
 
 <template>
