@@ -27,6 +27,7 @@ import { resolveCoreTemplatesFolder } from '../../core/utils/templatesFolder';
 import { TemplateMaterializer } from '../../core/templates/TemplateMaterializer';
 import { makeTemplateTranslator } from '../../core/templates/translateTemplate';
 import { BUNDLED_NOTE_TEMPLATES } from '../../_generated/bundled-templates';
+import { castGenerated } from '../../core/utils/runtime';
 
 // FEAT-24-08 Welle A follow-up (2026-05-18): the dedicated 'role-models'
 // wizard step was removed. The 4 role-model dropdowns (titling, internal,
@@ -242,7 +243,11 @@ export class FirstRunWizardModal extends Modal {
             ? this.templatesCustomLang.trim().toLowerCase() || 'en'
             : this.templatesLang;
 
-        const materializer = new TemplateMaterializer(this.app, BUNDLED_NOTE_TEMPLATES);
+        // `_generated/` is gitignored, so its exports are untyped at check time.
+        const materializer = new TemplateMaterializer(
+            this.app,
+            castGenerated<Record<string, Record<string, string>>>(BUNDLED_NOTE_TEMPLATES),
+        );
         const translator = (lang !== 'de' && lang !== 'en')
             ? makeTemplateTranslator(this.plugin)
             : undefined;
@@ -738,7 +743,9 @@ export class FirstRunWizardModal extends Modal {
 
         const { OptionalAssetManager, buildRerankerSpec, buildRerankerJsBundleSpec, buildSelfDevSourceSpec, buildOfficeBundleSpec, buildPdfjsBundleSpec } = await import('../../core/assets/OptionalAssetManager');
         const { RERANKER_WASM_SHA256, OFFICE_BUNDLE_SHA256, PDFJS_BUNDLE_SHA256, RERANKER_JS_BUNDLE_SHA256 } = await import('../../core/assets/assetHashes');
-        const { SELF_DEV_SOURCE_SHA256 } = await import('../../_generated/source-hash');
+        const { SELF_DEV_SOURCE_SHA256 } = castGenerated<{ SELF_DEV_SOURCE_SHA256: string }>(
+            await import('../../_generated/source-hash'),
+        );
 
         const manager = new OptionalAssetManager(this.plugin);
         const items: {

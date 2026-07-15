@@ -8644,11 +8644,13 @@
     border-radius: 3px;
     padding: 0 1px;
 }
+/* text-decoration-thickness / -color are only partially supported on the
+ * Electron build behind Obsidian 1.7.4, so the strike is left at its default
+ * weight and inherits the text colour. The row tint already carries the
+ * del/add signal; the strike only has to be visible. */
 .agent-edit-review__word.is-del-word {
     background: var(--vo-del-word);
     text-decoration: line-through;
-    text-decoration-thickness: 1px;
-    text-decoration-color: var(--vo-del-bar);
 }
 .agent-edit-review__word.is-add-word {
     background: var(--vo-add-word);

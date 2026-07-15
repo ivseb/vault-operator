@@ -2,6 +2,7 @@ import { App, Modal, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
 import { addSectionHeading } from './utils';
+import { applyDestructiveStyle } from '../buttonStyle';
 import { resetToDefaultDeny } from '../../core/tools/autoApprovalGrant';
 import { PRESETS } from '../../core/tools/agent/UpdateSettingsTool';
 
@@ -277,26 +278,25 @@ export class PermissionsTab {
         new Setting(containerEl)
             .setName(t('settings.permissions.resetDefaultDeny'))
             .setDesc(t('settings.permissions.resetDefaultDenyDesc'))
-            .addButton((btn) =>
-                btn
-                    .setButtonText(t('settings.permissions.resetDefaultDenyButton'))
-                    .setDestructive()
-                    .onClick(() => {
-                        void (async () => {
-                            const ok = await this.confirmHighRisk(
-                                t('settings.permissions.resetConfirmTitle'),
-                                t('settings.permissions.resetConfirmMessage'),
-                                t('settings.permissions.resetConfirmAccept'),
-                            );
-                            if (!ok) return;
-                            resetToDefaultDeny(this.plugin, PRESETS.restrictive);
-                            await this.plugin.saveSettings();
-                            new Notice(t('settings.permissions.resetDone'));
-                            // Re-render so every toggle shows its post-reset state.
-                            this.rerender();
-                        })();
-                    }),
-            );
+            .addButton((btn) => {
+                btn.setButtonText(t('settings.permissions.resetDefaultDenyButton'));
+                applyDestructiveStyle(btn);
+                btn.onClick(() => {
+                    void (async () => {
+                        const ok = await this.confirmHighRisk(
+                            t('settings.permissions.resetConfirmTitle'),
+                            t('settings.permissions.resetConfirmMessage'),
+                            t('settings.permissions.resetConfirmAccept'),
+                        );
+                        if (!ok) return;
+                        resetToDefaultDeny(this.plugin, PRESETS.restrictive);
+                        await this.plugin.saveSettings();
+                        new Notice(t('settings.permissions.resetDone'));
+                        // Re-render so every toggle shows its post-reset state.
+                        this.rerender();
+                    })();
+                });
+            });
     }
 
     /**
