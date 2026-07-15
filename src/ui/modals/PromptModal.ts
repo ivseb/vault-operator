@@ -1,4 +1,5 @@
 import { App, Modal, Setting } from 'obsidian';
+import { applyDestructiveStyle } from '../buttonStyle';
 
 export interface PromptOptions {
     title: string;
@@ -108,21 +109,7 @@ class ConfirmModalImpl extends Modal {
                 .onClick(() => this.decide(false)))
             .addButton((btn) => {
                 btn.setButtonText(opts.confirmLabel ?? 'Confirm').setCta();
-                if (opts.destructive) {
-                    // setDestructive is the 1.13+ API; setWarning is the legacy
-                    // method still present (deprecated) on the same class. We
-                    // pick whichever the running Obsidian exposes so the modal
-                    // stays correct from minAppVersion 1.8.7 up.
-                    const styled = btn as unknown as {
-                        setDestructive?: () => unknown;
-                        setWarning?: () => unknown;
-                    };
-                    if (typeof styled.setDestructive === 'function') {
-                        styled.setDestructive();
-                    } else if (typeof styled.setWarning === 'function') {
-                        styled.setWarning();
-                    }
-                }
+                if (opts.destructive) applyDestructiveStyle(btn);
                 btn.onClick(() => this.decide(true));
             });
     }

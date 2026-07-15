@@ -17,6 +17,19 @@ interface AutocompleteItem {
 }
 
 /**
+ * `onSelect` is a void-returning property, but inserting a file or folder
+ * reference is async. Wrapping keeps the click handler synchronous (no
+ * misused promise) while surfacing a rejection instead of dropping it.
+ */
+function fireAndForget(run: () => Promise<void>): () => void {
+    return () => {
+        void run().catch((err: unknown) => {
+            console.error('Autocomplete selection failed', err);
+        });
+    };
+}
+
+/**
  * FEAT-02-11: separate caps for file and folder rows so a query that hits many
  * markdown files (e.g. "Acme") does not push the matching folders out of the
  * popup entirely. Unused slots on one side flow to the other.
@@ -117,7 +130,7 @@ export class AutocompleteHandler {
 
             const currentFile = this.app.workspace.getActiveFile();
             const activeOption: AutocompleteItem[] = (currentFile && (query === '' || 'active'.startsWith(query)))
-                ? [{ label: t('ui.sidebar.autocompleteActiveNote'), sub: `@active → ${currentFile.basename}`, onSelect: makeFileOnSelect(currentFile) }]
+                ? [{ label: t('ui.sidebar.autocompleteActiveNote'), sub: `@active → ${currentFile.basename}`, onSelect: fireAndForget(makeFileOnSelect(currentFile)) }]
                 : [];
 
             // FEAT-02-11: rank-sort files by match quality so an exact-name
@@ -132,7 +145,7 @@ export class AutocompleteHandler {
                 sub: f.path,
                 tag: t('ui.sidebar.autocompleteFileTag'),
                 tagVariant: 'file' as const,
-                onSelect: makeFileOnSelect(f),
+                onSelect: fireAndForget(makeFileOnSelect(f)),
             }));
 
             // FEAT-02-11: folder rows. One row per match by default (recursive);
@@ -236,7 +249,7 @@ export class AutocompleteHandler {
                 }),
                 tag: t('ui.sidebar.autocompleteFolderTag'),
                 tagVariant: 'folder' as const,
-                onSelect: makeFolderOnSelect(true),
+                onSelect: fireAndForget(makeFolderOnSelect(true)),
             });
             if (hasSubfolders) {
                 items.push({
@@ -247,7 +260,7 @@ export class AutocompleteHandler {
                     }),
                     tag: t('ui.sidebar.autocompleteFolderTag'),
                     tagVariant: 'folder' as const,
-                    onSelect: makeFolderOnSelect(false),
+                    onSelect: fireAndForget(makeFolderOnSelect(false)),
                 });
             }
         }

@@ -431,10 +431,10 @@ export class EditReviewPanel {
      * refreshStats runs a full diff. Doing that on every keystroke of a 40k
      * transcript is how you make a textarea feel broken.
      */
-    private statsTimer: ReturnType<typeof setTimeout> | null = null;
+    private statsTimer: number | null = null;
     private scheduleStats(before: string, current: string): void {
-        if (this.statsTimer !== null) clearTimeout(this.statsTimer);
-        this.statsTimer = setTimeout(() => {
+        if (this.statsTimer !== null) window.clearTimeout(this.statsTimer);
+        this.statsTimer = window.setTimeout(() => {
             this.statsTimer = null;
             this.refreshStats(before, current);
         }, 300);

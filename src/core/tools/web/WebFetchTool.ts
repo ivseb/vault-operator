@@ -467,11 +467,14 @@ export class WebFetchTool extends BaseTool<'web_fetch'> {
             // activity, so a server that dribbles bytes just under the idle
             // timeout cannot hold the request open indefinitely.
             const absoluteBudgetMs = Math.max(timeoutMs * 3, 45_000);
-            const hardDeadline = setTimeout(() => {
+            const hardDeadline = window.setTimeout(() => {
                 req.destroy(new Error(`Request exceeded absolute time budget of ${absoluteBudgetMs / 1000}s`));
             }, absoluteBudgetMs);
-            if (typeof hardDeadline === 'object' && 'unref' in hardDeadline) hardDeadline.unref();
-            req.on('close', () => clearTimeout(hardDeadline));
+            // In the renderer this handle is a number; under the node test env
+            // `window` aliases globalThis, so it is a timer object that would
+            // otherwise hold the process open. unref it wherever it exists.
+            (hardDeadline as unknown as { unref?: () => void }).unref?.();
+            req.on('close', () => window.clearTimeout(hardDeadline));
             req.end();
         });
     }
