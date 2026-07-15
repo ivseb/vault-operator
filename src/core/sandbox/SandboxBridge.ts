@@ -330,11 +330,14 @@ export class SandboxBridge {
             });
             // AUDIT 2026-07-14 (Codex) M-7 / SEC-039-M3: absolute ceiling so a
             // slow-drip response cannot hold the request open indefinitely.
-            const hardDeadline = setTimeout(() => {
+            const hardDeadline = window.setTimeout(() => {
                 req.destroy(new Error('Sandbox request exceeded absolute time budget of 45s'));
             }, 45_000);
-            if (typeof hardDeadline === 'object' && 'unref' in hardDeadline) hardDeadline.unref();
-            req.on('close', () => clearTimeout(hardDeadline));
+            // In the renderer this handle is a number; under the node test env
+            // `window` aliases globalThis, so it is a timer object that would
+            // otherwise hold the process open. unref it wherever it exists.
+            (hardDeadline as unknown as { unref?: () => void }).unref?.();
+            req.on('close', () => window.clearTimeout(hardDeadline));
             if (options?.body && method !== 'GET' && method !== 'HEAD') {
                 req.write(options.body);
             }
