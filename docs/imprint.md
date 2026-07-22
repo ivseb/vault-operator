@@ -12,9 +12,6 @@ Germany
 
 ## Contact
 
-<!-- TODO(rebrand): the old ***REMOVED*** address is being decommissioned with the obsilo.ai domain.
-     Replace the line below with a working contact email before publishing (German TMG S 5 requires a way to
-     contact the operator quickly and directly). Until then, GitHub is the contact channel. -->
 GitHub: [@pssah4](https://github.com/pssah4) (issues: [pssah4/vault-operator](https://github.com/pssah4/vault-operator/issues))
 
 ---
