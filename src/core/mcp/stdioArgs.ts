@@ -21,8 +21,8 @@ export function parseShellArgs(input: string): string[] {
     if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
         try {
             const parsed: unknown = JSON.parse(trimmed);
-            if (Array.isArray(parsed) && parsed.every((a) => typeof a === 'string')) {
-                return parsed as string[];
+            if (Array.isArray(parsed) && parsed.every((a): a is string => typeof a === 'string')) {
+                return parsed;
             }
         } catch {
             // Fall through to shell parsing on malformed JSON.
@@ -36,7 +36,15 @@ export function parseShellArgs(input: string): string[] {
     let inSingle = false;
     for (let i = 0; i < trimmed.length; i++) {
         const ch = trimmed[i];
-        if (ch === '"' && !inSingle) {
+        // Inside double quotes a backslash escapes the next character (\" and
+        // \\), so joinArgsForDisplay can round-trip a token that itself contains
+        // a quote or a backslash. Single-quoted and bare tokens keep the
+        // backslash literal (shell convention).
+        if (ch === '\\' && inDouble && i + 1 < trimmed.length) {
+            current += trimmed[i + 1];
+            i++;
+            started = true;
+        } else if (ch === '"' && !inSingle) {
             inDouble = !inDouble;
             started = true;
         } else if (ch === "'" && !inDouble) {
@@ -57,6 +65,13 @@ export function parseShellArgs(input: string): string[] {
  *  that contain whitespace or a double quote). Round-trips with parseShellArgs. */
 export function joinArgsForDisplay(args: string[]): string {
     return args
-        .map((arg) => (arg.includes(' ') || arg.includes('"') ? `"${arg.replace(/"/g, '\\"')}"` : arg))
+        .map((arg) => {
+            if (!/[\s"\\]/.test(arg)) return arg;
+            // Escape backslash FIRST, then the double quote, so the result
+            // round-trips through parseShellArgs (CWE-116: a backslash left
+            // unescaped would swallow the following char on the next parse).
+            const escaped = arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            return `"${escaped}"`;
+        })
         .join(' ');
 }

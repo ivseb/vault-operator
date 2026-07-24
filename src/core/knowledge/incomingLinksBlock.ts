@@ -136,7 +136,9 @@ export function buildIncomingLinksBody(sources: readonly IncomingSource[]): stri
     for (const s of sorted) {
         // toWikilink liefert einen ordnerlosen Basename-Link; ein blosser
         // Basename traegt kein |, das Escaping haelt die Spalte in jedem Fall dicht.
-        const noteCell = toWikilink(s.sourcePath).replace(/\|/g, '\\|');
+        // Backslash ZUERST escapen, dann die Pipe (CWE-116: ein roher Backslash
+        // wuerde sonst das nachfolgende Escape schlucken).
+        const noteCell = toWikilink(s.sourcePath).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
         inner.push(`| ${noteCell} |`);
     }
 

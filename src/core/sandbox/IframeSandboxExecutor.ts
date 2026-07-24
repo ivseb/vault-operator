@@ -115,30 +115,40 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
             this.execGovernance.set(id, options.governanceTaskId);
         }
 
-        return new Promise<unknown>((resolve, reject) => {
-            const timeout = window.setTimeout(() => {
-                this.stopHeapSampler();
-                this.pending.delete(id);
-                this.execGovernance.delete(id);
-                reject(new Error('Sandbox execution timeout (30s)'));
-            }, 30000);
+        try {
+            return await new Promise<unknown>((resolve, reject) => {
+                const timeout = window.setTimeout(() => {
+                    this.stopHeapSampler();
+                    this.pending.delete(id);
+                    this.execGovernance.delete(id);
+                    reject(new Error('Sandbox execution timeout (30s)'));
+                }, 30000);
 
-            this.pending.set(id, { resolve, reject, timeout });
+                this.pending.set(id, { resolve, reject, timeout });
 
-            // AUDIT-037 L-2: the desktop ProcessSandboxExecutor caps the worker
-            // heap at 128 MB via --max-old-space-size. The iframe path has no
-            // equivalent V8 lever, so we sample performance.memory every 500 ms
-            // and tear the iframe down once usedJSHeapSize crosses
-            // HEAP_LIMIT_BYTES. performance.memory is Chromium-only (which
-            // Obsidian uses on every platform that has the iframe path), so
-            // the sampler is gated on its presence.
-            this.startHeapSampler();
+                // AUDIT-037 L-2: the desktop ProcessSandboxExecutor caps the worker
+                // heap at 128 MB via --max-old-space-size. The iframe path has no
+                // equivalent V8 lever, so we sample performance.memory every 500 ms
+                // and tear the iframe down once usedJSHeapSize crosses
+                // HEAP_LIMIT_BYTES. performance.memory is Chromium-only (which
+                // Obsidian uses on every platform that has the iframe path), so
+                // the sampler is gated on its presence.
+                this.startHeapSampler();
 
-            const execMsg: PluginToSandboxMessage = { type: 'execute', id, code: compiledJs, input };
-            // L-2 Known Limitation: targetOrigin '*' required for srcdoc iframes (no own origin).
-            // Security: event.source check in handleMessage() prevents spoofing in receive direction.
-            this.iframe?.contentWindow?.postMessage(execMsg, '*');
-        });
+                const execMsg: PluginToSandboxMessage = { type: 'execute', id, code: compiledJs, input };
+                // L-2 Known Limitation: targetOrigin '*' required for srcdoc iframes (no own origin).
+                // Security: event.source check in handleMessage() prevents spoofing in receive direction.
+                this.iframe?.contentWindow?.postMessage(execMsg, '*');
+            });
+        } finally {
+            // FIX (heap accumulation): once this execution settled, recycle the
+            // iframe if nothing else is in flight, so the next run_skill_script
+            // starts on a fresh V8 heap instead of accumulating parsed strings
+            // across a sequential batch. No-op while other executions are live;
+            // the SandboxBridge (and its write-rate counter) survives the recycle.
+            // ensureReady() lazily rebuilds the iframe on the next execute().
+            this.recycleIfIdle();
+        }
     }
 
     /**
@@ -182,9 +192,35 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
     }
 
     /**
-     * Clean up the iframe and pending executions.
+     * FIX (heap accumulation): tear down the iframe when idle so the next
+     * execution starts on a fresh V8 heap.
+     *
+     * The iframe is reused across executions and its GC does not reclaim large
+     * parsed strings (e.g. sinked transcripts) between run_skill_script calls.
+     * A batch that ran many script calls in sequence accumulated until the
+     * 128 MB cap tripped, even with no single large input. Recycling between
+     * calls bounds the heap to one execution's working set.
+     *
+     * Two invariants:
+     *   - Recycle ONLY when idle. Recycling while another task's execution is
+     *     live would reject that in-flight call (destroy() rejects pending).
+     *   - Recycle keeps `this.bridge`. The write-rate counter (10/min) lives on
+     *     the bridge, not the iframe; a fresh iframe must NOT reset it, or a
+     *     batch could bypass the write limit that guards the vault.
+     *
+     * ensureReady() lazily rebuilds the iframe on the next execute(), so this
+     * is a teardown, not a synchronous re-init.
      */
-    destroy(): void {
+    recycleIfIdle(): void {
+        if (this.pending.size > 0) return;
+        this.teardownIframe();
+    }
+
+    /**
+     * Tear down just the iframe + its listeners, leaving the bridge and any
+     * governance state intact. Shared by recycleIfIdle() and destroy().
+     */
+    private teardownIframe(): void {
         if (this.messageHandler) {
             window.removeEventListener('message', this.messageHandler);
             this.messageHandler = null;
@@ -193,6 +229,16 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
         this.iframe = null;
         this.ready = false;
         this.readyPromise = null;
+        this.stopHeapSampler();
+    }
+
+    /**
+     * Clean up the iframe and pending executions. Unlike recycleIfIdle(), this
+     * also rejects any in-flight executions -- it is a hard teardown for host
+     * shutdown or a heap-cap breach, not an idle recycle.
+     */
+    destroy(): void {
+        this.teardownIframe();
 
         for (const p of this.pending.values()) {
             window.clearTimeout(p.timeout);
@@ -200,9 +246,6 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
         }
         this.pending.clear();
         this.execGovernance.clear();
-        // AUDIT-037 L-2: clear the heap sampler if destroy() runs while a
-        // sandbox call is still in flight (host shutdown, manual teardown).
-        this.stopHeapSampler();
     }
 
     // -----------------------------------------------------------------------

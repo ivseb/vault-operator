@@ -4207,7 +4207,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         const fresh = this.settings.freshness ?? DEFAULT_FRESHNESS_SETTINGS;
         const dueByCluster = countDueNotesByCluster(
-            this.knowledgeDB.getDB() as never,
+            this.knowledgeDB.getDB(),
             {
                 volatileRecheckDays: 7,
                 evolvingRecheckDays: 30,

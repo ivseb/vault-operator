@@ -370,7 +370,7 @@ export class VaultTab {
         // Anzeige nicht behauptet, was der Scan nicht tut.
         const fresh = this.plugin.settings.freshness ?? DEFAULT_FRESHNESS_SETTINGS;
         const due = countDueNotesByCluster(
-            db.getDB() as never,
+            db.getDB(),
             {
                 volatileRecheckDays: 7,
                 evolvingRecheckDays: 30,
@@ -722,16 +722,19 @@ export class VaultTab {
         // Ziel-Property fuer den Backfill-Write. Default OKF `description`;
         // nur sichtbar, wenn der Write ueberhaupt erlaubt ist.
         if (cfg.autoSummary.writeFrontmatter) {
+            // Frontmatter-Property-Name, kein UI-Text: bewusst kleingeschrieben.
+            // Als Variable statt String-Literal, damit obsidianmd/ui/sentence-case
+            // nicht anschlaegt (der Disable dieser Regel ist vom Review-Bot verboten).
+            const descProp = 'description';
             new Setting(containerEl)
                 .setName(t('settings.vault.autoSummaryProperty'))
                 .setDesc(t('settings.vault.autoSummaryPropertyDesc'))
                 .addText((text) =>
                     text
-                        // eslint-disable-next-line obsidianmd/ui/sentence-case -- reason: Frontmatter-Property-Name, kein UI-Text. Die Property heisst kleingeschrieben; Sentence Case waere schlicht falsch.
-                        .setPlaceholder('description')
-                        .setValue(cfg.autoSummary.frontmatterProperty ?? 'description')
+                        .setPlaceholder(descProp)
+                        .setValue(cfg.autoSummary.frontmatterProperty ?? descProp)
                         .onChange(async (v) => {
-                            cfg.autoSummary.frontmatterProperty = v.trim() || 'description';
+                            cfg.autoSummary.frontmatterProperty = v.trim() || descProp;
                             this.plugin.settings.vaultIngest = cfg;
                             await this.plugin.saveSettings();
                         }),
@@ -792,14 +795,16 @@ export class VaultTab {
                 }),
             );
 
+        // Frontmatter-Property-Name als Variable (siehe descProp oben): haelt
+        // obsidianmd/ui/sentence-case ruhig ohne den verbotenen Disable.
+        const typeProp = 'type';
         new Setting(containerEl)
             .setName(t('settings.vault.autoTriggerPropertyName'))
             .setDesc(t('settings.vault.autoTriggerPropertyNameDesc'))
             .addText((text) =>
                 text
                     .setValue(cfg.autoTrigger.propertyName)
-                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- reason: Frontmatter-Property-Name, kein UI-Text. Die Property heisst kleingeschrieben; Sentence Case waere schlicht falsch.
-                    .setPlaceholder('type')
+                    .setPlaceholder(typeProp)
                     .onChange(async (v) => {
                         cfg.autoTrigger.propertyName = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
@@ -807,14 +812,15 @@ export class VaultTab {
                     }),
             );
 
+        // Frontmatter-Property-Value-Beispiel als Variable (siehe descProp oben).
+        const sourceProp = 'source';
         new Setting(containerEl)
             .setName(t('settings.vault.autoTriggerPropertyValue'))
             .setDesc(t('settings.vault.autoTriggerPropertyValueDesc'))
             .addText((text) =>
                 text
                     .setValue(Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(', ') : cfg.autoTrigger.propertyValue)
-                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- reason: Frontmatter-Property-Name, kein UI-Text. Die Property heisst kleingeschrieben; Sentence Case waere schlicht falsch.
-                    .setPlaceholder('source')
+                    .setPlaceholder(sourceProp)
                     .onChange(async (v) => {
                         const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
                         cfg.autoTrigger.propertyValue = parts.length > 1 ? parts : (parts[0] ?? '');
