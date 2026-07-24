@@ -19,7 +19,7 @@ import { spawnAllowed } from '../../security/spawnAllowlist';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
-import { findRecipe, BUILT_IN_RECIPES } from './recipeRegistry';
+import { findRecipe, BUILT_IN_RECIPES, materializeCustomRecipes } from './recipeRegistry';
 import { validateRecipeParams } from './recipeValidator';
 import { buildSubprocessEnv } from '../../subprocess/buildSubprocessEnv';
 
@@ -55,8 +55,11 @@ export class ExecuteRecipeTool extends BaseTool<'execute_recipe'> {
     }
 
     getDefinition(): ToolDefinition {
-        // Build available recipes list for description
-        const recipeList = BUILT_IN_RECIPES.map((r) => `${r.id}: ${r.description}`).join('; ');
+        // Build available recipes list for description. FEAT-30-07: includes
+        // the user's (validated) custom recipes, otherwise the model would
+        // never call them.
+        const custom = materializeCustomRecipes(this.plugin.settings.recipes?.customRecipes);
+        const recipeList = [...BUILT_IN_RECIPES, ...custom].map((r) => `${r.id}: ${r.description}`).join('; ');
 
         return {
             name: 'execute_recipe',
@@ -94,17 +97,18 @@ export class ExecuteRecipeTool extends BaseTool<'execute_recipe'> {
         if (!this.plugin.settings.recipes?.enabled) {
             callbacks.pushToolResult(
                 this.formatError(new Error(
-                    'Recipe execution is disabled. Enable it in Settings > Advanced > Shell.',
+                    'Recipe execution is disabled. Enable it in Settings > Customize > Recipes.',
                 )),
             );
             return;
         }
 
-        // 2. Find recipe
-        const customRecipes = this.plugin.settings.recipes?.customRecipes ?? [];
+        // 2. Find recipe (custom recipes are re-validated + compiled here;
+        //    invalid stored entries are dropped by materializeCustomRecipes)
+        const customRecipes = materializeCustomRecipes(this.plugin.settings.recipes?.customRecipes);
         const recipe = findRecipe(recipeId, customRecipes);
         if (!recipe) {
-            const available = BUILT_IN_RECIPES.map((r) => r.id).join(', ');
+            const available = [...BUILT_IN_RECIPES, ...customRecipes].map((r) => r.id).join(', ');
             callbacks.pushToolResult(
                 this.formatError(new Error(
                     `Unknown recipe: "${recipeId}". Available: ${available}`,
@@ -118,7 +122,7 @@ export class ExecuteRecipeTool extends BaseTool<'execute_recipe'> {
         if (recipeToggles[recipeId] === false) {
             callbacks.pushToolResult(
                 this.formatError(new Error(
-                    `Recipe "${recipeId}" is disabled. Enable it in Settings > Advanced > Shell.`,
+                    `Recipe "${recipeId}" is disabled. Enable it in Settings > Customize > Recipes.`,
                 )),
             );
             return;

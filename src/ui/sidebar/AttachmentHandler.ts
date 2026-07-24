@@ -698,7 +698,7 @@ export class AttachmentHandler {
 
     /**
      * Read the Obsidian-core attachment folder setting. Falls back to
-     * `Attachements` (Sebastian's vault default) when the JSON cannot be
+     * `Attachements` (the user's vault default) when the JSON cannot be
      * parsed; falls back to `Attachments` (Obsidian default) when the key
      * is missing entirely. We deliberately avoid hard-coding the path so
      * users that renamed the folder stay consistent.

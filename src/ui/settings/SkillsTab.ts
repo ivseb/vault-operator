@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import type ObsidianAgentPlugin from '../../main';
 import { ContentEditorModal } from './ContentEditorModal';
 import { isUserSkillSource, getSourceLabel, SOURCE_TOOLTIP } from './userSkillSource';
+import { deleteSkillFolder } from './skillFolderDelete';
 import { SkillVersionsModal } from '../modals/SkillVersionsModal';
 import type { PluginSkillMeta } from '../../core/skills/types';
 import type { SelfAuthoredSkill } from '../../core/skills/SelfAuthoredSkillLoader';
@@ -151,10 +152,14 @@ export class SkillsTab {
 
             if (unified.length === 0) {
                 listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.skills.empty') });
+                // FIX-29-05-01: still show rejections here. "No skills" plus a
+                // rejected list is exactly the case where the user most needs
+                // to know the skills exist but failed to parse.
+                this.renderRejectedSkills(listEl);
                 return;
             }
 
-            const table = listEl.createEl('table', { cls: 'agent-skill-table' });
+            const table = listEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
             const thead = table.createEl('thead');
             const hr = thead.createEl('tr');
             hr.createEl('th', { text: '', cls: 'agent-skill-th-status' });
@@ -251,6 +256,8 @@ export class SkillsTab {
                     tr.toggleClass('agent-skill-disabled', current);
                 });
             }
+
+            this.renderRejectedSkills(listEl);
         };
 
         createBtn.addEventListener('click', () => { void (async () => {
@@ -276,6 +283,35 @@ export class SkillsTab {
     }
 
     // -- Helpers for unified skills --
+
+    /**
+     * FIX-29-05-01: list SKILL.md files that failed hard validation, with the
+     * reason. Before this, a rejected skill left no user-visible trace at all
+     * (console.warn only), so a typo in the frontmatter presented as "the chat
+     * does not know my skill" and sent the user hunting in the wrong place.
+     */
+    private renderRejectedSkills(listEl: HTMLElement): void {
+        const rejected = this.plugin.selfAuthoredSkillLoader?.getRejectedSkills() ?? [];
+        if (rejected.length === 0) return;
+
+        const box = listEl.createDiv({ cls: 'agent-skill-rejected-box' });
+        box.createEl('h4', { text: t('settings.skills.rejectedHeading') });
+        box.createEl('p', {
+            cls: 'agent-skill-rejected-desc',
+            text: t('settings.skills.rejectedDesc'),
+        });
+
+        const list = box.createEl('ul', { cls: 'agent-skill-rejected-list' });
+        for (const entry of rejected) {
+            const li = list.createEl('li');
+            li.createSpan({ text: entry.folder, cls: 'agent-skill-rejected-name' });
+            li.createDiv({
+                cls: 'agent-skill-rejected-reason',
+                text: t('settings.skills.rejectedReason', { reason: entry.reason }),
+            });
+            li.createDiv({ cls: 'agent-skill-rejected-path', text: entry.filePath });
+        }
+    }
 
     /**
      * Collect skills from both SkillsManager (global) and SelfAuthoredSkillLoader (plugin-local),
@@ -321,6 +357,11 @@ export class SkillsTab {
             for (const skill of globalSkills) {
                 const source = skill.source ?? 'user';
                 if (!isUserSkillSource(source)) continue;
+                // AUDIT FIX-29-05 L-6: a rejected skill is listed below by
+                // renderRejectedSkills with its reason. Showing it HERE too,
+                // with an active status dot and a working toggle, gave the user
+                // two contradictory signals about the same skill.
+                if (skill.invalidReason !== undefined) continue;
                 if (!byName.has(skill.name)) {
                     // Only add if not already present from SelfAuthoredSkillLoader
                     byName.set(skill.name, {
@@ -583,67 +624,62 @@ export class SkillsTab {
         // anyway, and the materializer treats them as read-only.
         if (skill.source === 'bundled' || skill.source === 'builtin') return;
 
-        try {
-            const adapter = this.plugin.app.vault.adapter;
-            const loader = this.plugin.selfAuthoredSkillLoader;
+        const adapter = this.plugin.app.vault.adapter;
+        const loader = this.plugin.selfAuthoredSkillLoader;
+        let fsError: unknown = null;
 
-            // Delete from plugin-local (SelfAuthoredSkillLoader)
+        // 1. Physische Loeschung. FIX-19-08-01: EIN rekursives rmdir statt des
+        // fragilen 2-Ebenen-Walks -- der liess `.versions/{ts}/references/...`
+        // liegen und warf dann ENOTEMPTY, was den ganzen Handler abbrach und den
+        // Skill in der Liste zuruecklies. Ein etwaiger FS-Fehler wird gemerkt,
+        // aber der In-Memory-/Toggle-Cleanup unten laeuft trotzdem, damit die UI
+        // konsistent bleibt.
+        try {
             if (skill.selfAuthored && loader) {
                 loader.unregisterCodeTools(skill.selfAuthored);
                 const skillDir = skill.selfAuthored.filePath.replace(/\/SKILL\.md$/, '');
-                const exists = await adapter.exists(skillDir);
-                if (exists) {
-                    const listing = await adapter.list(skillDir);
-                    for (const filePath of listing.files) {
-                        await adapter.remove(filePath);
-                    }
-                    for (const subdir of listing.folders) {
-                        const subdirListing = await adapter.list(subdir);
-                        for (const subfile of subdirListing.files) {
-                            await adapter.remove(subfile);
-                        }
-                        if (subdirListing.folders.length === 0) {
-                            await adapter.rmdir(subdir, false);
-                        }
-                    }
-                    await adapter.rmdir(skillDir, false);
-                }
-                loader.removeSkill(skill.name);
+                await deleteSkillFolder(adapter, skillDir);
             }
 
-            // Delete from global storage (SkillsManager)
-            if (skill.globalPath && this.plugin.skillsManager) {
-                try {
+            // Delete from global storage (SkillsManager). Eigenes try/catch:
+            // "schon geloescht" ist hier kein Fehler und soll die Erfolgsmeldung
+            // nicht kippen.
+            try {
+                if (skill.globalPath && this.plugin.skillsManager) {
                     await this.plugin.skillsManager.deleteSkill(skill.globalPath);
-                } catch {
-                    // Non-fatal if already deleted
-                }
-            } else if (this.plugin.skillsManager && skill.selfAuthored) {
-                // Try to find and delete from global by folder name
-                const skillDir = skill.selfAuthored.filePath.replace(/\/SKILL\.md$/, '');
-                const skillFolderName = skillDir.split('/').pop();
-                if (skillFolderName) {
-                    try {
+                } else if (this.plugin.skillsManager && skill.selfAuthored) {
+                    const skillDir = skill.selfAuthored.filePath.replace(/\/SKILL\.md$/, '');
+                    const skillFolderName = skillDir.split('/').pop();
+                    if (skillFolderName) {
                         await this.plugin.skillsManager.deleteSkill(`skills/${skillFolderName}/SKILL.md`);
-                    } catch {
-                        // Non-fatal
                     }
                 }
+            } catch (e) {
+                console.debug('[SkillsTab] global-storage delete non-fatal:', e);
             }
+        } catch (e) {
+            fsError = e;
+            console.error('[SkillsTab] Delete (filesystem) failed:', e);
+        }
 
-            // Clean up toggle
+        // 2. In-Memory- + Settings-Cleanup IMMER, auch bei partiellem FS-Fehler,
+        // sonst zeigt die Liste den Skill weiter (stale). loadAll() baut die
+        // Loader-Sicht ohnehin frisch von der Platte auf.
+        try {
+            if (skill.selfAuthored && loader) loader.removeSkill(skill.name);
             const toggleKey = skill.globalPath ?? skill.selfAuthored?.filePath ?? skill.name;
             this.plugin.settings.manualSkillToggles ??= {};
             delete this.plugin.settings.manualSkillToggles[toggleKey];
             await this.plugin.saveSettings();
-
-            // Reload if loader available
             if (loader) await loader.loadAll();
-
-            new Notice(t('settings.skills.deleted', { name: skill.name }));
         } catch (e) {
+            console.error('[SkillsTab] Delete (cache cleanup) failed:', e);
+        }
+
+        if (fsError) {
             new Notice(t('settings.skills.deleteFailed'));
-            console.error('[SkillsTab] Delete failed:', e);
+        } else {
+            new Notice(t('settings.skills.deleted', { name: skill.name }));
         }
     }
 
@@ -745,7 +781,7 @@ export class SkillsTab {
     }
 
     private buildCompactSkillList(containerEl: HTMLElement, skills: PluginSkillMeta[]): void {
-        const table = containerEl.createEl('table', { cls: 'agent-skill-table' });
+        const table = containerEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
 
         // Header
         const thead = table.createEl('thead');

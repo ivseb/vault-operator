@@ -1,7 +1,8 @@
 import { App, Modal, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
-import { addSectionHeading } from './utils';
+import { addSectionHeading, addSliderInput } from './utils';
+import { PLUGIN_API_ALLOWLIST } from '../../core/tools/agent/pluginApiAllowlist';
 import { applyDestructiveStyle } from '../buttonStyle';
 import { resetToDefaultDeny } from '../../core/tools/autoApprovalGrant';
 import { PRESETS } from '../../core/tools/agent/UpdateSettingsTool';
@@ -89,6 +90,42 @@ export class PermissionsTab {
                     refreshCategoryDisabled();
                 }),
             );
+
+        // FEAT-30-07: aus dem Loop-Tab hierher verschoben. Der Timeout
+        // gehoert zum Approval-System (Auto-Deny unbeantworteter Karten,
+        // IMP-41-01-02) und wirkt unabhaengig vom Auto-Approve-Master,
+        // deshalb steht er ausserhalb des Kategorie-Containers.
+        const approvalTimeoutSetting = new Setting(containerEl)
+            .setName(t('settings.loop.approvalTimeout'))
+            .setDesc(t('settings.loop.approvalTimeoutDesc'));
+        addSliderInput(approvalTimeoutSetting, {
+            min: 0, max: 60, step: 5,
+            value: this.plugin.settings.advancedApi.approvalTimeoutMinutes ?? 10,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.approvalTimeoutMinutes = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
+        // FEAT-30-07: Auto-Promotion (Tier-2-Methode wird nach N echten
+        // User-Approvals dauerhaft als Read auto-genehmigt) ist eine
+        // Consent-Entscheidung und lebt deshalb hier statt im Plugin-API-
+        // Tab. Review-Finding: sie greift bei ECHTEN User-Approvals, also
+        // gerade auch bei ausgeschaltetem Auto-Approve-Master; deshalb
+        // steht der Toggle ausserhalb des Kategorie-Containers. Widerruf
+        // promoteter Methoden: Advanced > Plugin API.
+        new Setting(containerEl)
+            .setName(t('settings.shell.autoPromote'))
+            .setDesc(t('settings.shell.autoPromoteDesc'))
+            .addToggle((tg) => tg
+                .setValue(this.plugin.settings.pluginApi?.autoPromotionEnabled !== false)
+                .onChange(async (v) => {
+                    if (!this.plugin.settings.pluginApi) {
+                        this.plugin.settings.pluginApi = { enabled: true, safeMethodOverrides: {} };
+                    }
+                    this.plugin.settings.pluginApi.autoPromotionEnabled = v;
+                    await this.plugin.saveSettings();
+                }));
 
         // FIX-44-03c: the "Show approval bar in chat" toggle was removed. It
         // wrote autoApproval.showMenuInChat, which nothing consumed -- the
@@ -203,6 +240,12 @@ export class PermissionsTab {
                 }),
             );
 
+        // FEAT-30-07: die read/write-Klassifikation, die diese beiden Toggles
+        // steuern, kommt aus der kuratierten Built-in-Allowlist. Die Liste
+        // stand vorher als 23 statische Zeilen im Shell-Tab; hier ist sie
+        // die einklappbare Erklaerung direkt neben den Consent-Toggles.
+        this.buildAllowlistCatalog(categoryContainer);
+
         new Setting(categoryContainer)
             .setName(t('settings.permissions.recipes'))
             .setDesc(t('settings.permissions.recipesDesc'))
@@ -241,6 +284,29 @@ export class PermissionsTab {
 
         // Apply the initial disabled state (after every control exists).
         refreshCategoryDisabled();
+    }
+
+    /**
+     * FEAT-30-07: einklappbarer Katalog der kuratierten Plugin-API-Methoden.
+     * Er ist die Datenquelle der pluginApiRead/pluginApiWrite-Toggles
+     * (isPluginApiWriteCall klassifiziert Calls gegen genau diese Liste)
+     * und stand vorher als 23 statische Zeilen im Shell-Tab.
+     */
+    private buildAllowlistCatalog(containerEl: HTMLElement): void {
+        const details = containerEl.createEl('details', { cls: 'agent-permissions-catalog' });
+        details.createEl('summary', {
+            text: t('settings.permissions.allowlistCatalog', { count: PLUGIN_API_ALLOWLIST.length }),
+        });
+        details.createDiv({
+            cls: 'setting-item-description',
+            text: t('settings.permissions.allowlistCatalogDesc'),
+        });
+        for (const entry of PLUGIN_API_ALLOWLIST) {
+            const badge = entry.isWrite ? t('settings.shell.badgeWrite') : t('settings.shell.badgeRead');
+            new Setting(details)
+                .setName(`${entry.pluginId}.${entry.method}`)
+                .setDesc(`${entry.description}${badge}`);
+        }
     }
 
     /**

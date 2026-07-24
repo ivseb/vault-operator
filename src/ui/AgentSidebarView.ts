@@ -12,6 +12,8 @@ import { ModeService } from '../core/modes/ModeService';
 // ADR-153: the approval card consumes the same effect registry as the Pipeline.
 // No second, drifting copy of the group mapping.
 import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
+import { resolveAllowedMcpServers } from '../core/mcp/mcpActivation';
+import { sanitizeHistoryForApi } from '../core/utils/sanitizeHistoryForApi';
 import { sanitizeDirectoryEntry } from '../core/tools/BaseTool';
 import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
@@ -31,9 +33,10 @@ import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS 
 import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
-import { McpServerPopover } from './sidebar/McpServerPopover';
+import { ChatOptionsPopover } from './sidebar/ChatOptionsPopover';
+import { applyForcedWorkflow, nextForcedWorkflow, shouldApplyForcedWorkflow } from './sidebar/forcedWorkflow';
 import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
-import { resolveEffortLevelsForPin, resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
+import { buildPinnedCustomModel, resolveEffortLevelsForPin, resolveStickyChatModel } from './sidebar/chatModelDropdown';
 import { shouldSendOnEnter } from './sidebar/composerKeymap';
 import {
     DEFAULT_THINKING_OVERRIDE,
@@ -43,18 +46,18 @@ import {
 } from './sidebar/thinkingOverride';
 import {
     DEFAULT_EFFORT_OVERRIDE,
-    resolveEffectiveEffort,
     thinkingSwitchIsOn,
     type EffortOverride,
 } from './sidebar/effortOverride';
 import type { EffortLevel } from '../types/model-registry';
-import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
+import { resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import { wireApprovalTimeout } from './sidebar/approvalTimeout';
 import { resolveRunStateButtons } from './sidebar/runStateButtons';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
+import { resolveSlashEntry, findShadowedFor } from './sidebar/slashRegistry';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
 import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
 import { resolveObsidianDraggedFiles, resolveObsidianDraggedFolders } from './sidebar/dragManagerBridge';
@@ -65,8 +68,8 @@ import { MemoryRetriever } from '../core/memory/MemoryRetriever';
 import { OnboardingService } from '../core/memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../core/onboarding-status';
 import { ContextTracker } from '../core/context/ContextTracker';
+import { loadableSkills } from '../core/context/SkillsManager';
 import { TaskMonitor } from './sidebar/TaskMonitor';
-import { ContextDisplay } from './sidebar/ContextDisplay';
 import { CondensationFeedback } from './sidebar/CondensationFeedback';
 import { SuggestionBanner } from './sidebar/SuggestionBanner';
 import { OnboardingFlow } from './sidebar/OnboardingFlow';
@@ -77,8 +80,12 @@ import { TaskSelectionModal } from './TaskSelectionModal';
 import { t, getActiveLocale } from '../i18n';
 import DOMPurify from 'dompurify';
 import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
+import { buildHealthCheckOptions } from '../core/knowledge/VaultHealthService';
 
-export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
+// IMP-19-01-03: Konstante lebt in viewTypes.ts; Import fuer den eigenen
+// Gebrauch, Re-Export haelt alle bestehenden Importe stabil.
+import { VIEW_TYPE_AGENT_SIDEBAR } from './viewTypes';
+export { VIEW_TYPE_AGENT_SIDEBAR };
 
 /**
  * AUDIT-034 M-4: Defensive sanitization for rehydrated tool-step HTML.
@@ -97,8 +104,18 @@ export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
  */
 const TOOL_STEPS_SANITIZE_CONFIG = {
     RETURN_DOM_FRAGMENT: true as const,
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'frame', 'frameset'],
-    FORBID_ATTR: ['srcdoc', 'srcset', 'formaction', 'action', 'background', 'poster', 'ping'],
+    // AUDIT 2026-07-22 L-1: also forbid media/resource-loading tags. Tool-step
+    // HTML is only tool names + status text -- it never legitimately carries
+    // external media. Without this, a persisted <img src="https://attacker/">
+    // in a tampered conversation JSON (untrusted sync / hostile MCP write)
+    // fires a remote request (beacon / deanonymisation) on chat reload. Add
+    // `src` to FORBID_ATTR as belt-and-suspenders for any allowed tag.
+    FORBID_TAGS: [
+        'script', 'iframe', 'object', 'embed', 'link', 'meta', 'base',
+        'form', 'frame', 'frameset',
+        'img', 'svg', 'audio', 'video', 'source', 'track', 'picture', 'input', 'style',
+    ],
+    FORBID_ATTR: ['srcdoc', 'srcset', 'src', 'formaction', 'action', 'background', 'poster', 'ping'],
     ALLOW_DATA_ATTR: false,
     ALLOW_UNKNOWN_PROTOCOLS: false,
 };
@@ -119,6 +136,10 @@ export class AgentSidebarView extends ItemView {
     private chatContainer: HTMLElement | null = null;
     private inputArea: HTMLElement | null = null;
     private textarea: HTMLTextAreaElement | null = null;
+    // Coalesces auto-resize into one rAF so a burst of input events measures
+    // once, after the DOM value change has been laid out (fixes Shift+Enter
+    // lag where a newline only grew the box on the 2nd/3rd press).
+    private textareaResizePending = false;
     // Note: modeButton was removed in FEAT-26-05; chat-header has no mode UI anymore.
     private modelButton: HTMLButtonElement | null = null;
     /**
@@ -188,6 +209,28 @@ export class AgentSidebarView extends ItemView {
     /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
     private taskDraining = false;
     private taskDrainingTimer = 0;
+    /**
+     * Issue 3 Wave B: teardown-ownership token for a stopped, still-draining
+     * run. handleStop records the aborted controller here; the run's late
+     * onComplete/onError use it to decide whether it still owns the view's
+     * shared state (drain-end, Resume card, uiMessages, save). A new send
+     * during draining nulls this token to DETACH the old run: the old run
+     * then matches neither currentAbortController (new run's) nor
+     * drainingController (null), so it does only local DOM cleanup and can
+     * never write into the newer conversation (the FIX-01-01-02 data-loss
+     * class). Distinguishes "Stop then wait -> Resume" from "Stop then send".
+     */
+    private drainingController: AbortController | null = null;
+
+    /**
+     * Issue 1: while an ask_followup_question card is open the agent loop is
+     * paused waiting on this resolver. The card is shown mid-run (the task is
+     * still "running"), so a Send from the MAIN chat input would otherwise be
+     * queued as a steering message and the question would hang forever. When
+     * set, handleSendMessage routes the typed text here to answer the question
+     * instead. Nulled the moment the question resolves (any path).
+     */
+    private pendingQuestionResolve: ((answer: string) => void) | null = null;
 
     // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
     // queue up while a task is running and get drained by AgentTask at the
@@ -198,6 +241,9 @@ export class AgentSidebarView extends ItemView {
 
     // Context: tracks whether user dismissed the auto-injected file for this turn
     private userDismissedContext = false;
+    /** Forced-workflow slugs we have already warned about being inapplicable, so the notice fires once per slug (FIX-02-02-01, defect a). */
+    private forcedWorkflowWarned = new Set<string>();
+    private forcedWorkflowHubUnsub: (() => void) | null = null;
     // Session-local flag: the Frontmatter Operator recommendation toast is
     // shown at most once per sidebar-view lifetime (in addition to the
     // persistent frontmatterOperatorHintDismissed setting).
@@ -227,8 +273,8 @@ export class AgentSidebarView extends ItemView {
     private webToggleButton: HTMLElement | null = null;
     /** Manages tool/skill/workflow picker */
     private toolPicker!: ToolPickerPopover;
-    /** Manages MCP server picker (opened from the "+" menu) */
-    private mcpPicker!: McpServerPopover;
+    /** The chat "..." options popover (real toggles + actions, FEAT-02-12). */
+    private readonly chatOptionsPopover = new ChatOptionsPopover();
     /** Manages pending attachments and chip bar UI */
     private attachments!: AttachmentHandler;
     /** Manages / and @ autocomplete dropdown */
@@ -237,8 +283,6 @@ export class AgentSidebarView extends ItemView {
     private vaultFilePicker!: VaultFilePicker;
     /** Context tracking for condensing */
     private contextTracker: ContextTracker | null = null;
-    /** Context window visualization */
-    private contextDisplay: ContextDisplay | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: ObsidianAgentPlugin) {
         super(leaf);
@@ -255,7 +299,6 @@ export class AgentSidebarView extends ItemView {
         // the property initializer ordering of the file's eslint-disable
         // file header.)
         (this as unknown as { getModeServiceOrNull(): ModeService | null }).getModeServiceOrNull = () => this.modeService ?? null;
-        this.mcpPicker = new McpServerPopover(plugin);
         this.vaultFilePicker = new VaultFilePicker(
             this.app,
             async (files) => { for (const f of files) await this.attachments.addVaultFile(f); },
@@ -304,6 +347,11 @@ export class AgentSidebarView extends ItemView {
 
         // Initialize ModeService — loads global modes from ~/.obsidian-agent/modes.json
         await this.modeService.initialize();
+
+        // IMP-02-12-01: re-render the forced-workflow chip whenever any
+        // surface changes the pin or the active agent.
+        this.forcedWorkflowHubUnsub?.();
+        this.forcedWorkflowHubUnsub = this.plugin.forcedWorkflowHub.subscribe(() => this.updateContextBadge());
 
         const container = this.containerEl.children[1];
         if (!(container != null && container.instanceOf(HTMLElement))) return;
@@ -453,6 +501,14 @@ export class AgentSidebarView extends ItemView {
         try { this.saveCurrentConversation(); } catch { /* non-fatal */ }
         try { this.enqueueMemoryExtraction(); } catch { /* non-fatal */ }
         this.attachments?.clear();
+        // The popovers render into document.body and hold window-level
+        // listeners; without this they outlive the view (leak + floating
+        // popover in the popout case). FEAT-02-12 review fix + IMP-02-12-03
+        // (ToolPickerPopover had the same gap).
+        this.chatOptionsPopover.hide();
+        this.toolPicker?.close();
+        this.forcedWorkflowHubUnsub?.();
+        this.forcedWorkflowHubUnsub = null;
         return Promise.resolve();
     }
 
@@ -808,27 +864,7 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(ellipsisBtn.createSpan('toolbar-icon'), 'ellipsis');
         ellipsisBtn.addEventListener('click', (e) => {
-            const menu = new Menu();
-            // Tools & Skills — opens existing ToolPicker
-            menu.addItem(item => item
-                .setTitle(t('ui.sidebar.selectTools'))
-                .setIcon('pocket-knife')
-                .onClick(() => this.toolPicker.show(e, ellipsisBtn, this.containerEl)));
-            // Web search toggle
-            const webEnabled = this.plugin.settings.webTools?.enabled ?? false;
-            menu.addItem(item => item
-                .setTitle(webEnabled ? t('ui.sidebar.webSearchOn') : t('ui.sidebar.webSearchOff'))
-                .setIcon('globe')
-                .onClick(() => { void this.toggleWebSearch(); }));
-            // Save to memory (FEATURE-0318 manual trigger -- bypasses throttle + auto toggle)
-            menu.addItem(item => item
-                .setTitle(t('ui.sidebar.saveToMemory'))
-                .setIcon('star')
-                .onClick(() => { void this.handleSaveToMemory(); }));
-            menu.addSeparator();
-            // Original options menu items
-            this.addOptionsMenuItems(menu);
-            menu.showAtMouseEvent(e);
+            this.showChatOptions(e, ellipsisBtn);
         });
 
         // Keep references for backward compat (hidden, managed via "..." menu now)
@@ -903,11 +939,6 @@ export class AgentSidebarView extends ItemView {
             .setTitle(t('ui.sidebar.insertWorkflow'))
             .setIcon('workflow')
             .onClick(() => this.openCommandPicker('workflows', anchor)));
-        menu.addSeparator();
-        menu.addItem(item => item
-            .setTitle(t('ui.sidebar.selectMcpServers'))
-            .setIcon('plug-2')
-            .onClick(() => this.mcpPicker.show(e, anchor, this.containerEl)));
         menu.showAtMouseEvent(e);
     }
 
@@ -943,7 +974,7 @@ export class AgentSidebarView extends ItemView {
                     tag: 'Skill',
                     icon: 'sparkles',
                     searchable: skill.description,
-                    onSelect: () => this.insertPrefixedCommand('/', slug),
+                    onSelect: () => this.insertPrefixedCommand(slug),
                 };
             });
         }
@@ -955,11 +986,11 @@ export class AgentSidebarView extends ItemView {
             );
             return prompts.map((prompt) => ({
                 label: prompt.name,
-                sub: `#${prompt.slug}`,
+                sub: `/${prompt.slug}`,
                 tag: 'Prompt',
                 icon: 'message-square-quote',
                 searchable: prompt.content,
-                onSelect: () => this.insertPrefixedCommand('#', prompt.slug),
+                onSelect: () => this.insertPrefixedCommand(prompt.slug),
             }));
         }
 
@@ -967,25 +998,74 @@ export class AgentSidebarView extends ItemView {
         if (!workflowLoader) return [];
         const workflows = await workflowLoader.discoverWorkflows();
         const toggles = this.plugin.settings.workflowToggles ?? {};
-        return workflows
+        const activeSlug = this.modeService.getActiveMode().slug;
+        const items = workflows
             .filter((w) => toggles[w.path] !== false)
             .map((wf) => ({
                 label: wf.displayName,
-                sub: `\u00a7${wf.slug}`,
+                sub: `/${wf.slug}`,
                 tag: 'Workflow',
                 icon: 'workflow',
-                onSelect: () => this.insertPrefixedCommand('\u00a7', wf.slug),
+                onSelect: () => this.insertPrefixedCommand(wf.slug),
+                // The pin forces the workflow on every message in this agent,
+                // separate from the click that inserts it once (FEAT-02-12).
+                pin: {
+                    isActive: () => (this.plugin.settings.forcedWorkflow?.[this.modeService.getActiveMode().slug] ?? '') === wf.slug,
+                    labelOff: t('ui.commandPicker.forceWorkflowOff'),
+                    labelOn: t('ui.commandPicker.forceWorkflowOn'),
+                    onToggle: () => this.toggleForcedWorkflow(wf.slug),
+                },
             }));
+        // A forced workflow whose file was deleted or disabled would otherwise
+        // have no unpin control anywhere (the chip is not interactive). Render
+        // it as a synthetic row so the pin stays reachable (FEAT-02-12 review fix).
+        const forcedSlug = this.plugin.settings.forcedWorkflow?.[activeSlug] ?? '';
+        if (forcedSlug !== '' && !items.some((i) => i.sub === `/${forcedSlug}`)) {
+            items.push({
+                label: t('ui.commandPicker.forcedWorkflowMissing', { slug: forcedSlug }),
+                sub: `/${forcedSlug}`,
+                tag: 'Workflow',
+                icon: 'workflow',
+                onSelect: () => this.insertPrefixedCommand(forcedSlug),
+                pin: {
+                    isActive: () => (this.plugin.settings.forcedWorkflow?.[this.modeService.getActiveMode().slug] ?? '') === forcedSlug,
+                    labelOff: t('ui.commandPicker.forceWorkflowOff'),
+                    labelOn: t('ui.commandPicker.forceWorkflowOn'),
+                    onToggle: () => this.toggleForcedWorkflow(forcedSlug),
+                },
+            });
+        }
+        return items;
     }
 
-    private insertPrefixedCommand(prefix: string, slug: string): void {
+    /**
+     * Force the given workflow for the current agent, or clear it if it was
+     * already forced (toggle). Persists and refreshes the indicator chip.
+     */
+    private toggleForcedWorkflow(slug: string): void {
+        // Resolved slug (deleted mode -> 'agent') so pin, chip, and send path
+        // all key on the same agent (FEAT-02-12 review fix).
+        const modeSlug = this.modeService.getActiveMode().slug;
+        if (!this.plugin.settings.forcedWorkflow) this.plugin.settings.forcedWorkflow = {};
+        const current = this.plugin.settings.forcedWorkflow[modeSlug] ?? '';
+        this.plugin.settings.forcedWorkflow[modeSlug] = nextForcedWorkflow(current, slug);
+        void this.plugin.saveSettings();
+        // Both surfaces re-render their chip via the hub (IMP-02-12-01);
+        // this view's own subscription covers the local badge.
+        this.plugin.forcedWorkflowHub.notify();
+    }
+
+    private insertPrefixedCommand(slug: string): void {
         if (!this.inputArea) return;
         const textarea = this.inputArea.querySelector('textarea');
         if (!(textarea instanceof HTMLTextAreaElement)) return;
         const existing = textarea.value;
+        // FEAT-02-13: '#' und '\u00a7' sind abgeschafft, werden hier aber weiter
+        // als fuehrendes Zeichen erkannt. Sonst bliebe ein alter Praefix aus
+        // einem halb getippten Kommando stehen und das Ergebnis waere '#/slug'.
         const leadsWithPrefix = /^[/#\u00a7]/.test(existing);
         const body = leadsWithPrefix ? existing.split(/\s+/).slice(1).join(' ') : existing;
-        textarea.value = `${prefix}${slug}${body ? ' ' + body : ' '}`;
+        textarea.value = `/${slug}${body ? ' ' + body : ' '}`;
         textarea.focus();
         const pos = textarea.value.length;
         textarea.setSelectionRange(pos, pos);
@@ -994,6 +1074,12 @@ export class AgentSidebarView extends ItemView {
     private updateContextBadge(): void {
         if (!this.contextBadgeContainer) return;
         this.contextBadgeContainer.empty();
+
+        // Forced-workflow chip first, so it stays visible even when the
+        // active-file context toggle is off (IMP-02-02-01). Without this the
+        // forced workflow is invisible outside the tool picker, which is what
+        // made Issue #57 so hard to diagnose.
+        this.renderForcedWorkflowChip();
 
         if (!this.plugin.settings.autoAddActiveFileContext) return;
 
@@ -1011,6 +1097,24 @@ export class AgentSidebarView extends ItemView {
                 this.updateContextBadge();
             });
         }
+    }
+
+    /**
+     * Render a plain status chip for the forced workflow of the current agent,
+     * so its presence stays visible without adding a control above the chat. It
+     * is not interactive; turning the workflow off happens on its pin in the
+     * "+" menu workflow picker (Issue #57, IMP-02-02-01, FEAT-02-12).
+     */
+    private renderForcedWorkflowChip(): void {
+        if (!this.contextBadgeContainer) return;
+        const modeSlug = this.modeService.getActiveMode().slug;
+        const wfSlug = this.plugin.settings.forcedWorkflow?.[modeSlug] ?? '';
+        if (!wfSlug) return;
+
+        const chip = this.contextBadgeContainer.createDiv('chat-context-chip chat-forced-workflow-chip');
+        chip.title = t('ui.sidebar.forcedWorkflowChipTooltip', { slug: wfSlug });
+        setIcon(chip.createSpan('context-chip-icon'), 'git-branch');
+        chip.createSpan('context-chip-label').setText(t('ui.sidebar.forcedWorkflowChipLabel', { slug: wfSlug }));
     }
 
     /** Resolve a model key for a mode, skipping disabled models: mode override → global → first enabled */
@@ -1602,7 +1706,10 @@ export class AgentSidebarView extends ItemView {
         const selfLoader = this.plugin.selfAuthoredSkillLoader;
 
         const toggles = this.plugin.settings.manualSkillToggles ?? {};
-        const userSkills = skillsManager ? await skillsManager.discoverSkills() : [];
+        // FIX-29-05-03: see main.buildSkillDirectoryForMode -- a skill that
+        // fails hard validation must not enter <available_skills>, because
+        // invoke_skill resolves against the loader and would not find it.
+        const userSkills = skillsManager ? loadableSkills(await skillsManager.discoverSkills()) : [];
         const filteredUserSkills = Object.keys(toggles).length > 0
             ? userSkills.filter(s => toggles[s.path] !== false)
             : userSkills;
@@ -1629,8 +1736,20 @@ export class AgentSidebarView extends ItemView {
 
     private autoResizeTextarea(): void {
         if (!this.textarea) return;
-        this.textarea.setCssProps({ '--agent-textarea-h': 'auto' });
-        this.textarea.setCssProps({ '--agent-textarea-h': Math.min(this.textarea.scrollHeight, 15 * 24) + 'px' });
+        // The height is measured from scrollHeight. Reading it synchronously in
+        // the input handler samples the layout from BEFORE the just-typed
+        // character (notably a Shift+Enter newline) has been laid out, so the
+        // box grew only on the 2nd/3rd press. Defer the measure to the next
+        // frame -- by then the value change is committed and reflowed -- and
+        // coalesce a burst of input events into a single measure.
+        if (this.textareaResizePending) return;
+        this.textareaResizePending = true;
+        window.requestAnimationFrame(() => {
+            this.textareaResizePending = false;
+            if (!this.textarea) return;
+            this.textarea.setCssProps({ '--agent-textarea-h': 'auto' });
+            this.textarea.setCssProps({ '--agent-textarea-h': Math.min(this.textarea.scrollHeight, 15 * 24) + 'px' });
+        });
     }
 
     /**
@@ -1753,15 +1872,9 @@ export class AgentSidebarView extends ItemView {
             this.clearConversation();
             this.sendProgrammaticMessage(prompt, false);
         });
-        // IMP-19-01-01: opt-in auto-apply for deterministic rule
-        // findings (missing_backlinks, category_mismatch,
-        // inconsistent_tags). When the setting is on AND there is at
-        // least one repairable finding, the modal opens directly into
-        // the runRepair() path; the user lands on the same Undo/Done
-        // results screen as if they had clicked the Auto-fix banner.
-        if (this.plugin.settings.vaultHealth?.autoApplyRuleRepairs) {
-            modal.autoApplyOnOpen = true;
-        }
+        // FIX-19-05-02: kein Auto-Apply-Bypass mehr. Der Icon-Klick oeffnet
+        // immer die Uebersicht; alle reparierbaren Befunde sind darin
+        // vorangehakt, ein Klick auf "Apply selected fixes" wendet sie an.
         modal.open();
     }
 
@@ -1832,6 +1945,20 @@ export class AgentSidebarView extends ItemView {
         const text = this.textarea.value.trim();
         if (!text && this.attachments.pending.length === 0) return;
 
+        // Issue 1: an ask_followup_question card is open and the loop is
+        // paused on its resolver. A Send from the main input answers THAT
+        // question (this is how a "+"-composed multi-part answer is submitted)
+        // instead of being queued as a steering message below. wrappedResolve
+        // renders the answer as a user bubble and resumes the loop.
+        if (this.pendingQuestionResolve && text) {
+            const resolveQuestion = this.pendingQuestionResolve;
+            this.pendingQuestionResolve = null;
+            this.textarea.value = '';
+            this.autoResizeTextarea();
+            resolveQuestion(text);
+            return;
+        }
+
         // FEAT-24-08 / ADR-114 Steering-Hook: if a task is already running,
         // queue the text as a mid-run steering message instead of trying to
         // start a new turn. Attachments are not supported in steering mode
@@ -1851,13 +1978,29 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
-        // FIX-24-08-03 / GUARD-L1: a stopped task is still draining to its
-        // next abort checkpoint. Starting a new run in this window lets the
-        // old run's late onComplete/onError race the new run's controller
-        // (and both render into the same chat). Refuse until the drain ends.
+        // Issue 3 Wave B: a stopped task may still be draining to its next
+        // abort checkpoint. Instead of refusing the new send (the old
+        // "taskStillStopping" notice), DECOUPLE the draining run so the input
+        // is instantly usable. Two independent barriers keep the old run from
+        // writing into this new conversation (the FIX-01-01-02 data-loss
+        // class):
+        //   1. Physically fork conversationHistory. It is passed BY REFERENCE
+        //      into the old AgentTask, which keeps mutating message objects
+        //      IN PLACE after Stop (MicroCompactor, toolResultBudget) until it
+        //      hits an abort checkpoint. A shallow copy shares those objects,
+        //      so we DEEP-clone. sanitizeHistoryForApi then trims any orphaned
+        //      tool_use tail at the fork point (a partial tool batch), so the
+        //      new run's first request and the persisted transcript are clean.
+        //   2. Detach teardown ownership (drainingController = null) so the old
+        //      run's late onComplete/onError matches neither controller and
+        //      touches no shared view state (gated below).
+        // Runs BEFORE the first await and before any push, so the old run
+        // draining across later awaits already sees the detached old array.
         if (this.taskDraining) {
-            new Notice(t('ui.sidebar.taskStillStopping'), 6000);
-            return;
+            this.conversationHistory = sanitizeHistoryForApi(
+                JSON.parse(JSON.stringify(this.conversationHistory)) as MessageParam[],
+            ).history;
+            this.drainingController = null;
         }
 
         // MEAS-02: TTFT split. point captures the send click; the
@@ -1922,21 +2065,22 @@ export class AgentSidebarView extends ItemView {
             + (activeFile ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>` : '')
             + (vaultCtx ? `\n\n${vaultCtx}` : '');
 
-        // Prefix commands (FEATURE-2207 decision 2026-04-19):
-        //   '/skill-slug'    -> activate a self-authored skill
-        //   '#prompt-slug'   -> inject a custom prompt template
-        //   '\u00a7workflow-slug' -> run a workflow
+        // FEAT-02-13: ein Praefix fuer Skills, Prompts und Workflows.
+        // Frueher entschied das Zeichen den Typ ('/', '#', '\u00a7'); jetzt
+        // loest der gemeinsame Registry-Resolver den Slug auf. Praezedenz
+        // bei Namensgleichheit: Skill > Prompt > Workflow -- exakt dieselbe
+        // Reihenfolge, die auch die Dropdown-Liste sortiert und verdeckte
+        // Eintraege markiert. Liefe das hier auseinander, waehlte der Nutzer
+        // eine Zeile und bekaeme beim Senden etwas anderes ausgefuehrt.
         //
-        // Resolved BEFORE the attachment-block build so the expanded
-        // skill/prompt/workflow body ends up inside the text-block when
-        // the user dropped a PDF/image into the chat. Previous order
-        // ran the expansion only on the string branch -- with
-        // attachments the slash command stayed literal "/ingest-deep"
-        // and the agent fell back to invoke_skill, which fails for
-        // Chat-attachments and let the parent improvise the workflow.
+        // Aufgeloest VOR dem Attachment-Block-Bau, damit der expandierte
+        // Body im Text-Block landet, wenn der Nutzer ein PDF/Bild in den
+        // Chat gezogen hat. Frueher lief die Expansion nur im String-Zweig:
+        // mit Attachment blieb "/ingest-deep" literal stehen, der Agent fiel
+        // auf invoke_skill zurueck (scheitert bei Chat-Attachments) und der
+        // Parent improvisierte den Workflow.
         let expandedText: string | null = null;
-        if (/^[/#\u00a7]/.test(text)) {
-            const prefix = text[0];
+        if (text.startsWith('/')) {
             const spaceIdx = text.indexOf(' ');
             const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
             const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
@@ -1944,10 +2088,26 @@ export class AgentSidebarView extends ItemView {
                 ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
                 : '';
 
-            if (prefix === '/') {
-                const skillLoader = this.plugin.selfAuthoredSkillLoader;
-                const matchedSkill = skillLoader?.getAllSkills().find(
-                    (s) => AutocompleteHandler.slugifySkillName(s.name) === slug,
+            const sources = await this.autocomplete.collectSlashSources();
+            const entry = resolveSlashEntry(sources, slug);
+
+            // SEC M-1: mehrdeutiger Slug im gemeinsamen Namensraum. Wortlos das
+            // hoeher priorisierte Element auszufuehren waere genau der Fall, in
+            // dem ein installierter Skill einen selbst angelegten Prompt kapert.
+            if (entry) {
+                const shadowed = findShadowedFor(sources, slug);
+                if (shadowed.length > 0) {
+                    new Notice(t('notice.slashAmbiguous', {
+                        slug,
+                        kind: entry.kind,
+                        other: shadowed.map((e) => e.kind).join(', '),
+                    }), 8000);
+                }
+            }
+
+            if (entry?.kind === 'skill') {
+                const matchedSkill = this.plugin.selfAuthoredSkillLoader?.getAllSkills().find(
+                    (sk) => AutocompleteHandler.slugifySkillName(sk.name) === slug,
                 );
                 if (matchedSkill) {
                     const parts = [
@@ -1958,9 +2118,9 @@ export class AgentSidebarView extends ItemView {
                     if (rest) parts.push('', rest);
                     expandedText = parts.join('\n') + activeFileTail;
                 }
-            } else if (prefix === '#') {
+            } else if (entry?.kind === 'prompt') {
                 const prompt = (this.plugin.settings.customPrompts ?? []).find(
-                    (p) => p.slug === slug && p.enabled !== false,
+                    (pr) => pr.slug === slug && pr.enabled !== false,
                 );
                 if (prompt) {
                     const activeFileName = activeFile?.name;
@@ -1971,9 +2131,7 @@ export class AgentSidebarView extends ItemView {
                     });
                     expandedText = resolved + activeFileTail;
                 }
-            } else if (prefix === '\u00a7') {
-                // Workflows expect a leading '/' in the existing loader API so we
-                // re-shape the command for backward compat before dispatch.
+            } else if (entry?.kind === 'workflow') {
                 const workflowLoader = this.plugin.workflowLoader;
                 if (workflowLoader) {
                     const reshaped = `/${slug}${rest ? ' ' + rest : ''}`;
@@ -2035,21 +2193,8 @@ export class AgentSidebarView extends ItemView {
                 ),
             };
         };
-        // Apply the per-conversation effort override. Effort is a PIN-ONLY
-        // control, so this only runs on the chat-pin path below (the mode and
-        // default-active paths do not call it): in Auto mode no effort is sent
-        // and the model keeps its own vendor default. 'auto' leaves the model
-        // unchanged. It is also gated on the thinking switch being On, since an
-        // effort level is meaningless with thinking off and the UI hides the
-        // control there; this keeps a stale level from being sent. The provider
-        // layer only emits a level valid for the model family, so a mismatch is
-        // dropped there rather than here.
-        const applyEffortOverride = (model: CustomModel): CustomModel => {
-            if (!thinkingSwitchIsOn(this.chatThinkingOverride)) return model;
-            const effort = resolveEffectiveEffort(this.chatEffortOverride);
-            if (effort === undefined) return model;
-            return { ...model, reasoningEffort: effort };
-        };
+        // FIX-30-07-05: the pin-only effort application lives in
+        // buildPinnedCustomModel (shared with the inline panel).
         let resolvedApiHandler = this.plugin.apiHandler;
         // modelOverrideActive means the user pinned a specific model via the
         // chat dropdown: it suppresses TaskRouter and the lean cost-heuristics
@@ -2059,24 +2204,22 @@ export class AgentSidebarView extends ItemView {
         // sets handlerResolved only, keeping its pre-#44 routing behavior.
         let modelOverrideActive = false;
         let handlerResolved = false;
-        if (activeProvider && this.chatModelOverride) {
-            const m = resolveOverrideModel(activeProvider, this.chatModelOverride);
-            if (m) {
-                try {
-                    // A pinned model suppresses the tier router, so both the
-                    // thinking and effort overrides apply to exactly the model
-                    // the turn runs on.
-                    const cm = applyEffortOverride(
-                        applyThinkingOverride(
-                            providerConfigToCustomModel(activeProvider, m.id, m),
-                        ),
-                    );
-                    resolvedApiHandler = buildApiHandlerForModel(cm);
-                    modelOverrideActive = true;
-                    handlerResolved = true;
-                } catch {
-                    resolvedApiHandler = this.plugin.apiHandler;
-                }
+        // FIX-30-07-05: pin resolution shared with the inline panel via
+        // buildPinnedCustomModel, so both surfaces run the turn on exactly
+        // the same resolved model (thinking + pin-only effort included).
+        const pinnedModel = buildPinnedCustomModel(
+            activeProvider,
+            this.chatModelOverride,
+            effectiveThinkingOverride,
+            this.chatEffortOverride,
+        );
+        if (pinnedModel) {
+            try {
+                resolvedApiHandler = buildApiHandlerForModel(pinnedModel);
+                modelOverrideActive = true;
+                handlerResolved = true;
+            } catch {
+                resolvedApiHandler = this.plugin.apiHandler;
             }
         }
 
@@ -2411,7 +2554,12 @@ export class AgentSidebarView extends ItemView {
             plugin: this.plugin,
             app: this.app,
             apiHandler: resolvedApiHandler,
-            footerEl,
+            // FIX-19-06-01: resolve the CURRENT footer lazily. A question round
+            // swaps `footerEl` to a fresh message element (see onQuestion), and
+            // onUsage fires once at task end -- a static reference would send
+            // the cost line to the orphaned first bubble and leave the visible
+            // one with only a timestamp.
+            getFooterEl: () => footerEl,
             getEffectiveModelKey: () => this.getEffectiveModelKey(),
             promptPreview: typeof messageToSend === 'string' ? messageToSend.slice(0, 200) : '<multimodal>',
             mode: this.plugin.settings.currentMode,
@@ -2751,11 +2899,6 @@ export class AgentSidebarView extends ItemView {
                     // Update context tracker with new token count after condensing
                     if (this.contextTracker && newTokens !== undefined) {
                         this.contextTracker.setTotalTokens(newTokens);
-                        if (this.contextDisplay) {
-                            const usage = this.contextTracker.getContextUsage();
-                            const color = this.contextTracker.getContextColor();
-                            this.contextDisplay.update(usage, color);
-                        }
                     }
                 },
                 onContextCondenseFailed: (error: Error) => {
@@ -2793,6 +2936,9 @@ export class AgentSidebarView extends ItemView {
                     // still update settings here as a safety net.
                     this.plugin.settings.currentMode = newModeSlug;
                     new Notice(t('notice.modeSwitched', { mode: this.getModeDisplayName(newModeSlug) }));
+                    // Forced workflow is keyed per agent, so switching agents
+                    // may change which one is active -- refresh the chip (IMP-02-02-01).
+                    this.updateContextBadge();
                     // Auto-index on mode switch if configured
                     if (this.plugin.settings.semanticAutoIndex === 'mode-switch' && this.plugin.semanticIndex) {
                         this.plugin.semanticIndex.buildIndex().catch((e) =>
@@ -2813,7 +2959,7 @@ export class AgentSidebarView extends ItemView {
                 onUnreviewedWrite: () => {
                     taskHadUnreviewedWrites = true;
                 },
-                onQuestion: (question, options, resolve, allowMultiple) => {
+                onQuestion: (question, options, resolve) => {
                     // Render any accumulated text before the question card.
                     // This is critical for multi-turn flows like onboarding where
                     // onComplete only fires at the very end — the greeting text
@@ -2882,7 +3028,7 @@ export class AgentSidebarView extends ItemView {
                         scheduleScroll();
                         resolve(answer);
                     };
-                    this.showQuestionCard(question, options, wrappedResolve, allowMultiple);
+                    this.showQuestionCard(question, options, wrappedResolve);
                 },
                 onApprovalRequired: async (toolName, input, preview, batch) => {
                     return this.showApprovalCard(toolName, input, preview, batch);
@@ -3041,14 +3187,30 @@ export class AgentSidebarView extends ItemView {
                         this.setRunningState(false);
                         this.currentStopFeedback = null;
                     }
-                    this.endTaskDraining(); // GUARD-L1
-                    // IMP-24-08-04 (stop=pause): a stopped run kept its
-                    // inflight snapshot -- offer the Resume card now that
-                    // the drain is over and sends are unblocked.
-                    if (myController.signal.aborted) {
-                        void this.maybeOfferInflightResume();
+                    // Issue 3 Wave B: drain-owner gate. A run owns the shared
+                    // view state (drain-end, Resume card, uiMessages, save,
+                    // post-task surfaces, title) only if it is the live run OR
+                    // the still-draining stopped run that no new send has
+                    // superseded. A superseded old run matches neither and
+                    // does ONLY the local DOM cleanup above/below -- it never
+                    // writes into the newer conversation (FIX-01-01-02).
+                    const drainOwner = this.currentAbortController === myController
+                        || this.drainingController === myController;
+                    if (drainOwner) {
+                        this.endTaskDraining(); // GUARD-L1
+                        // IMP-24-08-04 (stop=pause): a stopped run kept its
+                        // inflight snapshot -- offer the Resume card now that
+                        // the drain is over and sends are unblocked.
+                        if (myController.signal.aborted) {
+                            void this.maybeOfferInflightResume();
+                        }
                     }
                     scheduleScroll();
+                    if (!drainOwner) {
+                        // Superseded stopped run: local DOM is already tidied,
+                        // touch no shared state and skip all persistence.
+                        return;
+                    }
                     // Post-task surfaces (extracted for testability, see
                     // postTaskReviewGate.ts). The review is gated on writes
                     // that never had a diff surface (regardless of the
@@ -3139,7 +3301,14 @@ export class AgentSidebarView extends ItemView {
                         this.currentAbortController = null;
                         this.setRunningState(false);
                     }
-                    this.endTaskDraining(); // GUARD-L1
+                    // Issue 3 Wave B: only the drain owner (live run or the
+                    // still-draining stopped run not yet superseded) ends the
+                    // drain. A superseded old run erroring out must not clear
+                    // the lock the new run's lifecycle owns.
+                    if (this.currentAbortController === myController
+                        || this.drainingController === myController) {
+                        this.endTaskDraining(); // GUARD-L1
+                    }
                 },
                 onTaskTelemetry: (data) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onTaskTelemetry
@@ -3189,20 +3358,29 @@ export class AgentSidebarView extends ItemView {
             skillDirectorySection = await this.buildSkillDirectory();
         }
 
-        // Apply forced workflow from tool picker (when message doesn't start with slash command)
+        // Apply forced workflow from the tool picker. Prepends the workflow's
+        // instructions to the message the agent receives, on every message in
+        // this agent, unless the user typed an explicit /#§ command themselves.
+        // Prepending onto the already-built messageToSend keeps any #/§
+        // expansion and the full vault context (FIX-02-02-01, defects c/d) and
+        // works for attachments too (defect b). When the workflow can no longer
+        // be applied we warn once instead of silently sending plain text
+        // (defect a).
         const forcedWorkflowSlug = this.plugin.settings.forcedWorkflow?.[activeMode.slug] ?? '';
-        if (typeof messageToSend === 'string' && !text.startsWith('/') && forcedWorkflowSlug) {
+        if (shouldApplyForcedWorkflow(text, forcedWorkflowSlug)) {
             const workflowLoader = this.plugin.workflowLoader;
-            if (workflowLoader) {
-                const processedText = await workflowLoader.processSlashCommand(
-                    `/${forcedWorkflowSlug} ${text}`,
+            const instructions = workflowLoader
+                ? await workflowLoader.loadInstructions(
+                    forcedWorkflowSlug,
                     this.plugin.settings.workflowToggles ?? {},
-                );
-                if (processedText !== `/${forcedWorkflowSlug} ${text}`) {
-                    messageToSend = processedText + (activeFile
-                        ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
-                        : '');
-                }
+                )
+                : null;
+            if (instructions !== null) {
+                messageToSend = applyForcedWorkflow(messageToSend, instructions);
+                this.forcedWorkflowWarned.delete(forcedWorkflowSlug);
+            } else if (!this.forcedWorkflowWarned.has(forcedWorkflowSlug)) {
+                this.forcedWorkflowWarned.add(forcedWorkflowSlug);
+                new Notice(t('notice.forcedWorkflowUnavailable', { slug: forcedWorkflowSlug }));
             }
         }
 
@@ -3210,11 +3388,11 @@ export class AgentSidebarView extends ItemView {
         const pluginSkillsSection = isOnboarding ? undefined
             : this.plugin.skillRegistry?.getPluginSkillsPromptSection();
 
-        // 2026-05-18: per-mode MCP allow-list removed. The chat-header pocket
-        // knife now toggles activeMcpServers globally instead. The systemprompt
-        // tool-section honours activeMcpServers as the source of truth via
-        // McpBridge, so passing undefined here means "no per-agent restriction".
-        const allowedMcpServers: string[] | undefined = undefined;
+        // The chat-header pocket knife toggles MCP activation globally. Resolve
+        // it to the prompt tool-catalogue filter so the advertised MCP tools
+        // match what the gates allow: undefined = all (default), [] = MCP off,
+        // subset = narrowed (IMP-04-10-02).
+        const allowedMcpServers: string[] | undefined = resolveAllowedMcpServers(this.plugin.settings, activeMode.slug);
 
         // Memory v2 is the only path. The legacy v1 MD-file pipeline was
         // removed once the upgrade orchestrator landed -- existing users
@@ -3411,7 +3589,14 @@ export class AgentSidebarView extends ItemView {
      * Feature 3: Cancel the running request
      */
     private handleStop(): void {
-        if (this.currentAbortController) this.beginTaskDraining(); // GUARD-L1
+        if (this.currentAbortController) {
+            this.beginTaskDraining(); // GUARD-L1
+            // Issue 3 Wave B: record teardown ownership BEFORE nulling the
+            // controller, so the stopped run's late onComplete/onError can
+            // tell it still owns the view (Resume card, partial save) -- until
+            // a new send transfers ownership away by nulling this token.
+            this.drainingController = this.currentAbortController;
+        }
         this.currentAbortController?.abort();
         this.currentAbortController = null;
         // IMP-24-08-04: swap the Working spinner for a Stopping row NOW --
@@ -3498,6 +3683,9 @@ export class AgentSidebarView extends ItemView {
 
     private endTaskDraining(): void {
         this.taskDraining = false;
+        // Issue 3 Wave B: the drain is over, so the ownership token must not
+        // linger and match a future run by identity accident.
+        this.drainingController = null;
         if (this.taskDrainingTimer) {
             window.clearTimeout(this.taskDrainingTimer);
             this.taskDrainingTimer = 0;
@@ -4343,7 +4531,15 @@ export class AgentSidebarView extends ItemView {
             }
         }
         if (text) {
-            msgEl.createDiv('message-content').setText(text);
+            // FIX-19-07-01: render the user message as Markdown (same pass as
+            // assistant bubbles) instead of setText(). setText() collapsed
+            // blank lines, paragraphs, bold and headings into one run, losing
+            // the structure the user typed. The RAW text is still what gets
+            // copied, edited/resent and persisted (addUserMessageActions and
+            // uiMessages both keep `text`), so only the DISPLAY gains structure;
+            // the prompt sent to the agent is unchanged.
+            const contentEl = msgEl.createDiv('message-content');
+            void this.renderMarkdownAndWire(text, contentEl);
         }
         // Action bar: copy + edit/resend
         this.addUserMessageActions(msgEl, text);
@@ -4415,127 +4611,130 @@ export class AgentSidebarView extends ItemView {
 
 
 
-    // ── Ellipsis options menu ─────────────────────────────────────────────────
+    // ── Chat options popover (FEAT-02-12) ─────────────────────────────────────
 
-    /** Add options menu items to an existing menu (used by both ellipsis and standalone). */
-    private addOptionsMenuItems(menu: Menu): void {
+    /**
+     * Open the chat "..." options as a custom popover: real toggles for the
+     * boolean settings (web search, add open note, auto-accept edits), then the
+     * one-shot actions below. Replaces the old native Menu, whose booleans could
+     * only render a checkmark, not a switch.
+     */
+    private showChatOptions(e: MouseEvent, anchor: HTMLElement): void {
         const settings = this.plugin.settings;
-
-        // Refresh Index (current file)
-        menu.addItem((item) => {
-            item.setTitle(t('ui.menu.refreshIndex'));
-            item.setIcon('refresh-cw');
-            item.onClick(async () => {
-                const activeFile = this.app.workspace.getActiveFile();
-                if (!activeFile) { new Notice(t('notice.noActiveFile')); return; }
-                if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
-                await this.plugin.semanticIndex.updateFile(activeFile.path);
-                new Notice(t('notice.indexRefreshed'));
-            });
+        this.chatOptionsPopover.show(anchor, this.containerEl, {
+            toggles: [
+                {
+                    icon: 'globe',
+                    label: t('ui.sidebar.webSearch'),
+                    isOn: () => settings.webTools?.enabled ?? false,
+                    // The switch value is the target state (audit I-1): only flip
+                    // when it differs, so a stale popover cannot invert the intent.
+                    onToggle: (v) => {
+                        if ((settings.webTools?.enabled ?? false) !== v) void this.toggleWebSearch();
+                    },
+                },
+                {
+                    icon: 'file-text',
+                    label: t('ui.menu.addOpenNote'),
+                    isOn: () => settings.autoAddActiveFileContext,
+                    onToggle: (v) => { void (async () => {
+                        settings.autoAddActiveFileContext = v;
+                        await this.plugin.saveSettings();
+                        this.updateContextBadge();
+                    })(); },
+                },
+                {
+                    icon: 'pencil',
+                    label: t('ui.menu.autoAcceptEdits'),
+                    // FIX-44-03c: derive from the master too, so the switch cannot
+                    // read "on" while every edit still prompts.
+                    isOn: () => {
+                        const cfg = settings.autoApproval;
+                        return cfg.enabled && cfg.noteEdits && cfg.vaultChanges;
+                    },
+                    // The switch value is the target state (audit I-1), not a
+                    // re-derivation from settings that may have moved meanwhile.
+                    onToggle: (v) => { void (async () => {
+                        const cfg = settings.autoApproval;
+                        const flags = cfg as unknown as Record<string, unknown>;
+                        if (v) {
+                            // Turning on: flip the master (clearing dormant flags,
+                            // FIX-44-03b) and grant both edit categories.
+                            grantAutoApproval(flags, 'noteEdits');
+                            flags.vaultChanges = true;
+                        } else {
+                            // Turning off: drop just these two; leave the master
+                            // and any other grants as they are.
+                            flags.noteEdits = false;
+                            flags.vaultChanges = false;
+                        }
+                        await this.plugin.saveSettings();
+                        new Notice(t('notice.autoAcceptEdits', { value: v ? 'on' : 'off' }));
+                    })(); },
+                },
+            ],
+            actions: [
+                {
+                    icon: 'pocket-knife',
+                    label: t('ui.sidebar.selectTools'),
+                    onClick: () => this.toolPicker.show(e, anchor, this.containerEl),
+                },
+                {
+                    icon: 'star',
+                    label: t('ui.sidebar.saveToMemory'),
+                    onClick: () => { void this.handleSaveToMemory(); },
+                },
+                {
+                    icon: 'refresh-cw',
+                    label: t('ui.menu.refreshIndex'),
+                    onClick: () => { void (async () => {
+                        const activeFile = this.app.workspace.getActiveFile();
+                        if (!activeFile) { new Notice(t('notice.noActiveFile')); return; }
+                        if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
+                        await this.plugin.semanticIndex.updateFile(activeFile.path);
+                        new Notice(t('notice.indexRefreshed'));
+                    })(); },
+                },
+                {
+                    icon: 'database',
+                    label: t('ui.menu.forceReindex'),
+                    onClick: () => {
+                        if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
+                        if (this.plugin.semanticIndex.building) { new Notice(t('notice.indexingInProgress')); return; }
+                        new Notice(t('notice.reindexingVault'));
+                        this.plugin.semanticIndex.buildIndex(undefined, true).then(() =>
+                            new Notice(t('notice.vaultIndexRebuilt'))
+                        ).catch((err: Error) => new Notice(t('notice.reindexFailed', { error: err.message })));
+                    },
+                },
+                {
+                    icon: 'stethoscope',
+                    label: t('modal.vaultHealth.title'),
+                    onClick: () => { void (async () => {
+                        if (!this.plugin.vaultHealthService) {
+                            new Notice(t('notice.vaultHealth.serviceUnavailable'));
+                            return;
+                        }
+                        new Notice(t('notice.vaultHealth.checkRunning'));
+                        await this.plugin.vaultHealthService.runChecks(undefined, buildHealthCheckOptions(this.plugin.settings));
+                        if (this.plugin.vaultHealthService.getFindings().length === 0) {
+                            new Notice(t('notice.vaultHealth.noIssues'));
+                            return;
+                        }
+                        this.openHealthModal();
+                    })(); },
+                },
+                {
+                    icon: 'x-circle',
+                    label: t('ui.menu.cancelIndexing'),
+                    isVisible: () => this.plugin.semanticIndex?.building ?? false,
+                    onClick: () => {
+                        this.plugin.semanticIndex?.cancelBuild();
+                        new Notice(t('notice.indexingCancelled'));
+                    },
+                },
+            ],
         });
-
-        // Force Reindex Vault
-        menu.addItem((item) => {
-            item.setTitle(t('ui.menu.forceReindex'));
-            item.setIcon('database');
-            item.onClick(() => {
-                if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
-                if (this.plugin.semanticIndex.building) { new Notice(t('notice.indexingInProgress')); return; }
-                new Notice(t('notice.reindexingVault'));
-                this.plugin.semanticIndex.buildIndex(undefined, true).then(() =>
-                    new Notice(t('notice.vaultIndexRebuilt'))
-                ).catch((e: Error) => new Notice(t('notice.reindexFailed', { error: e.message })));
-            });
-        });
-
-        // Vault Health Check
-        menu.addItem((item) => {
-            item.setTitle(t('modal.vaultHealth.title'));
-            item.setIcon('stethoscope');
-            item.onClick(async () => {
-                if (!this.plugin.vaultHealthService) {
-                    new Notice(t('notice.vaultHealth.serviceUnavailable'));
-                    return;
-                }
-                new Notice(t('notice.vaultHealth.checkRunning'));
-                await this.plugin.vaultHealthService.runChecks(undefined, {
-                    backlinksProperty: this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
-                    silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
-                    orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
-                    reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
-                });
-                const findings = this.plugin.vaultHealthService.getFindings();
-                if (findings.length === 0) {
-                    new Notice(t('notice.vaultHealth.noIssues'));
-                    return;
-                }
-                this.openHealthModal();
-            });
-        });
-
-        // Cancel Indexing (only shown while building)
-        if (this.plugin.semanticIndex?.building) {
-            menu.addItem((item) => {
-                item.setTitle(t('ui.menu.cancelIndexing'));
-                item.setIcon('x-circle');
-                item.onClick(() => {
-                    this.plugin.semanticIndex?.cancelBuild();
-                    new Notice(t('notice.indexingCancelled'));
-                });
-            });
-        }
-
-        menu.addSeparator();
-
-        // Add Open Note in Context (toggle)
-        menu.addItem((item) => {
-            const enabled = settings.autoAddActiveFileContext;
-            item.setTitle(t('ui.menu.addOpenNote'));
-            item.setIcon(enabled ? 'check' : 'file-text');
-            item.setChecked(enabled);
-            item.onClick(async () => {
-                settings.autoAddActiveFileContext = !enabled;
-                await this.plugin.saveSettings();
-                this.updateContextBadge();
-            });
-        });
-
-        // Auto-accept Edits (toggle)
-        menu.addItem((item) => {
-            // FIX-44-03c: the check must reflect what the gate actually does.
-            // note/vault edits only auto-approve when the MASTER is on too, so a
-            // check that ignored the master showed "on" while every edit still
-            // prompted. Derive the state from the master as well.
-            const cfg = settings.autoApproval;
-            const enabled = cfg.enabled && cfg.noteEdits && cfg.vaultChanges;
-            item.setTitle(t('ui.menu.autoAcceptEdits'));
-            item.setIcon(enabled ? 'check' : 'pencil');
-            item.setChecked(enabled);
-            item.onClick(async () => {
-                const flags = cfg as unknown as Record<string, unknown>;
-                if (!enabled) {
-                    // Turning on: flip the master (clearing dormant flags,
-                    // FIX-44-03b) and grant both edit categories.
-                    grantAutoApproval(flags, 'noteEdits');
-                    flags.vaultChanges = true;
-                } else {
-                    // Turning off: drop just these two; leave the master and any
-                    // other grants as they are.
-                    flags.noteEdits = false;
-                    flags.vaultChanges = false;
-                }
-                await this.plugin.saveSettings();
-                new Notice(t('notice.autoAcceptEdits', { value: !enabled ? 'on' : 'off' }));
-            });
-        });
-
-    }
-
-    /** Show the options menu (standalone, for backward compat). */
-    private showOptionsMenu(e: MouseEvent): void {
-        const menu = new Menu();
-        this.addOptionsMenuItems(menu);
-        menu.showAtMouseEvent(e);
     }
 
 
@@ -5046,50 +5245,56 @@ export class AgentSidebarView extends ItemView {
         question: string,
         options: string[] | undefined,
         resolve: (answer: string) => void,
-        allowMultiple = false,
     ): void {
         if (!this.chatContainer) { resolve(''); return; }
 
         const card = this.chatContainer.createDiv('followup-list');
         card.createDiv('followup-heading').setText(question);
-        const cleanup = () => card.remove();
+        // A resolver that answers the question exactly once, then tidies up.
+        // Declared before cleanup references it; cleanup only runs later, so
+        // the forward reference is safe.
+        const answer = (value: string) => {
+            cleanup();
+            resolve(value);
+        };
+        // Issue 1: cleanup also clears the pending-resolve registration so a
+        // later Send from the main input can no longer target a dismissed card.
+        const cleanup = () => {
+            card.remove();
+            if (this.pendingQuestionResolve === answer) this.pendingQuestionResolve = null;
+        };
+        // Register so a Send from the main chat input resolves THIS question
+        // (combining answers via "+") instead of being queued as steering.
+        this.pendingQuestionResolve = answer;
 
         if (options && options.length > 0) {
-            if (allowMultiple) {
-                // Multi-select mode: checkboxes + confirm button
-                const selected = new Set<string>();
-                const optionEls: HTMLElement[] = [];
-                options.forEach((opt) => {
-                    const item = card.createEl('button', { cls: 'followup-item followup-item-multi', text: opt });
-                    optionEls.push(item);
-                    item.addEventListener('click', () => {
-                        if (selected.has(opt)) {
-                            selected.delete(opt);
-                            item.removeClass('followup-item-selected');
-                        } else {
-                            selected.add(opt);
-                            item.addClass('followup-item-selected');
-                        }
-                    });
+            // Mirror the [followups] prose surface: each option sends
+            // immediately on click; a hover-revealed "+" copies the option
+            // into the main chat input WITHOUT sending, so several options can
+            // be composed into one combined answer. Multi-answer is now
+            // inherent -- no agent-set allow_multiple flag, no checkbox mode.
+            options.forEach((opt) => {
+                const itemRow = card.createDiv('followup-item-row');
+                const item = itemRow.createEl('button', { cls: 'followup-item', text: opt });
+                item.addEventListener('click', () => { answer(opt); });
+                // "+" button: append to the textarea, do NOT resolve.
+                const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
+                appendBtn.setAttribute('aria-label', t('ui.sidebar.addToInput'));
+                appendBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    if (this.textarea) {
+                        const sep = this.textarea.value.trim() ? '\n' : '';
+                        this.textarea.value = this.textarea.value + sep + opt;
+                        this.textarea.focus();
+                        this.textarea.dispatchEvent(new Event('input'));
+                    }
                 });
-                const confirmBtn = card.createEl('button', {
-                    cls: 'followup-confirm-btn',
-                    text: t('ui.question.confirm'),
-                });
-                confirmBtn.addEventListener('click', () => {
-                    if (selected.size === 0) return;
-                    cleanup();
-                    resolve([...selected].join(', '));
-                });
-            } else {
-                // Single-select mode: click to answer
-                options.forEach((opt) => {
-                    const item = card.createEl('button', { cls: 'followup-item', text: opt });
-                    item.addEventListener('click', () => { cleanup(); resolve(opt); });
-                });
-            }
+            });
         }
 
+        // Free-text row on the card itself stays as an alternative to typing in
+        // the main input. Both paths funnel through answer() -> resolve().
         const inputRow = card.createDiv('question-input-row');
         const input = inputRow.createEl('input', {
             cls: 'question-input',
@@ -5099,8 +5304,7 @@ export class AgentSidebarView extends ItemView {
         const submit = () => {
             const val = input.value.trim();
             if (!val) return;
-            cleanup();
-            resolve(val);
+            answer(val);
         };
         submitBtn.addEventListener('click', submit);
         input.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') submit(); });

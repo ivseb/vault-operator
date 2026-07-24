@@ -17,6 +17,7 @@
  * the diagram in the plugin's editor after opening the file.
  */
 
+import { TFile } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -390,8 +391,10 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
         try {
             const existing = this.app.vault.getAbstractFileByPath(outputPath);
             if (existing) {
-                // Overwrite
-                const { TFile } = await import('obsidian');
+                // Overwrite. Static TFile import: a dynamic import('obsidian')
+                // survives the CJS bundle as a native dynamic import, which the
+                // renderer cannot resolve for the module alias (FIX via FEAT-04-11
+                // registry-discovery debugging; same failure class).
                 if (!(existing instanceof TFile)) {
                     throw new Error(`Path exists but is not a file: ${outputPath}`);
                 }

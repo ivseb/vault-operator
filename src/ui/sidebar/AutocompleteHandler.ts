@@ -2,6 +2,13 @@ import type { App, TFile, TFolder } from 'obsidian';
 import { TFile as TFileCtor, TFolder as TFolderCtor } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
+import {
+    buildSlashEntries,
+    filterSlashEntries,
+    type SlashKind,
+    type SlashSources,
+} from './slashRegistry';
+import type { WorkflowMeta } from '../../core/context/WorkflowLoader';
 
 interface AutocompleteItem {
     label: string;
@@ -84,14 +91,13 @@ export class AutocompleteHandler {
         if (!textarea) return;
         const value = textarea.value;
 
-        // Split characters (FEATURE-2207 decision 2026-04-19):
-        //   '/' -> Skills  (primary action, Claude Code muscle memory)
-        //   '#' -> Prompts (template snippet)
-        //   '§' -> Workflows (structured multi-step)
-        const prefix = value[0];
-        if (prefix === '/' || prefix === '#' || prefix === '\u00a7') {
+        // FEAT-02-13: ein Praefix fuer alles. Frueher trennten '/' (Skills),
+        // '#' (Prompts) und '\u00a7' (Workflows); die Typ-Entscheidung fiel damit
+        // vor dem Tippen des Namens, und '\u00a7' braucht auf jeder Tastatur
+        // einen Modifier. Das Typ-Label in der Zeile leistet die Unterscheidung.
+        if (value[0] === '/') {
             const query = value.slice(1).split(' ')[0].toLowerCase();
-            const items = await this.buildPrefixItems(prefix, query, value);
+            const items = await this.buildPrefixItems(query, value);
             if (items.length === 0) { this.hide(); return; }
             this.items = items;
             this.selectedIndex = 0;
@@ -134,8 +140,8 @@ export class AutocompleteHandler {
                 : [];
 
             // FEAT-02-11: rank-sort files by match quality so an exact-name
-            // match ("Cowork.md") ranks above a deep path substring
-            // ("Notes/2026/Cowork/journal.md") for a short query like "cowork".
+            // match ("Ledger.md") ranks above a deep path substring
+            // ("Notes/2026/Ledger/journal.md") for a short query like "ledger".
             const rankedFiles = this.app.vault.getMarkdownFiles()
                 .map((f) => ({ f, rank: matchRank(f.basename, f.path, query) }))
                 .filter((r) => r.rank < 99)
@@ -210,7 +216,7 @@ export class AutocompleteHandler {
             .filter((f): f is TFolder => f instanceof TFolderCtor);
         // Rank folders by match quality then path length. This is the fix for
         // the "parent folder disappears" bug the user hit with
-        // `Schreibtische/Acme Cowork` vs `Schreibtische/Acme Cowork/Insights`:
+        // `Desks/Acme Hub` vs `Desks/Acme Hub/Insights`:
         // a shorter path (parent) now always outranks a sub-folder for the
         // same substring hit, and the parent survives the popup slot cap.
         const matches = allFolders
@@ -267,59 +273,58 @@ export class AutocompleteHandler {
         return items;
     }
 
-    private async buildPrefixItems(prefix: string, query: string, value: string): Promise<AutocompleteItem[]> {
+    /** Typ-Label der Zeile. Als Funktion, damit ein Sprachwechsel greift. */
+    private static kindTag(kind: SlashKind): string {
+        if (kind === 'skill') return t('ui.sidebar.autocompleteSkillTag');
+        if (kind === 'prompt') return t('ui.sidebar.autocompletePromptTag');
+        return t('ui.sidebar.autocompleteWorkflowTag');
+    }
+
+    private async buildPrefixItems(query: string, value: string): Promise<AutocompleteItem[]> {
         const makeSwap = (slug: string) => () => {
             const ta = this.getTextarea();
             if (!ta) return;
             const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
-            ta.value = `${prefix}${slug}${rest ? ' ' + rest : ''}`;
+            ta.value = `/${slug}${rest ? ' ' + rest : ''}`;
             this.hide();
             ta.focus();
         };
 
-        if (prefix === '/') {
-            const skillLoader = this.plugin.selfAuthoredSkillLoader;
-            if (!skillLoader) return [];
-            return skillLoader.getAllSkills()
-                .map((s) => ({ skill: s, slug: slugifySkillName(s.name) }))
-                .filter(({ slug }) => query === '' || slug.startsWith(query))
-                .map(({ skill, slug }) => ({
-                    label: skill.name,
-                    sub: `/${slug}`,
-                    tag: 'Skill',
-                    onSelect: makeSwap(slug),
-                }));
-        }
+        const sources = await this.collectSlashSources();
+        const entries = filterSlashEntries(buildSlashEntries(sources), query);
 
-        if (prefix === '#') {
-            const activeMode = this.plugin.settings.currentMode;
-            return (this.plugin.settings.customPrompts ?? [])
-                .filter((p) =>
-                    p.enabled !== false &&
-                    (query === '' || p.slug.startsWith(query)) &&
-                    (!p.mode || p.mode === activeMode)
-                )
-                .map((p) => ({
-                    label: p.name,
-                    sub: `#${p.slug}`,
-                    tag: 'Prompt',
-                    onSelect: makeSwap(p.slug),
-                }));
-        }
+        return entries.map((e) => ({
+            label: e.label,
+            // Ein verdeckter Eintrag bleibt sichtbar, statt still zu
+            // verschwinden: sonst sucht der Nutzer einen Prompt, der
+            // wegen eines gleichnamigen Skills nie auftaucht.
+            sub: e.shadowed
+                ? t('ui.sidebar.autocompleteShadowed', { slug: e.slug })
+                : `/${e.slug}`,
+            tag: AutocompleteHandler.kindTag(e.kind),
+            onSelect: e.shadowed ? () => { /* nicht ausloesbar */ } : makeSwap(e.slug),
+        }));
+    }
 
-        // prefix === '\u00a7' (section sign, workflows)
-        const workflowLoader = this.plugin.workflowLoader;
-        if (!workflowLoader) return [];
-        const workflows = await workflowLoader.discoverWorkflows();
-        const wfToggles = this.plugin.settings.workflowToggles ?? {};
-        return workflows
-            .filter((w) => wfToggles[w.path] !== false && (query === '' || w.slug.startsWith(query)))
-            .map((w) => ({
-                label: w.displayName,
-                sub: `\u00a7${w.slug}`,
-                tag: 'Workflow',
-                onSelect: makeSwap(w.slug),
-            }));
+    /**
+     * Sammelt die drei Quellen fuer das `/`-Menue. Dieselbe Funktion
+     * versorgt den Send-Time-Resolver in AgentSidebarView, damit die
+     * Liste und die Aufloesung nicht auseinanderlaufen koennen.
+     */
+    async collectSlashSources(): Promise<SlashSources> {
+        const activeMode = this.plugin.settings.currentMode;
+        const skills = (this.plugin.selfAuthoredSkillLoader?.getAllSkills() ?? [])
+            .map((s) => ({ name: s.name, slug: slugifySkillName(s.name) }));
+        const prompts = (this.plugin.settings.customPrompts ?? [])
+            .filter((p) => p.enabled !== false && (!p.mode || p.mode === activeMode));
+
+        let workflows: WorkflowMeta[] = [];
+        const loader = this.plugin.workflowLoader;
+        if (loader) {
+            const toggles = this.plugin.settings.workflowToggles ?? {};
+            workflows = (await loader.discoverWorkflows()).filter((w) => toggles[w.path] !== false);
+        }
+        return { skills, prompts, workflows };
     }
 
     /** Returns true if the event was consumed by the autocomplete. */

@@ -4,7 +4,7 @@
  *
  * IMP-01-09-01. Replaces the skill's fragile
  * `evaluate_expression(text.indexOf(find))` bulk pattern, which broke on
- * ASR word-garble ("Cobork" for "Cowork"), double spaces and punctuation
+ * ASR word-garble ("Ledgar" for "Ledger"), double spaces and punctuation
  * drift and forced the model into a ~15-round sandbox debug loop.
  *
  * The matcher resolves each `find` string against the transcript in three

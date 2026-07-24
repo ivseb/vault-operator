@@ -13,6 +13,8 @@
 import { TFile } from 'obsidian';
 import type { App } from 'obsidian';
 import type { KnowledgeDB, SqlJsDatabase } from './KnowledgeDB';
+import { cosineSimilarity } from './ImplicitConnectionService';
+import { OKF_DEFAULTS } from '../../types/settings';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -30,6 +32,16 @@ export type HealthCheckType =
     | 'cluster_freshness'   // FEAT-19-16, ADR-94
     | 'source_concentration'; // FEAT-19-17, ADR-93
 
+export interface OrphanLinkCandidate {
+    path: string;
+    similarity: number;
+}
+
+export interface OrphanLinkProposal {
+    orphanPath: string;
+    candidates: OrphanLinkCandidate[];
+}
+
 export interface HealthFinding {
     check: HealthCheckType;
     severity: 'high' | 'medium' | 'low';
@@ -44,6 +56,207 @@ export interface HealthFinding {
 // ---------------------------------------------------------------------------
 // VaultHealthService
 // ---------------------------------------------------------------------------
+
+/**
+ * ADR-167 Stufe 1: die Check-Options als eigener Typ. Die FELDER bleiben
+ * optional (Tests pinnen gezielt einzelne Aspekte), der PARAMETER von
+ * runChecks ist Pflicht: ein Options-loser Aufruf ist ein Compile-Fehler.
+ * Genau zwei solcher Callsites erzeugten die S2-Drift (andere Findingmenge
+ * je nach Klickpfad).
+ */
+export interface HealthCheckOptions {
+    backlinksProperty?: string;
+    categoryProperty?: string;
+    silenceWithContextOrphans?: boolean;
+    orphanExcludePathPrefixes?: string[];
+    reciprocalProperties?: ReadonlyArray<readonly [string, string]>;
+    /**
+     * FEAT-19-05-01: Anzeige-Deckel der Klasse weak_clusters fuer DIESEN
+     * Lauf. Default 20 (Alltags-Findings-Liste). Der Batch-Modus hebt ihn
+     * auf ~250 (= Checkpoint-Cap/2), damit ein Klick 250 Paare statt 20
+     * abarbeitet. Bewusst per-Lauf statt globaler Default, damit die
+     * normale Liste kurz bleibt.
+     */
+    weakClusterLimit?: number;
+}
+
+/** Settings-Sicht des Builders; strukturell kompatibel zum Plugin-Settings-Objekt. */
+export interface HealthCheckSettingsSource {
+    backlinksProperty?: string;
+    categoryProperty?: string;
+    vaultHealth?: {
+        silenceWithContextOrphans?: boolean;
+        orphanExcludePathPrefixes?: string[];
+        reciprocalProperties?: Array<[string, string]>;
+    };
+}
+
+/**
+ * ADR-167: der EINZIGE Erzeuger von HealthCheckOptions. Repliziert die
+ * Semantik der bisher Options-fuehrenden Callsites (silence ?? true) und
+ * loest backlinksProperty mit demselben OKF-Fallback auf wie die
+ * Repair-Schreibpfade und die Graph-Extraktion (FIX-19-01-15-Muster).
+ */
+/**
+ * FEAT-19-05-01: Batch-Deckel fuer weak_clusters. Checkpoint-Cap (500) / 2,
+ * weil ein weak-Paar zwei Dateien schreibt -- so bleibt ein Batch genau
+ * innerhalb der undo-baren Schreibmenge.
+ */
+export const WEAK_CLUSTER_BATCH_LIMIT = 250;
+
+export function buildHealthCheckOptions(
+    source: HealthCheckSettingsSource,
+    /** FEAT-19-05-01: Override des weak_clusters-Deckels fuer den Batch-Pfad. */
+    weakClusterLimit?: number,
+): HealthCheckOptions {
+    return {
+        backlinksProperty: source.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
+        categoryProperty: source.categoryProperty ?? OKF_DEFAULTS.categoryProperty,
+        silenceWithContextOrphans: source.vaultHealth?.silenceWithContextOrphans ?? true,
+        orphanExcludePathPrefixes: source.vaultHealth?.orphanExcludePathPrefixes ?? [],
+        reciprocalProperties: source.vaultHealth?.reciprocalProperties ?? [],
+        ...(weakClusterLimit !== undefined ? { weakClusterLimit } : {}),
+    };
+}
+
+/**
+ * W4 (IMP-19-01-03): der EINZIGE Bauplan fuer den Dismiss-Pfadteil.
+ * Cluster-Name vor erstem Pfad vor stabilem Beschreibungs-Hash; nie der
+ * leere String. Vorher kollabierten pfadlose Findings auf `check:` und
+ * ein Dismiss versteckte den ganzen Typ, waehrend der Cluster-Vergleich
+ * nie matchte. Alt-Zeilen mit path='' matchen kuenftig nichts mehr und
+ * heilen sich damit selbst aus.
+ */
+export function dismissKeyPathFor(finding: Pick<HealthFinding, 'paths' | 'cluster' | 'description'>): string {
+    if (finding.paths[0]) return finding.paths[0];
+    if (finding.cluster) return `cluster:${finding.cluster}`;
+    let h = 0;
+    for (let i = 0; i < finding.description.length; i++) {
+        h = (h * 31 + finding.description.charCodeAt(i)) | 0;
+    }
+    return `desc:${(h >>> 0).toString(16)}`;
+}
+
+/**
+ * FIX-19-02-03: eine Wahrheit fuer den Wikilink-Vergleich.
+ *
+ * Die drei Helfer lagen bisher zweimal inline im File und ein drittes Mal
+ * gar nicht (fixCategoryMismatches verglich roh). Genau daran ist
+ * FIX-19-01-19 entstanden: die eine Kopie wurde geheilt, die andere nicht.
+ * Wer den Vergleich aendert, muss ihn ab jetzt nur hier aendern.
+ */
+export function stripBrackets(s: string): string {
+    return s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+}
+
+export function stripAlias(s: string): string {
+    const pipe = s.indexOf('|');
+    return pipe >= 0 ? s.slice(0, pipe).trim() : s;
+}
+
+export function lastSegment(s: string): string {
+    const seg = s.split('/').pop() ?? s;
+    return seg.replace(/\.md$/, '');
+}
+
+/** Normalisierte Sicht auf eine Link-Liste, gegen die verglichen wird. */
+export interface LinkIndex {
+    /** Volle Pfade, mit und ohne .md. */
+    exact: Set<string>;
+    /**
+     * Letzte Segmente NUR der pfadlosen Eintraege. [[Meeting]] darf als
+     * Duplikat zu Notes/Meeting.md gelten, [[Archiv/Meeting]] nicht.
+     */
+    pathlessSegments: Set<string>;
+}
+
+export function buildLinkIndex(
+    links: readonly string[],
+    /**
+     * FIX-19-02-12: loest einen pfadlosen Eintrag zu seinem echten Ziel auf.
+     * In der Regel `metadataCache.getFirstLinkpathDest`, gebunden an die
+     * Datei, in der der Link steht.
+     */
+    resolve?: (linkText: string) => string | null,
+): LinkIndex {
+    const exact = new Set<string>();
+    const pathlessSegments = new Set<string>();
+    for (const l of links) {
+        if (typeof l !== 'string') continue;
+        const bare = stripAlias(stripBrackets(l));
+        if (!bare) continue;
+        exact.add(bare);
+        exact.add(bare.replace(/\.md$/, ''));
+        if (bare.includes('/')) continue;
+
+        // FIX-19-02-12: wer aufloesen kann, muss nicht raten.
+        //
+        // FIX-19-01-19 hatte den Segment-Vergleich auf pfadlose Eintraege
+        // eingeschraenkt, aber dort raet er weiter: ein vorhandenes
+        // [[Meeting]] blockierte JEDES Ziel namens Meeting, egal in welchem
+        // Ordner. Obsidian weiss, welche Notiz gemeint ist -- dieselbe API,
+        // aus der auch die Kanten stammen. Die Heuristik bleibt nur fuer
+        // Eintraege, die zu nichts aufloesen (kaputte oder noch nicht
+        // angelegte Links); dort ist Raten das Beste, was zur Verfuegung
+        // steht, und die Zusicherung aus FIX-19-01-19 haelt.
+        const dest = resolve?.(bare.replace(/\.md$/, '')) ?? null;
+        if (dest) {
+            exact.add(dest);
+            exact.add(dest.replace(/\.md$/, ''));
+        } else {
+            pathlessSegments.add(lastSegment(bare));
+        }
+    }
+    return { exact, pathlessSegments };
+}
+
+/** true, wenn targetPath in der Liste bereits vertreten ist. */
+export function linkIndexHas(index: LinkIndex, targetPath: string): boolean {
+    const normalized = targetPath.replace(/\.md$/, '');
+    return index.exact.has(targetPath)
+        || index.exact.has(normalized)
+        || index.pathlessSegments.has(lastSegment(normalized));
+}
+
+/**
+ * true, wenn ein einzelner Eintrag genau dieses Ziel meint. Gegenstueck zu
+ * linkIndexHas fuer die Entfernen-Richtung (Filter ueber eine Liste).
+ */
+export function linkEntryMatches(entry: string, targetPath: string): boolean {
+    const bare = stripAlias(stripBrackets(entry));
+    if (!bare) return false;
+    const normalized = targetPath.replace(/\.md$/, '');
+    if (bare === targetPath || bare.replace(/\.md$/, '') === normalized) return true;
+    // Pfadlose Eintraege duerfen ueber das Segment matchen, Pfade nicht.
+    return !bare.includes('/') && lastSegment(bare) === lastSegment(normalized);
+}
+
+/**
+ * FIX-19-02-10: die Cleanup-Regel als reine Funktion.
+ *
+ * Objektiver Muell in einer Backlink-Property sind genau zwei Dinge: leere
+ * Eintraege und exakte Duplikate. Unaufgeloeste Wikilinks und Verweise auf
+ * Anhaenge bleiben (FIX-19-01-16).
+ *
+ * Die Funktion existiert, damit Plan-Seite (entscheidet auf dem
+ * metadataCache) und Schreib-Seite (arbeitet auf dem Live-Frontmatter)
+ * dieselbe Regel benutzen, ohne dass die eine der anderen ihre Liste
+ * aufdraengt.
+ */
+export function dedupeBacklinkEntries(items: readonly unknown[]): { kept: string[]; removed: number } {
+    const kept: string[] = [];
+    const seen = new Set<string>();
+    let removed = 0;
+    for (const raw of items) {
+        const link = String(raw);
+        const cleaned = stripBrackets(link);
+        if (!cleaned) { removed++; continue; }
+        if (seen.has(cleaned)) { removed++; continue; }
+        seen.add(cleaned);
+        kept.push(link);
+    }
+    return { kept, removed };
+}
 
 export class VaultHealthService {
     private app: App;
@@ -62,6 +275,37 @@ export class VaultHealthService {
     godNodeThreshold = 50;
     /** Callback to notify UI of updated findings (e.g. badge refresh). */
     onFindingsUpdated: ((findings: HealthFinding[]) => void) | null = null;
+    /**
+     * FIX-19-01-12: Vektor-Quelle fuer die Orphan-Verknuepfungs-Vorschlaege.
+     * Wird von main.ts gesetzt (dieselbe Instanz wie der Semantik-Index), damit
+     * kein zweiter 200k-Vektor-Cache entsteht. Null = keine Vorschlaege.
+     */
+    vectorStore: { getNoteVectors(): Map<string, Float32Array> } | null = null;
+
+    /**
+     * SEC M-2 (Audit 2026-07-19): kein Schreibpfad der Welle konsultierte
+     * den IgnoreService. planRepairTargets iteriert roh ueber
+     * getMarkdownFiles, die Modals rufen den Service direkt (an der
+     * ToolExecutionPipeline vorbei), und der Tool-Pfad hat kein
+     * path-Input, an dem validatePaths greifen koennte. Ergebnis: der
+     * Mass-Repair schrieb auch in Notizen, die der Nutzer per
+     * .agentignore ausgenommen oder als protected markiert hat.
+     *
+     * Injiziert (Muster vectorStore), damit der Service testbar bleibt.
+     * Nicht gesetzt = kein Ausschluss (Tests, frueher Boot).
+     */
+    ignoreGate: { isIgnored(path: string): boolean; isProtected(path: string): boolean } | null = null;
+
+    /** True, wenn in den Pfad geschrieben werden darf. */
+    private mayWrite(path: string): boolean {
+        const g = this.ignoreGate;
+        if (!g) return true;
+        try {
+            return !g.isIgnored(path) && !g.isProtected(path);
+        } catch {
+            return true; // Gate defekt: nicht haerter als vorher blockieren
+        }
+    }
 
     constructor(app: App, knowledgeDB: KnowledgeDB) {
         this.app = app;
@@ -83,32 +327,27 @@ export class VaultHealthService {
      * finding to reappear on the next run.
      */
     async runChecks(
-        checks?: HealthCheckType[],
-        options?: {
-            backlinksProperty?: string;
-            /** FIX-19-01-05: drop `with_context` orphan findings entirely. */
-            silenceWithContextOrphans?: boolean;
-            /** FIX-19-01-05: user-defined path-prefix excludes for the orphan check. */
-            orphanExcludePathPrefixes?: string[];
-            /**
-             * FIX-19-99-02: list of frontmatter-property pairs that count as
-             * reciprocal even though they have different names.
-             *
-             * Example: `[['Notizen', 'Quellen']]` means
-             *   - a `Quelle.Notizen -> Konzept` edge counts as satisfied if
-             *     the `Konzept` has a reverse edge under either `Notizen`
-             *     OR `Quellen` pointing back at the source.
-             *
-             * Use case from the v2.14.0 stability audit: source notes
-             * reference concepts via `Notizen:`, but the concept references
-             * the source back via `Quellen:`. Same-property reciprocity
-             * is the strict default; this option relaxes the check by
-             * the listed cross-property pairs.
-             */
-            reciprocalProperties?: ReadonlyArray<readonly [string, string]>;
-        },
+        checks: HealthCheckType[] | undefined,
+        options: HealthCheckOptions,
     ): Promise<HealthFinding[]> {
-        if (this.running) return this.findings;
+        // ADR-167: Promise-Sharing. Ein ueberlappender Aufruf bekommt das
+        // laufende Promise und damit das VOLLSTAENDIGE Ergebnis. Der alte
+        // Guard gab die Live-Referenz auf this.findings zurueck, also die
+        // teilbefuellte Liste des laufenden Runs (leere Sidebar-Notice,
+        // ignorierte Options des zweiten Aufrufers).
+        if (this.inFlight) return this.inFlight;
+        this.inFlight = this.executeChecks(checks, options).finally(() => {
+            this.inFlight = null;
+        });
+        return this.inFlight;
+    }
+
+    private inFlight: Promise<HealthFinding[]> | null = null;
+
+    private async executeChecks(
+        checks: HealthCheckType[] | undefined,
+        options: HealthCheckOptions,
+    ): Promise<HealthFinding[]> {
         if (!this.knowledgeDB.isOpen()) return [];
 
         this.running = true;
@@ -116,12 +355,29 @@ export class VaultHealthService {
         this.findings = [];
 
         const backlinksProperty = options?.backlinksProperty;
+        // 'Kategorie' war der historische Hardcode beider Seiten; der Builder
+        // liefert das Settings-Property, hier gilt nur noch der Not-Fallback.
+        const categoryProperty = options?.categoryProperty ?? 'Kategorie';
         const silenceWithContextOrphans = options?.silenceWithContextOrphans ?? false;
         const orphanExcludePathPrefixes = options?.orphanExcludePathPrefixes ?? [];
         const reciprocalProperties = options?.reciprocalProperties ?? [];
+        // FEAT-19-05-01: Batch-Deckel, Default 20.
+        const weakClusterLimit = options?.weakClusterLimit ?? 20;
 
+        let savesSuspended = false;
         try {
             const db = this.getDB();
+            // ADR-167 Stufe 2: fixierter Tabellenstand fuer die Laufdauer.
+            // Die Checks yielden zwischen den Einzelpruefungen an die UI;
+            // in diesen Fenstern schreiben Hintergrund-Jobs (extractFile,
+            // recomputeForPath, Index-Writes) die Tabellen um. Live belegt:
+            // kompletter implicit_edges-Rebuild zwischen zwei Nutzer-Runs.
+            // SEC M-5: sql.js db.export() ist close+reopen und wuerde die
+            // TEMP-Tabellen mitten im Lauf entfernen. Der Save wird fuer die
+            // Laufdauer aufgeschoben (nicht verworfen).
+            this.knowledgeDB.suspendSaves?.();
+            savesSuspended = true;
+            this.createCheckSnapshot(db);
             const checksToRun = checks ?? [
                 'orphans',
                 'missing_backlinks',
@@ -142,11 +398,11 @@ export class VaultHealthService {
                         silenceWithContext: silenceWithContextOrphans,
                         excludePathPrefixes: orphanExcludePathPrefixes,
                     }); break;
-                    case 'missing_backlinks': this.checkMissingBacklinks(db, backlinksProperty, reciprocalProperties); break;
+                    case 'missing_backlinks': this.checkMissingBacklinks(db, backlinksProperty, reciprocalProperties, categoryProperty); break;
                     case 'broken_links': this.checkBrokenLinks(db); break;
-                    case 'weak_clusters': this.checkWeakClusters(db); break;
+                    case 'weak_clusters': this.checkWeakClusters(db, weakClusterLimit); break;
                     case 'inconsistent_tags': this.checkInconsistentTags(db); break;
-                    case 'category_mismatch': this.checkCategoryMismatch(db); break;
+                    case 'category_mismatch': this.checkCategoryMismatch(db, categoryProperty); break;
                     case 'god_nodes': this.checkGodNodes(db); break;
                     case 'cluster_freshness': this.checkClusterFreshness(db); break;
                     case 'source_concentration': this.checkSourceConcentration(db); break;
@@ -168,7 +424,7 @@ export class VaultHealthService {
             } catch { /* non-fatal */ }
             if (dismissed.size > 0) {
                 this.findings = this.findings.filter(
-                    f => !dismissed.has(`${f.check}:${f.paths[0] ?? ''}`),
+                    f => !dismissed.has(`${f.check}:${dismissKeyPathFor(f)}`),
                 );
             }
 
@@ -180,6 +436,8 @@ export class VaultHealthService {
                 console.debug(`[VaultHealth] ${this.findings.length} findings (${this.findings.filter(f => f.severity === 'high').length} high, ${this.findings.filter(f => f.severity === 'medium').length} medium, ${this.findings.filter(f => f.severity === 'low').length} low)`);
             }
 
+            this.lastRunStatus = 'ok';
+            this.lastRunAt = this.nowFn();
             this.onFindingsUpdated?.(this.findings);
             return this.findings;
         } catch (e) {
@@ -189,15 +447,133 @@ export class VaultHealthService {
             } else {
                 console.warn('[VaultHealth] Health check failed:', e);
             }
+            // FIX-19-02-21: das leere Array ist die Antwort auf ZWEI Fragen.
+            //
+            // "Dein Vault ist in Ordnung" und "die Pruefung ist abgestuerzt"
+            // sahen fuer jeden Aufrufer identisch aus. Der Ergebnis-Screen
+            // meldete deshalb "Remaining: 0 finding(s)" direkt unter "24
+            // target(s) still report the finding" -- die beruhigendste
+            // Meldung ausgerechnet dann, wenn das Werkzeug versagt hat.
+            // Der Status ist das zweite Signal; die Oberflaeche muss es
+            // lesen, bevor sie Entwarnung gibt.
+            this.lastRunStatus = 'failed';
+            // FIX-19-05-04: auch ein Abbruch bekommt einen Zeitstempel -- der
+            // Findings-Tab zeigt "zuletzt geprueft" und darf nach einem Fehler
+            // nicht so tun, als haette nie ein Lauf stattgefunden.
+            this.lastRunAt = this.nowFn();
+            // FIX-19-02-27: auch die Ueberhang-Zahlen sind jetzt ungueltig.
+            // Sie ueberlebten den Abbruch und der Hinweis behauptete danach
+            // "20 von 1217" auf Basis eines Laufs, den es in diesem Zustand
+            // nicht mehr gibt -- dieselbe stille Falschauskunft wie das
+            // leere Findings-Array.
+            this.weakClusterTotals = { shown: 0, total: 0 };
+            // Und der Badge darf nicht auf 0 fallen: das waere dieselbe
+            // stille Luege an der prominentesten Stelle.
             return [];
         } finally {
+            try { this.dropCheckSnapshot(this.getDB()); } catch { /* non-fatal */ }
+            if (savesSuspended) this.knowledgeDB.resumeSaves?.();
             this.running = false;
         }
     }
 
+    /**
+     * FIX-19-02-21: hat der letzte Lauf wirklich stattgefunden?
+     *
+     * 'failed' heisst: die zurueckgegebene Befundliste ist LEER, weil die
+     * Pruefung abgebrochen ist, nicht weil nichts zu finden war. Wer
+     * Entwarnung anzeigen will, muss das hier zuerst fragen.
+     */
+    getLastRunStatus(): 'ok' | 'failed' {
+        return this.lastRunStatus;
+    }
+
+    private lastRunStatus: 'ok' | 'failed' = 'ok';
+
+    /**
+     * FIX-19-05-04: Wall-clock-Zeit (ms) des letzten runChecks-Laufs, oder
+     * null vor dem ersten Lauf. Speist die "zuletzt geprueft"-Anzeige im
+     * Findings-Tab, damit der Nutzer das Alter der Befunde kennt.
+     */
+    getLastRunAt(): number | null {
+        return this.lastRunAt;
+    }
+
+    private lastRunAt: number | null = null;
+
+    /** FIX-19-05-04: injizierbare Uhr fuer deterministische Tests. */
+    nowFn: () => number = () => Date.now();
+
     /** Get cached findings from the last run. */
     getFindings(): HealthFinding[] {
         return this.findings;
+    }
+
+    /**
+     * ADR-167: kopiert die vier beweglichen Lese-Tabellen der Checks in
+     * TEMP-Tabellen (ohne die BLOB-Spalten von vectors). cluster_metadata
+     * und cluster_source_stats bleiben bewusst live (nutzergepflegte bzw.
+     * ingest-seitige Statistik, akzeptierte Restbewegung).
+     */
+    private createCheckSnapshot(db: SqlJsDatabase): void {
+        this.dropCheckSnapshot(db);
+        // Gestaffelte Fallbacks statt harter Projektion: aeltere DB-Staende
+        // (vor der ADR-137-domain-Spalte) duerfen den Lauf nicht abbrechen.
+        // SEC L-3: der frueher stille Leer-Fallback ist raus. Ein leeres
+        // hc_edges bei intaktem hc_vectors haette JEDE Notiz als Orphan
+        // gemeldet -- eine plausibel aussehende Massen-Findingliste ohne
+        // jeden Hinweis. Schlaegt eine Quelle komplett fehl, wirft die
+        // Erzeugung und der Lauf endet ohne Ergebnis (fail-closed).
+        this.snapshotTable(db, 'hc_edges',
+            ['SELECT source_path, target_path, link_type, property_name, confidence FROM edges']);
+        this.snapshotTable(db, 'hc_vectors',
+            [
+                'SELECT path, chunk_index, domain, mtime FROM vectors',
+                "SELECT path, chunk_index, 'note' AS domain, mtime FROM vectors",
+            ]);
+        this.snapshotTable(db, 'hc_implicit_edges',
+            ['SELECT source_path, target_path, similarity FROM implicit_edges']);
+        this.snapshotTable(db, 'hc_tags',
+            ['SELECT path, tag FROM tags']);
+
+        // SEC H-1: CREATE TABLE AS SELECT kopiert keine Indizes. Ohne sie
+        // degradieren die korrelierten NOT-EXISTS-Praedikate zu Full-Scans
+        // pro aeusserer Zeile (gemessen 178x langsamer; bei 5x Vaultgroesse
+        // ein 44-Sekunden-Freeze im Boot-Check). Der Indexbau kostet ~15ms.
+        for (const ddl of [
+            'CREATE INDEX IF NOT EXISTS hc_idx_edges_source ON hc_edges(source_path)',
+            'CREATE INDEX IF NOT EXISTS hc_idx_edges_target ON hc_edges(target_path)',
+            'CREATE INDEX IF NOT EXISTS hc_idx_edges_pair ON hc_edges(source_path, target_path)',
+            'CREATE INDEX IF NOT EXISTS hc_idx_vectors_path ON hc_vectors(path)',
+            'CREATE INDEX IF NOT EXISTS hc_idx_implicit_source ON hc_implicit_edges(source_path)',
+            'CREATE INDEX IF NOT EXISTS hc_idx_tags_tag ON hc_tags(tag)',
+        ]) {
+            db.run(ddl);
+        }
+    }
+
+    /**
+     * Erzeugt EINE Snapshot-Tabelle. Die Varianten sind Schema-Fallbacks
+     * (alte DB-Staende ohne domain-Spalte); scheitern ALLE, wirft die
+     * Methode -- siehe SEC L-3 oben.
+     */
+    private snapshotTable(db: SqlJsDatabase, name: string, selects: string[]): void {
+        let lastError: unknown;
+        for (const sel of selects) {
+            try {
+                db.run(`CREATE TEMP TABLE ${name} AS ${sel}`);
+                return;
+            } catch (e) { lastError = e; }
+        }
+        throw new Error(
+            `[VaultHealth] Snapshot-Tabelle ${name} konnte nicht erzeugt werden: ${String(lastError)}`,
+        );
+    }
+
+    private dropCheckSnapshot(db: SqlJsDatabase): void {
+        for (const t of ['hc_edges', 'hc_vectors', 'hc_implicit_edges', 'hc_tags']) {
+            db.run(`DROP TABLE IF EXISTS ${t}`);
+        }
     }
 
     /** Total number of findings. */
@@ -233,9 +609,19 @@ export class VaultHealthService {
         );
         this.knowledgeDB.markDirty();
         // Remove from cached findings
+        // SEC Info-2: derselbe Key wie Persistenz und Lauf-Filter. Seit W4
+        // schreibt der Modal-Dismiss den kanonischen Key (cluster:X /
+        // desc:<hash>), der Cache-Filter verglich aber weiter paths[0] --
+        // ein cluster_freshness-Dismiss verschwand erst nach Neustart.
         this.findings = this.findings.filter(
-            f => !(f.check === checkType && f.paths[0] === path),
+            f => !(f.check === checkType && dismissKeyPathFor(f) === path),
         );
+        // FIX-19-02-07: den Badge mitziehen. Seit updateBadge im Modal zur
+        // leeren Huelle wurde, kommt die Zahl ausschliesslich ueber diesen
+        // Push (main.ts). Ohne ihn blieb der Stethoskop-Badge nach jedem
+        // Ausblenden auf dem alten, zu hohen Stand stehen -- eine falsche
+        // Zahl an der prominentesten Stelle der UI.
+        this.onFindingsUpdated?.(this.findings);
     }
 
     /** Clear all dismissed findings. */
@@ -368,10 +754,10 @@ export class VaultHealthService {
         // weil sie nie Ziel einer edges-Zeile sind.
         /* eslint-disable no-restricted-syntax -- reason: ADR-137 exception, layer guard via domain filter, edges-join needs raw SQL */
         const result = db.exec(
-            `SELECT DISTINCT v.path FROM vectors v
+            `SELECT DISTINCT v.path FROM hc_vectors v
              WHERE v.chunk_index = 0
                AND v.domain = 'note'
-               AND v.path NOT IN (SELECT DISTINCT target_path FROM edges)
+               AND v.path NOT IN (SELECT DISTINCT target_path FROM hc_edges)
                AND v.path NOT LIKE '%Templates%'
                AND v.path NOT LIKE '%Daily Notes%'
                AND v.path NOT LIKE '%Attachements%'
@@ -387,7 +773,7 @@ export class VaultHealthService {
         // Enrich orphans with their outgoing MOC links (they link TO entities but nobody links back)
         // This helps the agent understand WHERE these notes belong instead of creating new entities
         const outgoingEdges = db.exec(
-            `SELECT source_path, target_path, property_name FROM edges
+            `SELECT source_path, target_path, property_name FROM hc_edges
              WHERE link_type = 'frontmatter'
                AND source_path IN (${paths.map(() => '?').join(',')})`,
             paths,
@@ -477,104 +863,22 @@ export class VaultHealthService {
 
     private checkMissingBacklinks(
         db: SqlJsDatabase,
-        backlinksProperty?: string,
-        reciprocalProperties: ReadonlyArray<readonly [string, string]> = [],
+        backlinksProperty: string | undefined,
+        reciprocalProperties: ReadonlyArray<readonly [string, string]>,
+        categoryProperty: string,
     ): void {
-        // FIX-19-01-01: scope the missing-backlink predicate to the
-        // configured property when available. The reciprocity rule is
-        // per-property: an edge under `Notes:` only needs a reverse
-        // edge under the same `Notes:` to be considered satisfied;
-        // mixing `Notes:` and `Notizen:` between source and target
-        // creates a phantom one-sided edge that the old repair path
-        // tried to fix by writing yet another property name. Both
-        // the outer edge and the searched-for reverse edge are
-        // pinned to the configured property.
-        // FIX-19-99-02: cross-property reciprocity. The inner reverse-edge
-        // check accepts not just the configured backlinksProperty but every
-        // sibling listed in `reciprocalProperties`. So a
-        // `Quelle.Notizen -> Konzept` edge counts as satisfied when the
-        // `Konzept` has either a `Notizen` or a `Quellen` (or whichever
-        // pair the user configured) reverse edge pointing back. Default
-        // behaviour (empty list) keeps strict same-property reciprocity.
-        const outerProperty = backlinksProperty ? 'AND e1.property_name = ?' : '';
-        let innerProperty = backlinksProperty ? 'AND e2.property_name = ?' : '';
-        const params: unknown[] = backlinksProperty
-            ? [backlinksProperty, backlinksProperty]
-            : [];
-        if (backlinksProperty && reciprocalProperties.length > 0) {
-            const reverseProps = new Set<string>([backlinksProperty]);
-            for (const [a, b] of reciprocalProperties) {
-                if (a === backlinksProperty) reverseProps.add(b);
-                if (b === backlinksProperty) reverseProps.add(a);
-            }
-            if (reverseProps.size > 1) {
-                const placeholders = Array.from(reverseProps).map(() => '?').join(',');
-                innerProperty = `AND e2.property_name IN (${placeholders})`;
-                // Replace the second backlinksProperty parameter with the
-                // expanded property set; first parameter (outer) stays.
-                params.length = 1;
-                for (const p of reverseProps) params.push(p);
-            }
-        }
-        const result = db.exec(
-            `SELECT e1.source_path, e1.target_path
-             FROM edges e1
-             WHERE e1.link_type = 'frontmatter'
-               ${outerProperty}
-               AND NOT EXISTS (
-                   SELECT 1 FROM edges e2
-                   WHERE e2.source_path = e1.target_path
-                     AND e2.target_path = e1.source_path
-                     AND e2.link_type = 'frontmatter'
-                     ${innerProperty}
-               )
-             LIMIT 200`,
-            params,
+        // ADR-164: der Check ist Consumer des Praedikats, keine eigene
+        // Selektion mehr. Vier historische Divergenzen (Reziprok nur im
+        // Check, 'Kategorie' hardcoded, .md-Filter nur im Repair, LIMIT
+        // nur im Check) sind damit strukturell weg. Der fruehere stille
+        // LIMIT-200-Cap entfaellt: ein Cap, der Findings verschweigt,
+        // war eine Transparenz-Luecke (FIX-19-01-06-Klasse).
+        if (!backlinksProperty) return;
+        void db;
+        const targets = this.computeMissingBacklinkTargets(
+            backlinksProperty, categoryProperty, reciprocalProperties, 'hc_',
         );
-        if (result.length === 0 || result[0].values.length === 0) return;
-
-        // Group by target
-        const missingByTarget = new Map<string, string[]>();
-        for (const row of result[0].values) {
-            const source = row[0] as string;
-            const target = row[1] as string;
-            const existing = missingByTarget.get(target) ?? [];
-            existing.push(source);
-            missingByTarget.set(target, existing);
-        }
-
-        // Exclude targets that have a Backlinks-Base file.
-        // The Base dynamically shows all notes linking to this entity --
-        // if the Base exists, the backlinks are covered regardless of embed status.
-        for (const [target] of missingByTarget) {
-            const targetBaseName = target.replace(/\.md$/, '').split('/').pop() ?? '';
-            const baseFileName = `${targetBaseName}-Backlinks.base`;
-            const targetDir = target.includes('/') ? target.split('/').slice(0, -1).join('/') : '';
-            const basePath = targetDir ? `${targetDir}/${baseFileName}` : baseFileName;
-
-            if (this.app.vault.getAbstractFileByPath(basePath)) {
-                missingByTarget.delete(target);
-            }
-        }
-
-        // Only structural entities need backlinks (Thema, Konzept, Person, Projekt).
-        // Content notes (Quelle, Quellen-Notiz, Notiz, Zettel, etc.) are referenced
-        // but don't need to link back -- they are sources, not hubs.
-        const structuralCategories = new Set([
-            'Thema', 'Konzept', 'Person', 'Projekt',
-            'Topic', 'Concept', 'Project',
-        ]);
-        for (const [target] of missingByTarget) {
-            const file = this.app.vault.getAbstractFileByPath(target);
-            if (!(file instanceof TFile)) { missingByTarget.delete(target); continue; }
-            const cache = this.app.metadataCache.getFileCache(file);
-            const category = this.getNoteCategory(cache, 'Kategorie');
-            if (category && !structuralCategories.has(category)) {
-                missingByTarget.delete(target); // Content note -- no backlink needed
-            }
-        }
-
-        for (const [target, sources] of missingByTarget) {
+        for (const [target, { sources }] of targets) {
             this.findings.push({
                 check: 'missing_backlinks',
                 severity: 'high',
@@ -607,11 +911,12 @@ export class VaultHealthService {
         // und broken_link-Befunde maskieren.
         /* eslint-disable no-restricted-syntax -- reason: ADR-137 exception, layer guard via domain filter, edges-join needs raw SQL */
         const result = db.exec(
-            `SELECT DISTINCT source_path, target_path FROM edges
+            `SELECT DISTINCT source_path, target_path FROM hc_edges
              WHERE target_path LIKE '%.md'
                AND target_path NOT IN (
-                   SELECT DISTINCT path FROM vectors WHERE chunk_index = 0 AND domain = 'note'
+                   SELECT DISTINCT path FROM hc_vectors WHERE chunk_index = 0 AND domain = 'note'
                )
+             ORDER BY source_path, target_path
              LIMIT 200`,
         );
         /* eslint-enable no-restricted-syntax -- end of legacy ADR-136 vectors direct-access block */
@@ -686,11 +991,17 @@ export class VaultHealthService {
     private checkGodNodes(db: SqlJsDatabase): void {
         const threshold = this.godNodeThreshold ?? 50;
         const result = db.exec(
+            // FEAT-19-04-01 W3: backlink-block-Kanten (Hub->Quelle, vom
+            // selbstbildenden Rueckverweis-Block) NICHT mitzaehlen. Sonst
+            // blaeht eine in vielen Hub-Bloecken gelistete Quelle ihren
+            // in_degree kuenstlich auf und wird faelschlich als god_node
+            // gemeldet. Nur echte body/frontmatter-Kanten zaehlen.
             `SELECT target_path, COUNT(*) AS in_degree
-             FROM edges
+             FROM hc_edges
+             WHERE link_type != 'backlink-block'
              GROUP BY target_path
              HAVING COUNT(*) > ?
-             ORDER BY in_degree DESC
+             ORDER BY in_degree DESC, target_path
              LIMIT 20`,
             [threshold],
         );
@@ -709,31 +1020,89 @@ export class VaultHealthService {
         }
     }
 
-    private checkWeakClusters(db: SqlJsDatabase): void {
+    /**
+     * ADR-164: DIE Kandidaten-Selektion der Klasse weak_clusters,
+     * konsumiert vom Check (Snapshot) und von verifyWeakClusterPairs (live).
+     */
+    private selectWeakClusterCandidates(
+        tablePrefix: '' | 'hc_',
+        limit = 20,
+    ): Array<{ source: string; target: string; similarity: number }> {
+        const db = this.getDB();
         const result = db.exec(
             `SELECT ie.source_path, ie.target_path, ie.similarity
-             FROM implicit_edges ie
+             FROM ${tablePrefix}implicit_edges ie
              WHERE ie.similarity > 0.8
+               -- FIX-19-02-24: nur Markdown. Ein Anhang (PDF, PPTX, DOCX)
+               -- kann kein Frontmatter tragen, also kann der Repair dort
+               -- nichts schreiben. Live standen 74 solcher Paare in der
+               -- Menge: sie wurden geplant, still uebergangen und danach
+               -- als "meldet den Befund weiterhin" aufgelistet -- die
+               -- Liste im Ergebnis-Screen bestand ueberwiegend aus PDFs.
+               AND ie.source_path LIKE '%.md'
+               AND ie.target_path LIKE '%.md'
                AND NOT EXISTS (
-                   SELECT 1 FROM edges e
+                   SELECT 1 FROM ${tablePrefix}edges e
                    WHERE (e.source_path = ie.source_path AND e.target_path = ie.target_path)
                       OR (e.source_path = ie.target_path AND e.target_path = ie.source_path)
                )
-             ORDER BY ie.similarity DESC
-             LIMIT 20`,
+             ORDER BY ie.similarity DESC, ie.source_path, ie.target_path
+             LIMIT ${limit}`,
         );
-        if (result.length === 0 || result[0].values.length === 0) return;
+        if (result.length === 0) return [];
+        return result[0].values.map((row) => ({
+            source: row[0] as string,
+            target: row[1] as string,
+            similarity: row[2] as number,
+        }));
+    }
 
-        for (const row of result[0].values) {
-            const source = row[0] as string;
-            const target = row[1] as string;
-            const similarity = (row[2] as number).toFixed(2);
+    /**
+     * FIX-19-02-04: wie viele Kandidaten es WIRKLICH gibt, unabhaengig vom
+     * Anzeige-Deckel. Ohne diese Zahl luegt die Liste durch Auslassung: der
+     * Nutzer repariert 20 von 1217, die naechsten 20 ruecken nach, und die
+     * Anzeige steht scheinbar still.
+     */
+    private countWeakClusterCandidates(tablePrefix: '' | 'hc_'): number {
+        const db = this.getDB();
+        const result = db.exec(
+            `SELECT COUNT(*)
+             FROM ${tablePrefix}implicit_edges ie
+             WHERE ie.similarity > 0.8
+               -- FIX-19-02-24: gleicher Filter wie in der Auswahl, sonst
+               -- verspricht die Gesamtzahl mehr, als je reparierbar ist.
+               AND ie.source_path LIKE '%.md'
+               AND ie.target_path LIKE '%.md'
+               AND NOT EXISTS (
+                   SELECT 1 FROM ${tablePrefix}edges e
+                   WHERE (e.source_path = ie.source_path AND e.target_path = ie.target_path)
+                      OR (e.source_path = ie.target_path AND e.target_path = ie.source_path)
+               )`,
+        );
+        if (!result.length || !result[0].values.length) return 0;
+        return Number(result[0].values[0][0] ?? 0);
+    }
 
+    /** FIX-19-02-04: Anzeige-Deckel gegen tatsaechlichen Bestand. */
+    getCheckTotals(): { weakClusters: { shown: number; total: number } } {
+        return { weakClusters: { ...this.weakClusterTotals } };
+    }
+
+    private weakClusterTotals = { shown: 0, total: 0 };
+
+    private checkWeakClusters(db: SqlJsDatabase, limit = 20): void {
+        void db;
+        const rows = this.selectWeakClusterCandidates('hc_', limit);
+        this.weakClusterTotals = {
+            shown: rows.length,
+            total: this.countWeakClusterCandidates('hc_'),
+        };
+        for (const { source, target, similarity: sim } of rows) {
             this.findings.push({
                 check: 'weak_clusters',
                 severity: 'medium',
                 paths: [source, target],
-                description: `[[${source}]] and [[${target}]] are semantically similar (${similarity}) but not linked`,
+                description: `[[${source}]] and [[${target}]] are semantically similar (${sim.toFixed(2)}) but not linked`,
             });
         }
     }
@@ -741,11 +1110,12 @@ export class VaultHealthService {
     private checkInconsistentTags(db: SqlJsDatabase): void {
         const result = db.exec(
             `SELECT t1.tag, t2.tag, COUNT(DISTINCT t1.path) + COUNT(DISTINCT t2.path) as total_uses
-             FROM tags t1, tags t2
+             FROM hc_tags t1, hc_tags t2
              WHERE t1.tag < t2.tag
                AND LOWER(t1.tag) = LOWER(t2.tag)
              GROUP BY t1.tag, t2.tag
              HAVING total_uses > 1
+             ORDER BY t1.tag, t2.tag
              LIMIT 20`,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
@@ -767,62 +1137,64 @@ export class VaultHealthService {
      * Check for category mismatches: a note with Kategorie "Thema" should only
      * appear in the "Themen" property of other notes, not in "Konzepte" etc.
      */
-    private checkCategoryMismatch(db: SqlJsDatabase): void {
-        // Map: Kategorie → the property name where it SHOULD be referenced.
-        // Only structural entities (Thema, Konzept) have strict mappings.
-        // Content notes (Notiz, Zettel, Quelle, Meeting-Notiz, Person, Projekt)
-        // can be referenced in any property -- no mismatch possible.
-        const strictCategoryToProperty: Record<string, string> = {
-            'Thema': 'Themen',
-            'Konzept': 'Konzepte',
-            'Topic': 'Topics',
-            'Concept': 'Concepts',
-        };
-
-        // Only check edges where the property_name is a category-specific property
-        // (Themen, Konzepte). Other properties (Notizen, Quellen, Personen etc.) are
-        // free collections where any note can appear regardless of its category.
-        const categoryProperties = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
+    /**
+     * ADR-164: DIE Selektion der Klasse category_mismatch, konsumiert vom
+     * Check (Snapshot) und von computeCategoryMismatchFixes (live).
+     * Dismiss-Filter auf dem Target lebt hier, damit auch der Repair-Plan
+     * dismisste Findings respektiert.
+     */
+    private selectCategoryMismatchRows(
+        tablePrefix: '' | 'hc_',
+    ): Array<{ target: string; prop: string; source: string }> {
+        const db = this.getDB();
+        const props = Array.from(VaultHealthService.CATEGORY_PROPERTIES);
+        const placeholders = props.map(() => '?').join(',');
         const result = db.exec(
             `SELECT DISTINCT target_path, property_name, source_path
-             FROM edges
+             FROM ${tablePrefix}edges
              WHERE link_type = 'frontmatter'
-               AND property_name IS NOT NULL
-             ORDER BY target_path`,
+               AND property_name IN (${placeholders})
+               AND NOT EXISTS (
+                   SELECT 1 FROM dismissed_health_findings d
+                   WHERE d.check_type = 'category_mismatch'
+                     AND d.path = target_path
+               )
+             ORDER BY target_path, property_name, source_path`,
+            props,
         );
-        if (result.length === 0 || result[0].values.length === 0) return;
+        if (result.length === 0) return [];
+        return result[0].values.map((row) => ({
+            target: row[0] as string,
+            prop: row[1] as string,
+            source: row[2] as string,
+        }));
+    }
 
-        // Group by target
+    private checkCategoryMismatch(db: SqlJsDatabase, categoryProperty: string): void {
+        void db;
+        const rows = this.selectCategoryMismatchRows('hc_');
+        if (rows.length === 0) return;
+
         const edgesByTarget = new Map<string, { property: string; source: string }[]>();
-        for (const row of result[0].values) {
-            const target = row[0] as string;
-            const prop = row[1] as string;
-            const source = row[2] as string;
-            const list = edgesByTarget.get(target) ?? [];
-            list.push({ property: prop, source });
-            edgesByTarget.set(target, list);
+        for (const r of rows) {
+            const list = edgesByTarget.get(r.target) ?? [];
+            list.push({ property: r.prop, source: r.source });
+            edgesByTarget.set(r.target, list);
         }
 
-        // Check each target's category against the property it's referenced in
         for (const [targetPath, edges] of edgesByTarget) {
             const file = this.app.vault.getAbstractFileByPath(targetPath);
             if (!(file instanceof TFile)) continue;
             const cache = this.app.metadataCache.getFileCache(file);
-            const category = this.getNoteCategory(cache, 'Kategorie');
+            const category = this.getNoteCategory(cache, categoryProperty);
             if (!category) continue;
 
-            const expectedProperty = strictCategoryToProperty[category];
-            if (!expectedProperty) continue; // Not a strict category (Notiz, Person etc.) — skip
+            const expectedProperty = VaultHealthService.STRICT_CATEGORY_TO_PROPERTY[category];
+            if (!expectedProperty) continue;
 
-            // Find edges where a category-specific property doesn't match.
-            // Only Themen/Konzepte properties are checked -- Notizen, Quellen, Personen
-            // are free collections where any note can appear regardless of category.
-            const mismatched = edges.filter(e =>
-                categoryProperties.has(e.property) && e.property !== expectedProperty,
-            );
+            const mismatched = edges.filter(e => e.property !== expectedProperty);
             if (mismatched.length === 0) continue;
 
-            // Group by wrong property
             const byProp = new Map<string, string[]>();
             for (const m of mismatched) {
                 const list = byProp.get(m.property) ?? [];
@@ -834,7 +1206,13 @@ export class VaultHealthService {
                 this.findings.push({
                     check: 'category_mismatch',
                     severity: 'medium',
-                    paths: [targetPath, ...sources.slice(0, 5)],
+                    // FIX-19-01-19: KEINE Kappung mehr. Seit die Auswahl
+                    // den Plan bindet, ist paths die Autorisierungsmenge --
+                    // eine auf 5 gekappte Liste hat bei einem Befund ueber
+                    // 23 Quellen 18 davon still aus dem Plan geworfen,
+                    // obwohl der Nutzer den Befund approved hatte. Die
+                    // Anzeige kuerzt weiterhin (Modal), die Daten nicht.
+                    paths: [targetPath, ...sources],
                     description: `[[${targetPath}]] has Kategorie "${category}" but is referenced via "${wrongProp}" (should be "${expectedProperty}") in ${sources.length} note(s)`,
                 });
             }
@@ -845,10 +1223,30 @@ export class VaultHealthService {
     // Batch fix operations (run in code, no LLM calls)
     // -----------------------------------------------------------------------
 
-    private static readonly MAX_FRONTMATTER_BACKLINKS = 10;
-    private static readonly BASE_CATEGORIES = new Set(['Thema', 'Konzept', 'Topic', 'Concept']);
+    /**
+     * ADR-164: EINE Quelle fuer die Kategorie-Zuordnung. Vorher hielten
+     * checkCategoryMismatch und computeCategoryMismatchFixes je eigene
+     * Kopien dieser Konstanten -- die Duplikat-Klasse, aus der die
+     * Check/Repair-Drift entsteht.
+     */
+    private static readonly STRICT_CATEGORY_TO_PROPERTY: Record<string, string> = {
+        'Thema': 'Themen', 'Konzept': 'Konzepte',
+        'Topic': 'Topics', 'Concept': 'Concepts',
+    };
+    private static readonly CATEGORY_PROPERTIES = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
 
-    /** Sibling .base path for a hub note ("Notes/T.md" -> "Notes/T-Backlinks.base"). */
+    // FEAT-19-04-01 W2c: Schwelle, oberhalb derer ein Hub NICHT mehr als
+    // missing_backlinks gefuehrt wird (Filter 3 in computeMissingBacklinkTargets).
+    // Frueher war das die Grenze zum .base-Zweig; die .base-Automatik ist
+    // abgeschaltet, die Reziprozitaet grosser Hubs traegt der Rueckverweis-Block.
+    private static readonly MAX_FRONTMATTER_BACKLINKS = 10;
+
+    /**
+     * FEAT-19-04-01 W2c: sibling .base path for a hub note
+     * ("Notes/T.md" -> "Notes/T-Backlinks.base"). Nur noch fuer Filter 1
+     * (Alt-.base-Existenz) gebraucht, solange die 144 Alt-.base im Vault
+     * liegen. Faellt mit 2d als toter Code weg.
+     */
     private backlinksBasePathFor(target: string): string {
         const targetBaseName = target.replace(/\.md$/, '').split('/').pop() ?? '';
         const baseFileName = `${targetBaseName}-Backlinks.base`;
@@ -882,29 +1280,50 @@ export class VaultHealthService {
     private computeMissingBacklinkTargets(
         backlinksProperty: string,
         categoryProperty: string,
+        reciprocalProperties: ReadonlyArray<readonly [string, string]>,
+        tablePrefix: '' | 'hc_' = '',
     ): Map<string, { sources: string[]; properties: Set<string> }> {
         const db = this.getDB();
+        // ADR-164: DAS Praedikat der Klasse missing_backlinks. Drei Consumer:
+        // checkMissingBacklinks (tablePrefix 'hc_', Snapshot), planRepairTargets
+        // und verifyRepairTargets (live). Reziprok-Expansion und Dismiss-Filter
+        // leben hier und nur hier.
+        // FIX-19-02-30: der Rueck-Link zaehlt im GRAPHEN, nicht in einer
+        // bestimmten Property.
+        //
+        // Vorher akzeptierte das Praedikat den Gegen-Link nur, wenn er unter
+        // backlinksProperty (oder einem explizit konfigurierten reziproken
+        // Paar) UND als link_type='frontmatter' stand. Ein sachlich
+        // richtiger resource:-Rueckverweis oder ein Inline-Link im
+        // Fliesstext galt als "verlinkt nicht zurueck". Der Repair schrieb
+        // daraufhin [[X]] zusaetzlich in related -- obwohl X schon in
+        // resource stand -- und erzeugte ein Duplikat (live an 8 Notizen).
+        //
+        // Neue Regel: existiert IRGENDEINE Kante von target zurueck auf
+        // source (jede Property, auch body), ist die Beziehung reziprok.
+        // reciprocalProperties wird damit fuer diese Klasse bedeutungslos
+        // und bleibt nur aus Signatur-Kompatibilitaet erhalten.
+        void reciprocalProperties;
+        const tp = tablePrefix;
         const result = db.exec(
             `SELECT e1.target_path, e1.source_path, e1.property_name
-             FROM edges e1
+             FROM ${tp}edges e1
              WHERE e1.link_type = 'frontmatter'
                AND e1.target_path LIKE '%.md'
                AND e1.source_path LIKE '%.md'
                AND e1.property_name = ?
                AND NOT EXISTS (
-                   SELECT 1 FROM edges e2
+                   SELECT 1 FROM ${tp}edges e2
                    WHERE e2.source_path = e1.target_path
                      AND e2.target_path = e1.source_path
-                     AND e2.link_type = 'frontmatter'
-                     AND e2.property_name = ?
                )
                AND NOT EXISTS (
                    SELECT 1 FROM dismissed_health_findings d
                    WHERE d.check_type = 'missing_backlinks'
                      AND d.path = e1.target_path
                )
-             ORDER BY e1.target_path`,
-            [backlinksProperty, backlinksProperty],
+             ORDER BY e1.target_path, e1.source_path`,
+            [backlinksProperty],
         );
 
         const missingByTarget = new Map<string, { sources: string[]; properties: Set<string> }>();
@@ -923,15 +1342,21 @@ export class VaultHealthService {
             missingByTarget.set(target, existing);
         }
 
-        // FIX-19-01-08: Mirror checkMissingBacklinks's two pre-filters
-        // so the repair loop iterates the exact same target set the
-        // user sees in the findings. Without this, the repair walked
-        // structural + content notes alike and processed targets whose
-        // Base already exists, which created the "130 entities, 0
-        // links" result-screen confusion before.
+        // FIX-19-01-08: Mirror checkMissingBacklinks's pre-filters so the
+        // repair loop iterates the exact same target set the user sees in
+        // the findings.
         //
-        // Filter 1: drop targets whose sibling Base file exists. The
-        // Base is dynamic and covers backlinks for free.
+        // Filter 1: drop targets whose sibling Base file exists. The Base
+        // is dynamic and covers backlinks for free.
+        //
+        // FEAT-19-04-01 W2c/2d: die .base-AUTOMATIK ist abgeschaltet und die
+        // Alt-.base sind aufgeraeumt -- der Repair legt also keine .base mehr
+        // an. Filter 1 bleibt trotzdem, aber mit gedrehter Bedeutung: er
+        // respektiert eine vom NUTZER von Hand behaltene/gepflegte .base
+        // (z.B. Mobilfunk-Backlinks.base mit custom sort/columnSize). Solange
+        // der Nutzer so eine .base fuehrt, ist der Hub bewusst per .base
+        // abgedeckt und soll nicht als missing_backlinks feuern. Kein toter
+        // Code, sondern der "manuelle .base"-Sonderfall.
         for (const [target] of missingByTarget) {
             if (this.app.vault.getAbstractFileByPath(this.backlinksBasePathFor(target))) {
                 missingByTarget.delete(target);
@@ -941,16 +1366,56 @@ export class VaultHealthService {
         // Filter 2: only structural entities need backlinks
         // (Thema/Konzept/Person/Projekt). Content notes (Quelle, Notiz,
         // Zettel, ...) are sources, not hubs.
+        // FIX-19-02-05: Vergleich case-insensitiv und getrimmt. Der Vault
+        // fuehrt 'quelle' neben 'Quelle' und 'thema' neben 'Thema'; der
+        // exakte Vergleich verwarf die kleingeschriebenen Varianten
+        // stillschweigend als "nicht strukturell". Gemessen an der echten
+        // DB fielen so 91 von 93 missing_backlinks-Zielen weg.
+        // FIX-19-09-01: deckungsgleich mit HUB_TYPES (hubTypeThreshold.ts).
+        // Beide Mengen muessen synchron bleiben: was hier als struktureller Hub
+        // gilt, bekommt dort Threshold 1. 'organisation' 2026-07-21 ergaenzt.
         const structuralCategories = new Set([
-            'Thema', 'Konzept', 'Person', 'Projekt',
-            'Topic', 'Concept', 'Project',
+            'thema', 'konzept', 'person', 'projekt',
+            'topic', 'concept', 'project',
+            'organisation', 'organization',
         ]);
-        for (const [target] of missingByTarget) {
+        for (const [target, data] of missingByTarget) {
             const file = this.app.vault.getAbstractFileByPath(target);
             if (!(file instanceof TFile)) { missingByTarget.delete(target); continue; }
             const cache = this.app.metadataCache.getFileCache(file);
             const category = this.getNoteCategory(cache, categoryProperty);
-            if (category && !structuralCategories.has(category)) {
+            if (category && !structuralCategories.has(category.trim().toLowerCase())) {
+                missingByTarget.delete(target);
+                continue;
+            }
+
+            // FEAT-19-04-01 W2c: Filter 3 -- genuine Overload-Hubs
+            // ausschliessen. Die .base-Automatik ist abgeschaltet; frueher
+            // legte der useBase-Zweig fuer Ziele mit
+            // > MAX_FRONTMATTER_BACKLINKS Quellen eine .base an, statt
+            // hunderte Eintraege ins Frontmatter zu schreiben. Ohne .base
+            // waere der Repair fuer diese Menge ein No-op -- also gehoert
+            // sie nicht mehr in die Finding-Menge.
+            //
+            // NUR die Anzahl entscheidet, NICHT die Kategorie: ein kleiner
+            // Thema/Konzept-Hub (<= MAX Quellen) bekommt weiter den
+            // gedeckelten Frontmatter-Rueck-Link (kein Overload, Reziprozitaet
+            // bleibt erhalten). Das haelt die Parity-Zusage (ein einseitig
+            // verlinktes Thema IST ein Finding) und deckt sich mit der
+            // count-basierten Hub-Definition des Rueckverweis-Blocks
+            // (isHubNote). Die Reziprozitaet grosser Hubs uebernimmt der
+            // Block (echte [[Wikilinks]] im Body -> body-Kante -> reziprok).
+            //
+            // ADR-164: Der Ausschluss gehoert ins PRAEDIKAT, nicht in den
+            // Repair-Zweig. Wuerde der Check die Ziele weiter melden und der
+            // Repair sie nur als No-op behandeln, entstuende die "Repair tat
+            // nichts"-Optik (FIX-19-01-06), und die Korrektheit haenge am
+            // optionalen, asynchronen Block-Feature (abschaltbar, eigene
+            // Schwelle, laeuft nach dem Check, nicht im Repair). Als
+            // Praedikat-Ausschluss ist die Aussage self-contained: ein
+            // grosser struktureller Hub ist ein legitimer Senke-Knoten,
+            // kein Defekt.
+            if (data.sources.length > VaultHealthService.MAX_FRONTMATTER_BACKLINKS) {
                 missingByTarget.delete(target);
             }
         }
@@ -972,41 +1437,149 @@ export class VaultHealthService {
      * simulated diff that can drift from the write is worse than an honest
      * path list.
      *
-     * For fix_backlinks, hub targets (Thema/Konzept or >10 sources) get a
-     * dynamically created sibling `<name>-Backlinks.base`; the plan lists
-     * that path too, because it is a file the repair will create.
+     * FEAT-19-04-01 W2c: fix_backlinks plant nur noch .md-Ziele. Grosse Hubs
+     * (> MAX_FRONTMATTER_BACKLINKS Quellen) sind gar nicht mehr in der
+     * Finding-Menge (Praedikat-Filter 3); die .base-Automatik ist weg.
      */
     planRepairTargets(
         action: 'fix_backlinks' | 'cleanup' | 'fix_categories',
         backlinksProperty = 'Notizen',
         categoryProperty = 'Kategorie',
+        reciprocalProperties: ReadonlyArray<readonly [string, string]> = [],
     ): string[] {
         if (action === 'fix_backlinks') {
-            const targets = this.computeMissingBacklinkTargets(backlinksProperty, categoryProperty);
+            // FEAT-19-04-01 W2c: kein .base mehr im Plan. Das Praedikat
+            // (computeMissingBacklinkTargets, Filter 3) schliesst Overload-
+            // Hubs bereits aus, sodass hier nur noch Ziele ankommen, die den
+            // gedeckelten Frontmatter-Rueck-Link bekommen. Der frueher hier
+            // angehaengte '<name>-Backlinks.base'-Pfad entfaellt -- die
+            // .base-Automatik ist abgeschaltet.
+            const targets = this.computeMissingBacklinkTargets(backlinksProperty, categoryProperty, reciprocalProperties);
             const paths: string[] = [];
-            for (const [target, { sources }] of targets) {
+            for (const [target] of targets) {
+                if (!this.mayWrite(target)) continue; // SEC M-2
                 paths.push(target);
-                const file = this.app.vault.getAbstractFileByPath(target);
-                const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null;
-                const category = this.getNoteCategory(cache, categoryProperty);
-                const useBase = VaultHealthService.BASE_CATEGORIES.has(category)
-                    || sources.length > VaultHealthService.MAX_FRONTMATTER_BACKLINKS;
-                if (useBase) {
-                    paths.push(this.backlinksBasePathFor(target));
-                }
             }
             return paths;
         }
         if (action === 'cleanup') {
             const paths: string[] = [];
             for (const file of this.app.vault.getMarkdownFiles()) {
+                if (!this.mayWrite(file.path)) continue; // SEC M-2
                 if (this.evaluateBacklinkCleanup(file, backlinksProperty, categoryProperty) !== null) {
                     paths.push(file.path);
                 }
             }
             return paths;
         }
-        return [...this.computeCategoryMismatchFixes().keys()];
+        return [...this.computeCategoryMismatchFixes(categoryProperty).keys()].filter((p) => this.mayWrite(p));
+    }
+
+    /**
+     * ADR-166: vom Plugin injizierter Extraktions-Zugang (Muster
+     * vectorStore). Nur extractFile wird gebraucht; der schmale Typ haelt
+     * Tests und Kopplung klein.
+     *
+     * FEAT-19-04-01 W3: extractFile ist async (selektiver Datei-Read fuer die
+     * Block-Kanten-Klassifikation), der applyAndVerify-Pfad awaitet es.
+     */
+    graphExtractor: { extractFile(file: TFile): Promise<void> } | null = null;
+
+    /**
+     * ADR-166: wartet event-basiert auf den metadataCache-Reparse GENAU
+     * der uebergebenen Pfade. Kein pauschales Timeout als Erfolg: was bis
+     * zum Limit nicht gemeldet wurde, kommt als timedOut zurueck und wird
+     * vom Aufrufer sichtbar gemacht.
+     */
+    private waitForCacheReparse(paths: readonly string[], timeoutMs: number): Promise<string[]> {
+        // FIX-19-01-17: nur Markdown-Dateien senden ein metadataCache-
+        // 'changed'-Event. Ein .md-Filter ist trotzdem noetig: der Plan kann
+        // Nicht-.md-Pfade enthalten (historisch die .base-Geschwister, heute
+        // z.B. kuenftige Nicht-Markdown-Ziele), die nie ein 'changed'-Event
+        // senden. Ohne Filter liefe der Lauf garantiert in den vollen Timeout
+        // und meldete danach ALLE Pfade als "failed", obwohl die Reparatur
+        // erfolgreich war -- die Ursache fuer "0 von N verifiziert behoben".
+        const pending = new Set(paths.filter((p) => p.endsWith('.md')));
+        if (pending.size === 0) return Promise.resolve([]);
+        return new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                this.app.metadataCache.offref(ref);
+                window.clearTimeout(timer);
+                resolve(Array.from(pending).sort());
+            };
+            const ref = this.app.metadataCache.on('changed', (file: TFile) => {
+                pending.delete(file.path);
+                if (pending.size === 0) finish();
+            });
+            const timer = window.setTimeout(finish, timeoutMs);
+        });
+    }
+
+    /**
+     * ADR-166: DIE Sequenz fuer jeden Health-Schreibpfad.
+     * schreiben -> auf Reparse der geschriebenen Pfade warten ->
+     * genau diese Pfade extrahieren -> Praedikat verifizieren.
+     * Alle drei bisherigen Varianten (3s/2s-Timeouts im Sammel-Repair,
+     * kein Warten im Orphan-Flow, Cleanup vor dem Settle) laufen ueber
+     * diesen einen Helper.
+     */
+    async applyAndVerify(
+        paths: readonly string[],
+        write: () => Promise<void>,
+        verify: () => string[],
+        opts?: { reparseTimeoutMs?: number },
+    ): Promise<{ stillFiring: string[]; timedOutPaths: string[] }> {
+        const timeoutMs = opts?.reparseTimeoutMs ?? 10000;
+        const waiter = this.waitForCacheReparse(paths, timeoutMs);
+        await write();
+        const timedOutPaths = await waiter;
+
+        const extractor = this.graphExtractor;
+        if (extractor) {
+            for (const p of paths) {
+                const file = this.app.vault.getAbstractFileByPath(p);
+                // FEAT-19-04-01 W3: awaiten -- extractFile ist async
+                // (selektiver Read fuer die Block-Kanten). Die Kanten muessen
+                // in der DB stehen, BEVOR verify() das Praedikat auswertet.
+                if (file instanceof TFile) await extractor.extractFile(file);
+            }
+        }
+        return { stillFiring: verify(), timedOutPaths };
+    }
+
+    /**
+     * ADR-164: dritter Consumer des Praedikats. Liefert die Teilmenge der
+     * uebergebenen Pfade, fuer die das Praedikat NOCH feuert (live-Tabellen,
+     * also nach Extraktion aufrufen). Leer = alle Ziele verifiziert gefixt.
+     * W3 baut den Ergebnis-Screen auf diesem Delta auf.
+     */
+    verifyRepairTargets(
+        action: 'fix_backlinks' | 'cleanup' | 'fix_categories',
+        paths: readonly string[],
+        opts: {
+            backlinksProperty: string;
+            categoryProperty: string;
+            reciprocalProperties: ReadonlyArray<readonly [string, string]>;
+        },
+    ): string[] {
+        const still = new Set(
+            this.planRepairTargets(action, opts.backlinksProperty, opts.categoryProperty, opts.reciprocalProperties),
+        );
+        return paths.filter((p) => still.has(p));
+    }
+
+    /** ADR-164: Verify fuer weak_clusters (paarweise, live-Tabellen). */
+    verifyWeakClusterPairs(
+        pairs: ReadonlyArray<{ a: string; b: string }>,
+    ): Array<{ a: string; b: string }> {
+        const candidates = this.selectWeakClusterCandidates('', 10000);
+        const open = new Set(candidates.map((c) => `${c.source}\u0000${c.target}`));
+        return pairs.filter(({ a, b }) =>
+            open.has(`${a}\u0000${b}`) || open.has(`${b}\u0000${a}`),
+        ).map(({ a, b }) => ({ a, b }));
     }
 
     /**
@@ -1020,112 +1593,75 @@ export class VaultHealthService {
         backlinksProperty: string,
         categoryProperty: string,
     ): { clearAll: true } | { clearAll: false; validLinks: string[]; removed: number } | null {
+        void categoryProperty;
         const cache = this.app.metadataCache.getFileCache(file);
         if (!cache?.frontmatter) return null;
 
         const existing = cache.frontmatter[backlinksProperty];
         if (!existing || (Array.isArray(existing) && existing.length === 0)) return null;
 
-        const category = this.getNoteCategory(cache, categoryProperty);
-
-        // For Thema/Konzept: clear the whole property (Base handles it)
-        if (VaultHealthService.BASE_CATEGORIES.has(category)) {
-            const items = Array.isArray(existing) ? existing : [existing];
-            if (items.length > 0 && items.some((i: unknown) => typeof i === 'string' && i.toString().trim())) {
-                return { clearAll: true };
-            }
-            return null;
-        }
-
-        // For other categories: remove invalid links, keep valid ones
-        const items: string[] = Array.isArray(existing)
-            ? existing.map(String)
-            : [String(existing)];
-
+        // FIX-19-01-16: der Cleanup entfernt nur noch objektiven Muell.
+        //
+        // Live-Vorfall 2026-07-19: 201 Wikilinks auf noch nicht angelegte
+        // Notizen wurden geloescht ([[Miles Gibson]], [[Birgitta
+        // Boeckeler]], ...). Ein unaufgeloester Wikilink ist in Obsidian
+        // kein Defekt, sondern ein erstklassiger Zustand: er markiert eine
+        // Notiz, die noch fehlt, und erscheint in der Graph-Ansicht als
+        // offener Knoten. Ihn zu loeschen vernichtet die Absicht des
+        // Nutzers, nicht seinen Muell.
+        //
+        // Ebenfalls entfernt: die Existenzpruefung gegen .md/.canvas.
+        // Verweise auf Anhaenge (PDF, Bild, Office) sind legitim.
+        //
+        // Und der clearAll-Zweig ist weg: er leerte bei Thema/Konzept die
+        // GANZE Property mit der Begruendung, eine Base uebernehme das.
+        // Eine Massenloeschung auf Verdacht ist keine Reparatur; wer die
+        // Base nutzt, braucht die Property nicht geleert zu bekommen.
+        const items: string[] = Array.isArray(existing) ? existing.map(String) : [String(existing)];
         if (items.length === 0) return null;
 
-        const validLinks: string[] = [];
-        const seen = new Set<string>();
-        let removedFromThis = 0;
-
-        for (const link of items) {
-            const cleaned = link.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
-            if (!cleaned) { removedFromThis++; continue; }
-
-            // Skip duplicates
-            if (seen.has(cleaned)) { removedFromThis++; continue; }
-            seen.add(cleaned);
-
-            // Check if the target exists as .md or .canvas in the vault
-            const isValidExt = (p: string) => p.endsWith('.md') || p.endsWith('.canvas');
-            const targetPath = cleaned.endsWith('.md') ? cleaned : `${cleaned}.md`;
-            const resolvedPath = this.app.metadataCache.getFirstLinkpathDest(cleaned, file.path);
-
-            if (resolvedPath && isValidExt(resolvedPath.path)) {
-                validLinks.push(link); // Keep valid .md/.canvas links
-            } else if (!resolvedPath) {
-                // Try direct path lookup
-                const directFile = this.app.vault.getAbstractFileByPath(targetPath)
-                    ?? this.app.vault.getAbstractFileByPath(`Notes/${targetPath}`)
-                    ?? this.app.vault.getAbstractFileByPath(cleaned.endsWith('.canvas') ? cleaned : `${cleaned}.canvas`);
-                if (directFile instanceof TFile && isValidExt(directFile.path)) {
-                    validLinks.push(link);
-                } else {
-                    removedFromThis++;
-                }
-            } else {
-                removedFromThis++; // Non-.md/.canvas target
-            }
-        }
-
-        if (removedFromThis === 0) return null;
-        return { clearAll: false, validLinks, removed: removedFromThis };
+        // FIX-19-02-10: geteilte Regel. Diese Seite entscheidet nur, OB die
+        // Datei in den Plan gehoert; was genau geschrieben wird, entscheidet
+        // die Schreib-Seite noch einmal auf dem Live-Frontmatter.
+        const { kept, removed } = dedupeBacklinkEntries(items);
+        if (removed === 0) return null;
+        return { clearAll: false, validLinks: kept, removed };
     }
 
     /**
      * Source-note selection for fixCategoryMismatches, extracted so plan and
      * repair share it. Pure reads: SQL + metadata cache.
      */
-    private computeCategoryMismatchFixes(): Map<string, { targetName: string; wrongProp: string; rightProp: string }[]> {
-        const fixesBySource = new Map<string, { targetName: string; wrongProp: string; rightProp: string }[]>();
-        const db = this.getDB();
+    private computeCategoryMismatchFixes(
+        categoryProperty = 'Kategorie',
+    ): Map<string, { targetPath: string; wrongProp: string; rightProp: string }[]> {
+        const fixesBySource = new Map<string, { targetPath: string; wrongProp: string; rightProp: string }[]>();
+        // ADR-164: gleiche Selektion wie der Check (selectCategoryMismatchRows),
+        // gleiche Konstanten, gleiches categoryProperty. Nur die Gruppierung
+        // unterscheidet sich (Repair schreibt in die QUELLE).
+        const rows = this.selectCategoryMismatchRows('');
+        if (rows.length === 0) return fixesBySource;
 
-        const strictMapping: Record<string, string> = {
-            'Thema': 'Themen', 'Konzept': 'Konzepte',
-            'Topic': 'Topics', 'Concept': 'Concepts',
-        };
-        const categoryProperties = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
-
-        const result = db.exec(
-            `SELECT DISTINCT target_path, property_name, source_path
-             FROM edges
-             WHERE link_type = 'frontmatter'
-               AND property_name IN ('Themen', 'Konzepte', 'Topics', 'Concepts')
-             ORDER BY source_path`,
-        );
-        if (result.length === 0 || result[0].values.length === 0) {
-            return fixesBySource;
-        }
-
-        // Group by source note -- each source may need multiple property moves
-        for (const row of result[0].values) {
-            const targetPath = row[0] as string;
-            const prop = row[1] as string;
-            const sourcePath = row[2] as string;
+        for (const row of rows) {
+            const targetPath = row.target;
+            const prop = row.prop;
+            const sourcePath = row.source;
 
             const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
             if (!(targetFile instanceof TFile)) continue;
             const cache = this.app.metadataCache.getFileCache(targetFile);
-            const category = this.getNoteCategory(cache, 'Kategorie');
+            const category = this.getNoteCategory(cache, categoryProperty);
             if (!category) continue;
 
-            const expectedProp = strictMapping[category];
-            if (!expectedProp || !categoryProperties.has(prop)) continue;
+            const expectedProp = VaultHealthService.STRICT_CATEGORY_TO_PROPERTY[category];
+            if (!expectedProp) continue;
             if (prop === expectedProp) continue; // Correct -- no fix needed
 
-            const targetName = targetPath.replace(/\.md$/, '').split('/').pop() ?? '';
+            // FIX-19-02-03: den VOLLEN Pfad durchreichen. Der Basename
+            // allein liess gleichnamige Notizen aus verschiedenen Ordnern
+            // verschmelzen.
             const fixes = fixesBySource.get(sourcePath) ?? [];
-            fixes.push({ targetName, wrongProp: prop, rightProp: expectedProp });
+            fixes.push({ targetPath, wrongProp: prop, rightProp: expectedProp });
             fixesBySource.set(sourcePath, fixes);
         }
 
@@ -1161,32 +1697,30 @@ export class VaultHealthService {
      * surface (the repair modal) omit it and keep the full selection.
      */
     async fixMissingBacklinks(
-        backlinksProperty = 'Notizen',
-        categoryProperty = 'Kategorie',
-        targetFilter?: ReadonlySet<string>,
+        backlinksProperty: string,
+        categoryProperty: string,
+        reciprocalProperties: ReadonlyArray<readonly [string, string]>,
+        // ADR-165: Pflicht. Jeder Mass-Write ist an eine approvte Zielliste
+        // gebunden; ein Aufruf ohne Bindung ist ein Compile-Fehler.
+        targetFilter: ReadonlySet<string>,
     ): Promise<{
         entitiesFixed: number;
         linksAdded: number;
-        basesCreated: number;
-        // FIX-19-01-06: explicit transparency about why a target produced no
-        // mutation. The result screen surfaces these so the user can see WHY
-        // "130 entities" produced "0 links" instead of guessing.
-        entitiesWithExistingBase: number;
         yamlErrorPaths: string[];
     }> {
+        // FEAT-19-04-01 W2c: basesCreated / entitiesWithExistingBase entfernt.
+        // Die .base-Automatik ist weg, beide waren strukturell immer 0.
         const db = this.getDB();
         let entitiesFixed = 0;
         let linksAdded = 0;
-        let basesCreated = 0;
-        let entitiesWithExistingBase = 0;
         const yamlErrorPaths: string[] = [];
 
-        const missingByTarget = this.computeMissingBacklinkTargets(backlinksProperty, categoryProperty);
+        const missingByTarget = this.computeMissingBacklinkTargets(backlinksProperty, categoryProperty, reciprocalProperties);
         if (missingByTarget.size === 0) {
-            return { entitiesFixed: 0, linksAdded: 0, basesCreated: 0, entitiesWithExistingBase: 0, yamlErrorPaths: [] };
+            return { entitiesFixed: 0, linksAdded: 0, yamlErrorPaths: [] };
         }
 
-        for (const [targetPath, { sources, properties }] of missingByTarget) {
+        for (const [targetPath, { sources }] of missingByTarget) {
             if (this.cancelled) break;
 
             // FIX-44-56: skip targets outside the approved plan (state drift
@@ -1197,96 +1731,56 @@ export class VaultHealthService {
             if (!(file instanceof TFile)) continue;
 
             try {
-                // Determine category of the target note
-                const cache = this.app.metadataCache.getFileCache(file);
-                const category = this.getNoteCategory(cache, categoryProperty);
-                const useBase = VaultHealthService.BASE_CATEGORIES.has(category)
-                    || sources.length > VaultHealthService.MAX_FRONTMATTER_BACKLINKS;
+                // FEAT-19-04-01 W2c: nur noch der Frontmatter-Rueck-Link. Der
+                // fruehere useBase-Zweig (ensureBacklinksBase) ist entfernt --
+                // die .base-Automatik ist abgeschaltet. Das Praedikat
+                // (computeMissingBacklinkTargets, Filter 3) schliesst
+                // Overload-Hubs (> MAX_FRONTMATTER_BACKLINKS Quellen) bereits
+                // aus, sodass hier nur Ziele ankommen, fuer die eine kleine
+                // Zahl Frontmatter-Eintraege angemessen ist. Die
+                // Reziprozitaet grosser Hubs uebernimmt der selbstbildende
+                // Rueckverweis-Block.
+                await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+                    const existing = fm[backlinksProperty];
+                    const currentLinks: string[] = Array.isArray(existing)
+                        ? existing.map(String)
+                        : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
 
-                // FIX-44-56: the branch decision itself can drift. If the
-                // repair now wants a sibling .base the plan never listed,
-                // skip the target entirely -- creating a file the user never
-                // saw on the card is exactly what the filter forbids.
-                if (useBase
-                    && targetFilter !== undefined
-                    && !targetFilter.has(this.backlinksBasePathFor(targetPath))) {
-                    continue;
-                }
+                    // FIX-19-01-01: strip aliases (`[[Foo|Bar]]`) and
+                    // path-segments so a wikilink like `[[Notes/A|A]]`
+                    // matches both the bare name `A` and the full
+                    // path `Notes/A.md`. The previous dedup only
+                    // stripped the brackets, which let the same edge
+                    // get written twice as `[[Source]]` next to an
+                    // existing `[[Source|Alias]]`.
+                    // FIX-19-01-19: zweite Dedupe-Stelle, gleiche Regel
+                    // wie in insertBacklink -- der Segment-Vergleich gilt
+                    // nur fuer PFADLOSE Eintraege. Vorher blockierte ein
+                    // vorhandenes [[Archiv/Meeting]] den neuen Link
+                    // [[Notes/Meeting]] und der Repair schrieb nichts.
+                    // FIX-19-02-12: geteilter Index MIT Aufloesung
+                    // pfadloser Eintraege (siehe buildLinkIndex).
+                    const index = buildLinkIndex(
+                        currentLinks,
+                        (text) => this.app.metadataCache
+                            .getFirstLinkpathDest(text, file.path)?.path ?? null,
+                    );
 
-                if (useBase) {
-                    // FIX-19-01-08: useBase branch is now NON-destructive.
-                    // Before: this branch wrote `fm[backlinksProperty] = null`
-                    // for every hub-note in the iteration, deleting the
-                    // user's manually-curated backlinks. Combined with the
-                    // missing property_name filter in the SQL, that
-                    // mutation also corrupted reverse-edges across ~130
-                    // hub notes per run. The Base is dynamic and reads
-                    // the graph live -- there is no reason to touch the
-                    // frontmatter property at all.
-                    const created = await this.ensureBacklinksBase(file, properties);
-                    if (created) {
-                        basesCreated++;
-                    } else {
-                        // The Base existed already. checkMissingBacklinks's
-                        // base-filter drops the target from future findings,
-                        // so this is a true no-op (was a destructive op
-                        // before FIX-19-01-08).
-                        entitiesWithExistingBase++;
+                    let added = 0;
+                    for (const sourcePath of sources) {
+                        if (linkIndexHas(index, sourcePath)) continue;
+                        const sourceNormalized = sourcePath.replace(/\.md$/, '');
+                        currentLinks.push(`[[${sourceNormalized}]]`);
+                        index.exact.add(sourceNormalized);
+                        index.exact.add(sourcePath);
+                        added++;
                     }
-                } else {
-                    // Add to frontmatter property (small number of backlinks)
-                    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-                        const existing = fm[backlinksProperty];
-                        const currentLinks: string[] = Array.isArray(existing)
-                            ? existing.map(String)
-                            : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
 
-                        // FIX-19-01-01: strip aliases (`[[Foo|Bar]]`) and
-                        // path-segments so a wikilink like `[[Notes/A|A]]`
-                        // matches both the bare name `A` and the full
-                        // path `Notes/A.md`. The previous dedup only
-                        // stripped the brackets, which let the same edge
-                        // get written twice as `[[Source]]` next to an
-                        // existing `[[Source|Alias]]`.
-                        const stripBrackets = (s: string) =>
-                            s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
-                        const stripAlias = (s: string) => {
-                            const pipe = s.indexOf('|');
-                            return pipe >= 0 ? s.slice(0, pipe).trim() : s;
-                        };
-                        const lastSegment = (s: string) => {
-                            const seg = s.split('/').pop() ?? s;
-                            return seg.replace(/\.md$/, '');
-                        };
-                        const normalized = new Set<string>();
-                        for (const l of currentLinks) {
-                            const bare = stripAlias(stripBrackets(l));
-                            normalized.add(bare);
-                            normalized.add(lastSegment(bare));
-                        }
-
-                        let added = 0;
-                        for (const sourcePath of sources) {
-                            const sourceNormalized = sourcePath.replace(/\.md$/, '');
-                            const sourceLast = lastSegment(sourceNormalized);
-                            if (
-                                !normalized.has(sourcePath) &&
-                                !normalized.has(sourceNormalized) &&
-                                !normalized.has(sourceLast)
-                            ) {
-                                currentLinks.push(`[[${sourceNormalized}]]`);
-                                normalized.add(sourceNormalized);
-                                normalized.add(sourceLast);
-                                added++;
-                            }
-                        }
-
-                        if (added > 0) {
-                            fm[backlinksProperty] = currentLinks;
-                            linksAdded += added;
-                        }
-                    });
-                }
+                    if (added > 0) {
+                        fm[backlinksProperty] = currentLinks;
+                        linksAdded += added;
+                    }
+                });
                 entitiesFixed++;
 
                 if (entitiesFixed % 10 === 0) {
@@ -1372,8 +1866,8 @@ export class VaultHealthService {
             }
         }
 
-        console.warn(`[VaultHealth] fixMissingBacklinks summary: ${entitiesFixed} entities iterated, ${linksAdded} frontmatter links written, ${basesCreated} new bases, ${entitiesWithExistingBase} skipped (Base existed), ${yamlErrorPaths.length} skipped (YAML error), ${yamlErrorPathsForModal.length} new YAML dismissals`);
-        return { entitiesFixed, linksAdded, basesCreated, entitiesWithExistingBase, yamlErrorPaths: yamlErrorPathsForModal };
+        console.warn(`[VaultHealth] fixMissingBacklinks summary: ${entitiesFixed} entities iterated, ${linksAdded} frontmatter links written, ${yamlErrorPaths.length} skipped (YAML error), ${yamlErrorPathsForModal.length} new YAML dismissals`);
+        return { entitiesFixed, linksAdded, yamlErrorPaths: yamlErrorPathsForModal };
     }
 
     /**
@@ -1386,9 +1880,10 @@ export class VaultHealthService {
      * Also clears Notizen property for Thema/Konzept notes (Bases handle those).
      */
     async cleanupInvalidBacklinks(
-        backlinksProperty = 'Notizen',
-        categoryProperty = 'Kategorie',
-        targetFilter?: ReadonlySet<string>,
+        backlinksProperty: string,
+        categoryProperty: string,
+        // ADR-165: Pflicht, siehe fixMissingBacklinks.
+        targetFilter: ReadonlySet<string>,
     ): Promise<{ notesProcessed: number; linksRemoved: number }> {
         let notesProcessed = 0;
         let linksRemoved = 0;
@@ -1407,23 +1902,22 @@ export class VaultHealthService {
             const decision = this.evaluateBacklinkCleanup(file, backlinksProperty, categoryProperty);
             if (decision === null) continue;
 
-            if (decision.clearAll) {
-                // Thema/Konzept: clear the whole property (Base handles it)
-                await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-                    const old = fm[backlinksProperty];
-                    if (Array.isArray(old) && old.length > 0) {
-                        linksRemoved += old.length;
-                        fm[backlinksProperty] = null;
-                    }
-                });
-                notesProcessed++;
-                continue;
-            }
-
+            // FIX-19-02-10: die Entscheidung oben stammt aus dem
+            // metadataCache und dient nur der Vorauswahl. Geschrieben wird
+            // gegen das LIVE-Frontmatter, sonst kassiert dieser Schritt die
+            // Backlinks, die Stufe A im selben Lauf gerade geschrieben hat
+            // und die der Cache noch nicht kennt.
+            let removedHere = 0;
             await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-                fm[backlinksProperty] = decision.validLinks.length > 0 ? decision.validLinks : null;
+                const live = fm[backlinksProperty];
+                if (!Array.isArray(live) || live.length === 0) return;
+                const { kept, removed } = dedupeBacklinkEntries(live);
+                if (removed === 0) return;
+                fm[backlinksProperty] = kept.length > 0 ? kept : null;
+                removedHere = removed;
             });
-            linksRemoved += decision.removed;
+            if (removedHere === 0) continue;
+            linksRemoved += removedHere;
             notesProcessed++;
 
             if (notesProcessed % 20 === 0) {
@@ -1440,13 +1934,17 @@ export class VaultHealthService {
      * E.g., if "Agentic AI" has Kategorie "Thema" but a note has it in
      * Konzepte: [[Agentic AI]], move it to Themen: [[Agentic AI]].
      */
-    async fixCategoryMismatches(targetFilter?: ReadonlySet<string>): Promise<{ notesFixed: number; valuesMovied: number }> {
+    async fixCategoryMismatches(
+        categoryProperty: string,
+        // ADR-165: Pflicht, siehe fixMissingBacklinks.
+        targetFilter: ReadonlySet<string>,
+    ): Promise<{ notesFixed: number; valuesMovied: number }> {
         let notesFixed = 0;
         let valuesMovied = 0;
 
         // FEAT-44-02b: selection shared with planRepairTargets so the
         // approval scope and the repair walk the same source notes.
-        const fixesBySource = this.computeCategoryMismatchFixes();
+        const fixesBySource = this.computeCategoryMismatchFixes(categoryProperty);
         if (fixesBySource.size === 0) {
             return { notesFixed: 0, valuesMovied: 0 };
         }
@@ -1460,32 +1958,57 @@ export class VaultHealthService {
             const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
             if (!(sourceFile instanceof TFile)) continue;
 
+            // FIX-19-02-03: erst fragen, dann anfassen. processFrontMatter
+            // serialisiert das Frontmatter auch dann neu, wenn der Callback
+            // nichts aendert -- das setzt mtime, weckt Obsidian Sync und
+            // macht aus einem No-op eine sichtbare Dateiaenderung.
+            const preCache = this.app.metadataCache.getFileCache(sourceFile);
+            const preFm = (preCache?.frontmatter ?? {}) as Record<string, unknown>;
+            const wouldChange = fixes.some(({ targetPath, wrongProp, rightProp }) => {
+                const wrongArr = Array.isArray(preFm[wrongProp]) ? (preFm[wrongProp] as string[]) : [];
+                const removes = wrongArr.some((v) => linkEntryMatches(v, targetPath));
+                const rightArr = Array.isArray(preFm[rightProp]) ? (preFm[rightProp] as string[]) : [];
+                const adds = !linkIndexHas(buildLinkIndex(rightArr), targetPath);
+                return removes || adds;
+            });
+            if (!wouldChange) continue;
+
             try {
+                let changedInThisNote = 0;
                 await this.app.fileManager.processFrontMatter(sourceFile, (fm: Record<string, unknown>) => {
-                    for (const { targetName, wrongProp, rightProp } of fixes) {
-                        const wikilink = `[[${targetName}]]`;
+                    for (const { targetPath, wrongProp, rightProp } of fixes) {
+                        // FIX-19-02-03 (1): NUR anfassen, was es gibt. Vorher
+                        // schrieb der Code fm[wrongProp] = null auch in
+                        // Notizen, die die Property nie hatten, und erzeugte
+                        // so erfundene Leerzeilen im Frontmatter.
+                        const hadWrong = Array.isArray(fm[wrongProp]);
+                        const wrongArr = hadWrong ? (fm[wrongProp] as string[]) : [];
+                        // FIX-19-02-03 (2)+(3): geteilte Vergleichsregel statt
+                        // rohem Klammerinhalt. Faengt Alias-Links ab und
+                        // verwechselt Archiv/Ziel nicht mehr mit Notes/Ziel.
+                        const filtered = wrongArr.filter((v) => !linkEntryMatches(v, targetPath));
+                        const removed = wrongArr.length - filtered.length;
+                        if (hadWrong && removed > 0) {
+                            fm[wrongProp] = filtered.length > 0 ? filtered : null;
+                        }
 
-                        // Remove from wrong property
-                        const wrongArr = Array.isArray(fm[wrongProp]) ? (fm[wrongProp] as string[]) : [];
-                        const filtered = wrongArr.filter(v => {
-                            const cleaned = v.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
-                            return cleaned !== targetName && !cleaned.endsWith(`/${targetName}`);
-                        });
-                        fm[wrongProp] = filtered.length > 0 ? filtered : null;
-
-                        // Add to correct property
                         const rightArr = Array.isArray(fm[rightProp]) ? (fm[rightProp] as string[]) : [];
-                        const alreadyThere = rightArr.some(v => {
-                            const cleaned = v.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
-                            return cleaned === targetName || cleaned.endsWith(`/${targetName}`);
-                        });
-                        if (!alreadyThere) {
-                            rightArr.push(wikilink);
+                        const added = linkIndexHas(buildLinkIndex(rightArr), targetPath) ? 0 : 1;
+                        if (added) {
+                            rightArr.push(`[[${targetPath.replace(/\.md$/, '')}]]`);
                             fm[rightProp] = rightArr;
                         }
-                        valuesMovied++;
+
+                        // FIX-19-02-03 (4): nur zaehlen, was wirklich passiert
+                        // ist. Der Ergebnis-Screen meldete sonst Verschiebungen,
+                        // die es nie gab.
+                        if (removed > 0 || added > 0) {
+                            valuesMovied++;
+                            changedInThisNote++;
+                        }
                     }
                 });
+                if (changedInThisNote === 0) continue;
                 notesFixed++;
 
                 if (notesFixed % 10 === 0) {
@@ -1509,84 +2032,13 @@ export class VaultHealthService {
      * folder; we keep this method ignorant of the rest of the
      * repair-selection state.
      */
-    async moveOrphansToFolder(
-        orphanPaths: string[],
-        targetFolder: string,
-    ): Promise<{ notesMoved: number; notesSkipped: number; notesSkippedWithContext: number }> {
-        let notesMoved = 0;
-        let notesSkipped = 0;
-        let notesSkippedWithContext = 0;
+    // FIX-19-01-12: moveOrphansToFolder wurde entfernt. Der "Repair" verschob
+    // isolierte Orphans nach Inbox/Orphans, ohne einen einzigen eingehenden
+    // Link zu erzeugen -- die Note blieb per Definition ein Orphan und wurde
+    // beim naechsten Check erneut gemeldet, waehrend echte Nutzer-Notes
+    // umsortiert wurden. Der Ersatz erzeugt Verknuepfungen statt Ordner
+    // (siehe linkWeakClusters als Vorbild).
 
-        const folder = targetFolder.replace(/\/+$/, '');
-        try {
-            const existing = this.app.vault.getAbstractFileByPath(folder);
-            if (!existing) {
-                await this.app.vault.createFolder(folder);
-            }
-        } catch (e) {
-            console.warn('[VaultHealth] moveOrphansToFolder: createFolder failed', e);
-        }
-
-        // FIX-19-01-04: live second-pass guard. Even if the caller
-        // accidentally passes a `with_context` orphan path, verify
-        // against the DB graph that the note has no outgoing
-        // frontmatter edges AND no ontology cluster membership. The
-        // user reported notes with `Themen: [[X]]` being moved to
-        // Inbox/Orphans/; this guard is the catch-all so no future
-        // caller can reproduce that.
-        const db = this.getDB();
-        const hasContext = (path: string): boolean => {
-            try {
-                const outgoing = db.exec(
-                    `SELECT 1 FROM edges WHERE source_path = ? AND link_type = 'frontmatter' LIMIT 1`,
-                    [path],
-                );
-                if (outgoing.length > 0 && outgoing[0].values.length > 0) return true;
-                const clustered = db.exec(
-                    `SELECT 1 FROM ontology WHERE entity_path = ? LIMIT 1`,
-                    [path],
-                );
-                if (clustered.length > 0 && clustered[0].values.length > 0) return true;
-            } catch {
-                // db unavailable; fail open (do not move).
-                return true;
-            }
-            return false;
-        };
-
-        for (const path of orphanPaths) {
-            if (this.cancelled) break;
-            const file = this.app.vault.getAbstractFileByPath(path);
-            if (!(file instanceof TFile)) { notesSkipped++; continue; }
-
-            // Skip notes that already live in the target folder (idempotency).
-            if (file.parent && file.parent.path === folder) {
-                notesSkipped++;
-                continue;
-            }
-
-            // Second-pass: confirm the note really has no outgoing context.
-            if (hasContext(path)) {
-                notesSkippedWithContext++;
-                continue;
-            }
-
-            const newPath = `${folder}/${file.name}`;
-            try {
-                await this.app.fileManager.renameFile(file, newPath);
-                notesMoved++;
-            } catch (e) {
-                console.warn(`[VaultHealth] moveOrphansToFolder: rename failed for ${path}`, e);
-                notesSkipped++;
-            }
-            if (notesMoved % 10 === 0) {
-                await new Promise<void>(r => window.setTimeout(r, 0));
-            }
-        }
-
-        console.debug(`[VaultHealth] moveOrphansToFolder: ${notesMoved} moved, ${notesSkipped} skipped, ${notesSkippedWithContext} skipped (has context)`);
-        return { notesMoved, notesSkipped, notesSkippedWithContext };
-    }
 
     /**
      * IMP-19-01-02: link semantically similar notes (weak_clusters)
@@ -1594,25 +2046,103 @@ export class VaultHealthService {
      * property in BOTH notes. Mirrors the dedup/alias rules of
      * `fixMissingBacklinks`.
      */
-    async linkWeakClusters(
-        pairs: Array<{ a: string; b: string }>,
+    /**
+     * Schreibt einen Wikilink auf `otherPath` in die Backlinks-Property von
+     * `fileA`, wenn er dort nicht schon (in irgendeiner Schreibweise) steht.
+     * Rueckgabe: 1 wenn geschrieben, 0 wenn schon vorhanden.
+     *
+     * FIX-19-01-12: aus linkWeakClusters hochgezogen, weil der neue
+     * Orphan-Verknuepfungs-Fix denselben Schreibpfad braucht -- dort
+     * allerdings EINSEITIG (nur die Kandidaten-Note bekommt den Link,
+     * denn nur das erzeugt einen EINGEHENDEN Link auf den Orphan).
+     */
+    /**
+     * FIX-19-02-15: wuerde insertBacklink hier tatsaechlich schreiben?
+     *
+     * Dieselbe Bedingung, dieselbe Quelle (Frontmatter, nicht die
+     * edges-Tabelle) und derselbe Index wie der Write -- deshalb koennen
+     * Plan und Ausfuehrung nicht auseinanderlaufen (ADR-164-Chokepoint).
+     */
+    private wouldInsertBacklink(file: TFile, otherPath: string, backlinksProperty: string): boolean {
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        const existing = fm?.[backlinksProperty];
+        const links: string[] = Array.isArray(existing)
+            ? existing.map(String)
+            : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
+        const index = buildLinkIndex(
+            links,
+            (text) => this.app.metadataCache.getFirstLinkpathDest(text, file.path)?.path ?? null,
+        );
+        return !linkIndexHas(index, otherPath);
+    }
+
+    /**
+     * FIX-19-02-15: die weak-Paare, an denen wirklich etwas zu tun ist.
+     *
+     * Der Plan uebernahm die Paare bisher roh aus dem Snapshot -- eine
+     * Zeile "A <-> B" auch dann, wenn A und B sich laengst gegenseitig
+     * verlinken. Der Nutzer gab Schreibvorgaenge frei, die es nicht gab,
+     * und las danach "0 links added". Genau die Sorte Zahl, die Vertrauen
+     * kostet.
+     *
+     * Hier sitzt auch der Ignore-Gate fuer diese Aktion, analog zu den drei
+     * anderen in planRepairTargets.
+     */
+    planWeakPairTargets(
+        pairs: ReadonlyArray<{ a: string; b: string }>,
         backlinksProperty: string,
-    ): Promise<{ pairsLinked: number; linksAdded: number }> {
-        let pairsLinked = 0;
-        let linksAdded = 0;
+    ): Array<{ a: string; b: string }> {
+        const out: Array<{ a: string; b: string }> = [];
+        for (const { a, b } of pairs) {
+            if (!this.mayWrite(a) || !this.mayWrite(b)) continue;
+            const fileA = this.app.vault.getAbstractFileByPath(a);
+            const fileB = this.app.vault.getAbstractFileByPath(b);
+            if (!(fileA instanceof TFile) || !(fileB instanceof TFile)) continue;
+            // Ein Paar bleibt, sobald EINE Richtung schreiben wuerde -- der
+            // Repair schreibt beide und die andere Seite ist dann ein
+            // gezaehlter No-op, kein Fehler.
+            if (this.wouldInsertBacklink(fileA, b, backlinksProperty)
+                || this.wouldInsertBacklink(fileB, a, backlinksProperty)) {
+                out.push({ a, b });
+            }
+        }
+        return out;
+    }
 
-        const stripBrackets = (s: string) =>
-            s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
-        const stripAlias = (s: string) => {
-            const pipe = s.indexOf('|');
-            return pipe >= 0 ? s.slice(0, pipe).trim() : s;
-        };
-        const lastSegment = (s: string) => {
-            const seg = s.split('/').pop() ?? s;
-            return seg.replace(/\.md$/, '');
-        };
+    /**
+     * FIX-19-02-26: Gegenstueck zu insertBacklink fuer den Rollback einer
+     * halb geschriebenen Paar-Verlinkung. Entfernt genau den einen Eintrag,
+     * der auf otherPath zeigt, und laesst alles andere unberuehrt.
+     */
+    private async removeBacklink(
+        fileA: TFile,
+        otherPath: string,
+        backlinksProperty: string,
+    ): Promise<void> {
+        await this.app.fileManager.processFrontMatter(fileA, (fm: Record<string, unknown>) => {
+            const existing = fm[backlinksProperty];
+            if (!Array.isArray(existing)) return;
+            const kept = existing
+                .map(String)
+                .filter((entry) => !linkEntryMatches(entry, otherPath));
+            if (kept.length === existing.length) return;
+            if (kept.length > 0) {
+                fm[backlinksProperty] = kept;
+            } else {
+                // Zuruecknehmen heisst: den Zustand VORHER wiederherstellen.
+                // Eine leere Property zurueckzulassen waere eine eigene
+                // Aenderung an der Notiz, obwohl der Repair gescheitert ist.
+                delete fm[backlinksProperty];
+            }
+        });
+    }
 
-        const insertLink = async (fileA: TFile, otherPath: string): Promise<number> => {
+    private async insertBacklink(
+        fileA: TFile,
+        otherPath: string,
+        backlinksProperty: string,
+    ): Promise<number> {
+        {
             const otherNormalized = otherPath.replace(/\.md$/, '');
             let added = 0;
             await this.app.fileManager.processFrontMatter(fileA, (fm: Record<string, unknown>) => {
@@ -1620,47 +2150,208 @@ export class VaultHealthService {
                 const links: string[] = Array.isArray(existing)
                     ? existing.map(String)
                     : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
-                const normalized = new Set<string>();
-                for (const l of links) {
-                    const bare = stripAlias(stripBrackets(l));
-                    normalized.add(bare);
-                    normalized.add(lastSegment(bare));
-                }
-                const otherLast = lastSegment(otherNormalized);
-                if (
-                    !normalized.has(otherPath) &&
-                    !normalized.has(otherNormalized) &&
-                    !normalized.has(otherLast)
-                ) {
+                // FIX-19-01-19: der Segment-Vergleich gilt nur fuer
+                // PFADLOSE Eintraege.
+                //
+                // Die Heuristik soll [[Meeting]] als Duplikat zu
+                // Notes/Meeting.md erkennen. Vorher wurde aber JEDER
+                // Eintrag auf sein letztes Segment reduziert, wodurch
+                // [[Archiv/Meeting]] den Link [[Notes/Meeting]] blockierte
+                // -- zwei verschiedene Notizen, ein stiller No-op. Genau
+                // das erzeugte "1 entity iterated, 0 links written": der
+                // Repair lief, schrieb nichts, und der Befund kam
+                // unveraendert zurueck.
+                // FIX-19-02-12: geteilter Index MIT Aufloesung.
+                const index = buildLinkIndex(
+                    links,
+                    (text) => this.app.metadataCache
+                        .getFirstLinkpathDest(text, fileA.path)?.path ?? null,
+                );
+                if (!linkIndexHas(index, otherPath)) {
                     links.push(`[[${otherNormalized}]]`);
                     fm[backlinksProperty] = links;
                     added = 1;
                 }
             });
             return added;
-        };
+        }
+    }
+
+    /**
+     * FIX-19-01-12 Ersatz fuer den geloeschten Move-Repair: schlaegt fuer jede
+     * isolierte Orphan-Note die semantisch naechsten Notes als Verknuepfungs-
+     * Quelle vor.
+     *
+     * Quelle sind die Note-Vektoren, NICHT implicit_edges: dessen Producer
+     * kappt bei similarity >= 0.7 und laeuft unter einem 60s-Cap, sodass genau
+     * die isolierten Notes dort typischerweise fehlen. Der Orphan-Check
+     * selektiert dagegen aus `vectors`, ein gemeldeter Orphan hat also
+     * garantiert einen Vektor.
+     *
+     * Kandidaten sind nie andere Orphans aus derselben Menge (die brauchen
+     * selbst einen eingehenden Link) und nie die Note selbst.
+     */
+    /**
+     * SEC H-1: Kandidaten muessen dieselben Ausschluesse respektieren wie der
+     * Orphan-CHECK. Der Check filtert Templates, Daily Notes, Attachements und
+     * die Nutzer-Prefixes bereits im SQL; die Kandidatenliste zieht dagegen roh
+     * aus dem VectorStore. Ohne diesen Filter koennte der Flow einen Backlink
+     * in eine TEMPLATE-Datei schreiben, und der landet danach in jeder Notiz,
+     * die aus dem Template entsteht. Ausserdem waere es ein Schreibzugriff in
+     * genau die Ordner, die der Nutzer explizit ausgenommen hat.
+     */
+    private isEligibleLinkSource(path: string, excludePathPrefixes: string[]): boolean {
+        if (!path.endsWith('.md')) return false;
+        if (!this.mayWrite(path)) return false; // SEC M-2
+        // Nicht-Datei-Layer aus dem Vektor-Cache (session:, episode:, fact:).
+        if (path.includes(':')) return false;
+        if (path.includes('Templates')) return false;
+        if (path.includes('Daily Notes')) return false;
+        if (path.includes('Attachements')) return false;
+        return !excludePathPrefixes.some((prefix) => prefix.length > 0 && path.startsWith(prefix));
+    }
+
+    proposeOrphanLinks(
+        orphanPaths: string[],
+        opts?: { topK?: number; minSimilarity?: number; excludePathPrefixes?: string[] },
+    ): OrphanLinkProposal[] {
+        const topK = opts?.topK ?? 3;
+        const minSimilarity = opts?.minSimilarity ?? 0.35;
+        const excludePathPrefixes = opts?.excludePathPrefixes ?? [];
+        const vs = this.vectorStore;
+        if (!vs) return orphanPaths.map((p) => ({ orphanPath: p, candidates: [] }));
+
+        let vectors: Map<string, Float32Array>;
+        try {
+            vectors = vs.getNoteVectors();
+        } catch (e) {
+            console.warn('[VaultHealth] proposeOrphanLinks: getNoteVectors failed', e);
+            return orphanPaths.map((p) => ({ orphanPath: p, candidates: [] }));
+        }
+
+        const orphanSet = new Set(orphanPaths);
+        const out: OrphanLinkProposal[] = [];
+        for (const orphan of orphanPaths) {
+            const own = vectors.get(orphan);
+            if (!own) { out.push({ orphanPath: orphan, candidates: [] }); continue; }
+            const scored: OrphanLinkCandidate[] = [];
+            for (const [path, vec] of vectors) {
+                if (path === orphan || orphanSet.has(path)) continue;
+                if (!this.isEligibleLinkSource(path, excludePathPrefixes)) continue;
+                const similarity = cosineSimilarity(own, vec);
+                if (similarity >= minSimilarity) scored.push({ path, similarity });
+            }
+            scored.sort((a, b) => b.similarity - a.similarity);
+            out.push({ orphanPath: orphan, candidates: scored.slice(0, topK) });
+        }
+        return out;
+    }
+
+    /**
+     * FIX-19-01-12: schreibt EINSEITIG einen Wikilink auf die Orphan-Note in
+     * die Backlinks-Property der gewaehlten Kandidaten-Note. Nur diese
+     * Richtung beendet den Orphan-Status; ein Link IN der Orphan-Note waere
+     * ein ausgehender Link und wuerde am Befund nichts aendern (genau der
+     * Denkfehler des alten Move-Repairs).
+     */
+    async linkOrphansFromCandidates(
+        pairs: Array<{ orphan: string; candidate: string }>,
+        backlinksProperty: string,
+        excludePathPrefixes: string[] = [],
+    ): Promise<{ orphansLinked: number; linksAdded: number; failedPaths: string[] }> {
+        let orphansLinked = 0;
+        let linksAdded = 0;
+        const failedPaths: string[] = [];
+
+        for (const { orphan, candidate } of pairs) {
+            if (this.cancelled) break;
+            // SEC H-1: derselbe Filter wie beim Vorschlagen. Ein Aufrufer, der
+            // die Paare selbst zusammenstellt, darf den Ausschluss nicht umgehen.
+            if (!this.isEligibleLinkSource(candidate, excludePathPrefixes)) {
+                failedPaths.push(candidate);
+                continue;
+            }
+            const candidateFile = this.app.vault.getAbstractFileByPath(candidate);
+            if (!(candidateFile instanceof TFile)) { failedPaths.push(candidate); continue; }
+            try {
+                const added = await this.insertBacklink(candidateFile, orphan, backlinksProperty);
+                linksAdded += added;
+                if (added > 0) orphansLinked++;
+            } catch (e) {
+                console.warn(`[VaultHealth] linkOrphansFromCandidates: ${candidate} -> ${orphan} failed`, e);
+                failedPaths.push(candidate);
+            }
+        }
+        return { orphansLinked, linksAdded, failedPaths };
+    }
+
+    async linkWeakClusters(
+        pairs: Array<{ a: string; b: string }>,
+        backlinksProperty: string,
+    ): Promise<{ pairsLinked: number; linksAdded: number; failedPairs: Array<{ a: string; b: string }> }> {
+        let pairsLinked = 0;
+        let linksAdded = 0;
+        // FIX-19-02-26: Paare, bei denen der Schreibvorgang scheiterte.
+        // Der Ergebnis-Screen soll sie benennen koennen, statt sie als
+        // "nichts passiert" zu verbuchen.
+        const failedPairs: Array<{ a: string; b: string }> = [];
+        const insertLink = (f: TFile, other: string) => this.insertBacklink(f, other, backlinksProperty);
 
         for (const { a, b } of pairs) {
             if (this.cancelled) break;
+            // FIX-19-02-09: die Ignore-Sperre gilt auch hier.
+            //
+            // SEC M-2 hatte den Gate in planRepairTargets gezogen, aber
+            // link_weak lief daran vorbei: die Paare kamen aus dem
+            // Snapshot, nicht aus dem Plan. Der Repair schrieb damit in
+            // Notizen, die per .agentignore ausgenommen oder als protected
+            // markiert sind, und in Templates. Beide Seiten muessen
+            // schreibbar sein -- ein Paar ist eine wechselseitige
+            // Verlinkung, halb ausgefuehrt waere sie inkonsistent.
+            if (!this.mayWrite(a) || !this.mayWrite(b)) continue;
+
             const fileA = this.app.vault.getAbstractFileByPath(a);
             const fileB = this.app.vault.getAbstractFileByPath(b);
             if (!(fileA instanceof TFile) || !(fileB instanceof TFile)) continue;
 
+            // FIX-19-02-26: beide Seiten oder keine.
+            //
+            // Vorher: A wurde geschrieben, B warf (kaputtes YAML), der
+            // catch verschluckte es -- und `linksAdded += addedA + addedB`
+            // wurde nie erreicht, der Erfolg der A-Seite verschwand also
+            // auch aus der Zaehlung. Zurueck blieb: A verlinkt auf B, B
+            // nicht auf A. Das IST der Zustand, den weak_clusters als
+            // Befund meldet. Der Repair erzeugte ihn neu, meldete nichts,
+            // und der naechste Lauf fand ihn wieder -- eine Zahl, die nicht
+            // sinkt, weil das Werkzeug gegen sich selbst arbeitet.
+            let addedA = 0;
             try {
-                const addedA = await insertLink(fileA, b);
+                addedA = await insertLink(fileA, b);
                 const addedB = await insertLink(fileB, a);
                 linksAdded += addedA + addedB;
                 if (addedA + addedB > 0) pairsLinked++;
             } catch (e) {
                 console.warn(`[VaultHealth] linkWeakClusters: pair (${a}, ${b}) failed`, e);
+                failedPairs.push({ a, b });
+                // Die A-Seite zuruecknehmen, damit kein halbes Paar
+                // zurueckbleibt. Schlaegt auch das fehl, ist der Zustand
+                // nicht schlechter als vorher, aber der Nutzer erfaehrt es
+                // ueber failedPairs.
+                if (addedA > 0) {
+                    try {
+                        await this.removeBacklink(fileA, b, backlinksProperty);
+                    } catch (rollbackError) {
+                        console.warn(`[VaultHealth] linkWeakClusters: rollback for ${a} failed`, rollbackError);
+                    }
+                }
             }
             if (pairsLinked % 10 === 0) {
                 await new Promise<void>(r => window.setTimeout(r, 0));
             }
         }
 
-        console.debug(`[VaultHealth] linkWeakClusters: ${pairsLinked} pairs linked, ${linksAdded} links added`);
-        return { pairsLinked, linksAdded };
+        console.debug(`[VaultHealth] linkWeakClusters: ${pairsLinked} pairs linked, ${linksAdded} links added, ${failedPairs.length} failed`);
+        return { pairsLinked, linksAdded, failedPairs };
     }
 
     /** Get the Kategorie value from a note's frontmatter cache. */
@@ -1671,70 +2362,11 @@ export class VaultHealthService {
         return (cat ?? '').toString().trim();
     }
 
-    /**
-     * Create a .base file for a hub note that dynamically shows all notes
-     * linking to it via MOC properties. Embeds the base in the note body
-     * if not already embedded.
-     */
-    private async ensureBacklinksBase(file: TFile, linkProperties: Set<string>): Promise<boolean> {
-        const noteName = file.basename;
-        const noteDir = file.parent?.path ?? '';
-        const basePath = noteDir ? `${noteDir}/${noteName}-Backlinks.base` : `${noteName}-Backlinks.base`;
-
-        // Skip if base already exists
-        if (this.app.vault.getAbstractFileByPath(basePath)) {
-            // But ensure it's embedded in the note
-            await this.ensureBaseEmbed(file, basePath);
-            return false;
-        }
-
-        // Build filter: match any MOC property that contains this note name
-        const filterProps = [...linkProperties];
-        const primaryProp = filterProps[0] ?? 'Themen';
-
-        const yaml = [
-            'views:',
-            '  - type: table',
-            `    name: Verlinkte Notizen`,
-            '    filters:',
-            '      and:',
-            `        - ${primaryProp}.containsAny("${noteName}")`,
-            '    order:',
-            '      - file.name',
-            `      - ${primaryProp}`,
-            '      - Kategorie',
-            '    rowHeight: medium',
-            '',
-        ].join('\n');
-
-        // Create the base file
-        const dir = basePath.includes('/') ? basePath.split('/').slice(0, -1).join('/') : null;
-        if (dir) {
-            await this.app.vault.createFolder(dir).catch(() => { /* exists */ });
-        }
-        await this.app.vault.create(basePath, yaml);
-
-        // Embed the base in the note body
-        await this.ensureBaseEmbed(file, basePath);
-
-        console.debug(`[VaultHealth] Created backlinks base: ${basePath}`);
-        return true;
-    }
-
-    /** Ensure a base file is embedded in the note body via ![[...base]]. */
-    private async ensureBaseEmbed(file: TFile, basePath: string): Promise<void> {
-        const content = await this.app.vault.read(file);
-        const embedLink = `![[${basePath.replace(/\.base$/, '').split('/').pop()}-Backlinks.base]]`;
-        const baseFileName = basePath.split('/').pop() ?? basePath;
-        const embedLinkSimple = `![[${baseFileName}]]`;
-
-        // Check if already embedded (any format)
-        if (content.includes(embedLinkSimple) || content.includes(embedLink)) return;
-
-        // Append embed at the end of the note
-        const separator = content.endsWith('\n') ? '\n' : '\n\n';
-        await this.app.vault.modify(file, content + separator + `## Verlinkte Notizen\n\n${embedLinkSimple}\n`);
-    }
+    // FEAT-19-04-01 W2c: ensureBacklinksBase / ensureBaseEmbed entfernt. Sie
+    // legten die '<name>-Backlinks.base'-Dateien an und betteten sie via
+    // '## Verlinkte Notizen'-Abschnitt ein. Die .base-Automatik ist
+    // abgeschaltet; den sichtbaren Rueckverweis uebernimmt der selbstbildende
+    // Block (incomingLinksMaintainer), die Reziprozitaet dessen Body-Kanten.
 
     /**
      * Remove edges from/to notes that no longer exist in the vault.
@@ -1848,7 +2480,7 @@ export class VaultHealthService {
                 const placeholders = paths.map(() => '?').join(',');
                 /* eslint-disable no-restricted-syntax -- reason: ADR-137 exception, layer guard via domain filter, edges-join needs raw SQL */
                 const mtimeRaw = db.exec(
-                    `SELECT path, MAX(mtime) FROM vectors WHERE path IN (${placeholders}) GROUP BY path`,
+                    `SELECT path, MAX(mtime) FROM hc_vectors WHERE path IN (${placeholders}) GROUP BY path`,
                     paths,
                 );
                 /* eslint-enable no-restricted-syntax -- end of legacy ADR-136 vectors direct-access block */

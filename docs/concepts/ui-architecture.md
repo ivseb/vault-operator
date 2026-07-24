@@ -24,10 +24,10 @@ flowchart TD
 
 | Main tab | Sub-tabs |
 |----------|----------|
-| Providers | Providers, Models, Embeddings, Web Search |
-| Agents | Agents, Permissions, Memory |
-| Customize | Skills, Connectors (MCP), Prompts, Workflows, Rules |
-| Advanced | Loop, Interface, Vault, Shell, Log, Debug, Backup, Optional Assets |
+| Providers | Providers, Embeddings, Web Search |
+| Agents | Agents, Permissions, Memory, Loop, Inline chat |
+| Customize | Skills, Connectors (MCP), Prompts, Workflows, Rules, Recipes |
+| Advanced | Interface, Vault, Plugin API, Data & diagnostics, Optional assets |
 | Help | (opens external help URL) |
 
 Each sub-tab is its own class in `src/ui/settings/` (20 `*Tab.ts` files total). The settings tab builds a navigation bar and delegates rendering to the active sub-tab class. This keeps the settings UI manageable.
@@ -43,7 +43,6 @@ The sidebar started as a single large file. As features accumulated, components 
 | `ToolPickerPopover` | Tool selection popup when the agent needs to choose |
 | `VaultFilePicker` | File selection from the vault |
 | `HistoryPanel` | Conversation history browser, grouped by source-interface tab (Vault Operator, Claude, ChatGPT, Perplexity, All). Living documents render as one entry with a turn count. |
-| `ContextDisplay` | Token usage and context window visualization |
 | `CondensationFeedback` | Notification when context condensing occurs |
 | `SuggestionBanner` | Proactive suggestions from the agent |
 | `OnboardingFlow` | First-run setup wizard |
@@ -72,7 +71,7 @@ All user-facing text goes through the `t()` function (`src/i18n`), which returns
 
 ## Task extraction and context
 
-Two features sit between the chat UI and the rest of the system. `TaskExtractor` (`src/core/tasks/TaskExtractor.ts`) scans conversation messages for action items and presents them in a selection modal. Selected tasks can become vault notes via `TaskNoteCreator`. `ContextTracker` (`src/core/context/ContextTracker.ts`) monitors token usage and feeds the `ContextDisplay` component, which shows how full the context window is and when condensation is approaching.
+Two features sit between the chat UI and the rest of the system. `TaskExtractor` (`src/core/tasks/TaskExtractor.ts`) scans conversation messages for action items and presents them in a selection modal. Selected tasks can become vault notes via `TaskNoteCreator`. `ContextTracker` (`src/core/context/ContextTracker.ts`) monitors token usage so the condensation logic knows when the context window is filling up.
 
 ## The framework trade-off
 

@@ -24,6 +24,7 @@ import type { InlineActionRegistry } from '../InlineActionRegistry';
 import type { InlineTriggerResolver, SelectionTriggerInput } from '../InlineTriggerResolver';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 import type ObsidianAgentPlugin from '../../../main';
+import type { ModeService } from '../../modes/ModeService';
 import {
     InlineChatPanel,
     type InlinePanelActionId,
@@ -179,6 +180,25 @@ export class InlineChatOrchestrator {
     }
 
     /**
+     * The resolved mode slug for the active panel (deleted/invalid currentMode
+     * falls back to 'agent', same as the send path). Raw currentMode only when
+     * no panel controller is live (FEAT-02-12 review fix).
+     */
+    getActiveModeSlug(): string {
+        return this.activeController?.getActiveModeSlug() ?? this.plugin.settings.currentMode;
+    }
+
+    /**
+     * Initialized ModeService of the active panel, or null when no panel
+     * is open. Used by the inline tool picker (IMP-02-12-02).
+     */
+    async getReadyModeService(): Promise<ModeService | null> {
+        return this.activeController !== null
+            ? this.activeController.getReadyModeService()
+            : null;
+    }
+
+    /**
      * FEAT-33-12: handle the inline composer's "Send to sidebar chat"
      * click. The TransferService re-evaluates `controller.isRunning` and
      * re-pulls the snapshot AFTER the async activateView resolves, so a
@@ -268,6 +288,21 @@ export class InlineChatOrchestrator {
                 const s = this.activeSurface as { attachments?: { pending: unknown[]; clear: () => void } } | null;
                 return s?.attachments as never ?? null;
             },
+            // FIX-30-07-05: der Pin der aktiven Panel-Surface erreicht den
+            // Runner; vorher las ihn nur der Picker selbst zurueck.
+            getModelPin: () => {
+                const s = this.activeSurface as {
+                    chatModelOverride?: string | null;
+                    chatThinkingOverride?: import('../../../ui/sidebar/thinkingOverride').ThinkingOverride;
+                    chatEffortOverride?: import('../../../ui/sidebar/effortOverride').EffortOverride;
+                } | null;
+                if (!s) return null;
+                return {
+                    modelOverride: s.chatModelOverride ?? null,
+                    thinkingOverride: s.chatThinkingOverride ?? 'follow',
+                    effortOverride: s.chatEffortOverride ?? 'auto',
+                };
+            },
             // Forward each AgentTask write-tool checkpoint to the
             // panel as a live marker (Diff / Undo this / Undo from
             // here / More menu), same wiring as the sidebar's
@@ -324,6 +359,8 @@ export class InlineChatOrchestrator {
             setIcon: this.setIconHook,
             renderMarkdown: this.renderMarkdownHook,
             autocompleteFactory: this.autocompleteFactory,
+            getForcedWorkflowSlug: () => this.plugin.settings.forcedWorkflow?.[this.getActiveModeSlug()] ?? '',
+            subscribeForcedWorkflowRefresh: (cb) => this.plugin.forcedWorkflowHub.subscribe(cb),
         });
         panel.open();
         this.activePanel = panel;

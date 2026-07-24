@@ -181,7 +181,7 @@ export class ModelsTab {
 
         const delBtn = actionsEl.createEl('button', { cls: 'mc-action-btn mc-action-del', attr: { title: t('settings.models.remove') } });
         setIcon(delBtn, 'trash');
-        // REF-01: Sebastian-Regel "destructive actions need confirmation". The
+        // REF-01: user rule "destructive actions need confirmation". The
         // direct delete path here would silently strip a saved provider that
         // the user might still be using from another agent profile.
         delBtn.addEventListener('click', () => { void (async () => {

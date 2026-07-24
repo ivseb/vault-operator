@@ -296,7 +296,12 @@ async function generateSourceBundle() {
     const files = {};
 
     function walkDir(dir) {
-        const entries = readdirSync(dir);
+        // Sort so the file insertion order in plugin-source.json is
+        // deterministic across OS/filesystem. Without this the JSON byte
+        // order depends on readdirSync enumeration order, so the same source
+        // tree could hash differently on CI-Linux vs local macOS and the
+        // Self-Development source asset would never verify.
+        const entries = readdirSync(dir).sort();
         for (const entry of entries) {
             const fullPath = join(dir, entry);
             const stat = statSync(fullPath);
@@ -683,7 +688,14 @@ const mainBuildOptions = {
                                 : [assetDir];
                             for (const dir of targetDirs) {
                                 if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-                                for (const name of ["office-bundle.js", "pdfjs-bundle.js", "reranker-bundle.js"]) {
+                                // plugin-source.json is the Self-Development
+                                // source asset. Unlike language packs it is a
+                                // pure read-only asset for an opt-in tool, so
+                                // deploying it (with the matching .sha256
+                                // sidecar) lets OptionalAssetManager.load()
+                                // pick it up locally WITHOUT the version-pinned
+                                // download that a local build always mismatches.
+                                for (const name of ["office-bundle.js", "pdfjs-bundle.js", "reranker-bundle.js", "plugin-source.json"]) {
                                     if (!existsSync(name)) continue;
                                     copyFileSync(name, join(dir, name));
                                     const sha = createHash("sha256")

@@ -63,15 +63,26 @@ export function getToolsSection(
     if (toolGroups.includes('mcp')) {
         if (mcpClient) {
             const rawMcpTools = mcpClient.getAllTools();
-            const allMcpTools = (allowedMcpServers && allowedMcpServers.length > 0)
+            // A DEFINED allowedMcpServers is an explicit filter, including the
+            // empty case ("MCP off" -> advertise nothing), so the catalogue
+            // matches the activation gates. undefined == no restriction (all).
+            const allMcpTools = allowedMcpServers !== undefined
                 ? rawMcpTools.filter(({ serverName }) => allowedMcpServers.includes(serverName))
                 : rawMcpTools;
             if (allMcpTools.length > 0) {
                 const toolLines = allMcpTools.map(({ serverName, tool }) => {
+                    // AUDIT 2026-07-17 M-1: the server + tool NAME are attacker-
+                    // controlled (a compromised connected server) and were
+                    // interpolated raw into the trusted TOOLS section. A newline-
+                    // bearing name could split into fresh authoritative-looking
+                    // prompt lines. Defang + flatten + cap like the description
+                    // (CWE-1427), keeping one tool per line.
+                    const safeServer = sanitizeDirectoryEntry(serverName, 64);
+                    const safeName = sanitizeDirectoryEntry(tool.name, 64);
                     const desc = tool.description
-                        ? ' -- ' + capMcpDescription(tool.description, serverName, tool.name)
+                        ? ' -- ' + capMcpDescription(tool.description, safeServer, safeName)
                         : '';
-                    return `  - ${serverName}: ${tool.name}${desc}`;
+                    return `  - ${safeServer}: ${safeName}${desc}`;
                 }).join('\n');
                 parts.push(
                     `**MCP Tools (via use_mcp_tool):**\n` +

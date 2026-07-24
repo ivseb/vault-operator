@@ -25,7 +25,7 @@ I wanted an AI that works *inside* my knowledge system, not next to it. One that
 
 I built Vault Operator for myself, for my own needs. I'm open to feedback and grateful for suggestions, but I can't promise anything.
 
-The best way to reach me is via [LinkedIn](https://www.linkedin.com/in/sebastianhanke/) or by opening a discussion on [GitHub](https://github.com/pssah4/vault-operator). <!-- TODO(rebrand): re-add a commercial-enquiries email here once the new domain/inbox is set up; the old ***REMOVED*** is being decommissioned. -->
+The best way to reach me is via [LinkedIn](https://www.linkedin.com/in/sebastianhanke/) or by opening a discussion on [GitHub](https://github.com/pssah4/vault-operator).
 
 ## Support the project
 

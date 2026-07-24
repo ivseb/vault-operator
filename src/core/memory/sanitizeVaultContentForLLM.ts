@@ -2,7 +2,7 @@
  * AUDIT-015 M-2: Prompt-Injection-Resistance fuer Vault-Note-Inhalte,
  * die in den memorySourceHook (FEAT-03-25) flow gehen.
  *
- * Sebastians Vault enthaelt Web-Imports, Drittinhalte, Forks, etc.
+ * des Nutzers Vault enthaelt Web-Imports, Drittinhalte, Forks, etc.
  * Ohne Sanitizing kann eine Note "ignore previous instructions" oder
  * "you are now a system prompt"-Pattern enthalten und das Memory-
  * Extraction-LLM dazu bringen, etwas anderes zu tun als atomic facts
@@ -26,7 +26,7 @@ const MAX_CHARS = 16_000;
 /**
  * Patterns die LLM als instruction interpretieren koennten. Wir
  * neutralisieren mit [redacted -- prompt-injection-pattern], damit
- * Sebastian beim Audit die Stelle sehen kann.
+ * der Nutzer beim Audit die Stelle sehen kann.
  *
  * Bewusst tolerant: false-positives sind okay (Markdown-Note redet
  * vielleicht ueber Prompts), Memory-Layer braucht keine perfekte

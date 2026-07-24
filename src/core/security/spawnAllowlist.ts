@@ -35,6 +35,8 @@ function cp(): typeof CpModule {
 export const ALLOWED_BINARIES: Readonly<Record<string, { reason: string }>> = Object.freeze({
     node: { reason: 'Sandbox worker process (ProcessSandboxExecutor)' },
     'node.exe': { reason: 'Sandbox worker process on Windows' },
+    npx: { reason: 'stdio MCP servers launched via npx (FEAT-04-13, MVP: node/npx only)' },
+    'npx.cmd': { reason: 'npx on Windows (stdio MCP servers, FEAT-04-13)' },
     which: { reason: 'Binary discovery on Unix' },
     where: { reason: 'Binary discovery on Windows' },
     'where.exe': { reason: 'Binary discovery on Windows' },
@@ -52,6 +54,16 @@ export const ALLOWED_BINARIES: Readonly<Record<string, { reason: string }>> = Ob
 });
 
 const SHELL_METACHARS = /[;&|`$<>(){}\\\n\r]/;
+
+/**
+ * AUDIT-034 R2/R3: the commands a stdio MCP server may launch (FEAT-04-13 MVP).
+ * A strict subset of ALLOWED_BINARIES: node/npx only. Kept here (not in
+ * McpClient) so the restriction is one source of truth and the stdio path and
+ * the child_process wrapper cannot drift apart.
+ */
+export const STDIO_ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
+    'node', 'node.exe', 'npx', 'npx.cmd',
+]);
 
 export class SpawnNotAllowed extends Error {
     constructor(
@@ -78,6 +90,40 @@ function checkCommand(command: string): string {
         throw new SpawnNotAllowed(command, Object.keys(ALLOWED_BINARIES));
     }
     return command;
+}
+
+/**
+ * AUDIT-034 R2/R3: gate the command of a stdio MCP server. This path spawns via
+ * the MCP SDK's StdioClientTransport (cross-spawn, shell:false), NOT through
+ * spawnAllowed, so this guard is what enforces the policy the SDK spawn cannot:
+ *
+ * - the command must be one of STDIO_ALLOWED_COMMANDS (node/npx MVP), a strict
+ *   subset of the general allowlist -- an allowlisted-but-unrelated binary
+ *   (git, soffice, ...) is NOT a valid stdio command;
+ * - the command must be a bare name with NO path separator, so a basename spoof
+ *   like `/tmp/evil/node` (R3) cannot pass by matching only the basename;
+ * - no shell metacharacters, mirroring checkCommand for defence in depth.
+ *
+ * Args are intentionally NOT metachar-filtered: the SDK spawns with shell:false,
+ * so args are literal argv (a URL arg may legitimately contain `&`, `?`, `$`).
+ * Throws SpawnNotAllowed on violation; returns void on success.
+ */
+export function assertStdioCommandAllowed(command: string): void {
+    const allowed = [...STDIO_ALLOWED_COMMANDS];
+    if (typeof command !== 'string' || command.trim().length === 0) {
+        throw new SpawnNotAllowed(String(command), allowed);
+    }
+    if (SHELL_METACHARS.test(command)) {
+        throw new SpawnNotAllowed(command, allowed);
+    }
+    // Reject any path separator: the command must be a bare binary name resolved
+    // via PATH, never a caller-chosen absolute/relative path (R3 basename spoof).
+    if (/[\\/]/.test(command)) {
+        throw new SpawnNotAllowed(command, allowed);
+    }
+    if (!STDIO_ALLOWED_COMMANDS.has(command.toLowerCase())) {
+        throw new SpawnNotAllowed(command, allowed);
+    }
 }
 
 function forceNoShell<T extends CpModule.SpawnOptions | CpModule.SpawnSyncOptions>(options: T | undefined): T {

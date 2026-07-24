@@ -127,8 +127,8 @@ function assertSafePluginId(pluginId: string): void {
  *   - **Post-FEAT-29-11 (2026-05-20):** the plugin/ sub-folder is gone.
  *     All skills (user, builtin, plugin) share a single root
  *     `{root}/data/skills/{name}/SKILL.md`. The `source:` frontmatter
- *     field discriminates between user-managed, builtin-managed (Sebastian
- *     ships these in the plugin bundle), and plugin-managed entries.
+ *     field discriminates between user-managed, builtin-managed (the
+ *     maintainer ships these in the plugin bundle), and plugin-managed entries.
  *
  * For new code prefer `getSkillFolder` and `getSkillManifestPath`. The
  * `getPluginSkill*` aliases stay for backwards compatibility -- they all
@@ -187,7 +187,7 @@ export function getPluginSkillManifestPath(holder: SettingsHolder, pluginId: str
 
 /**
  * FEAT-29-11: Path to `references/readme.md`. Note: Welle-4-Update from
- * Sebastian's live feedback is to **drop the separate readme** and inline
+ * the user's live feedback is to **drop the separate readme** and inline
  * its content into the SKILL.md body. This helper stays for one more
  * iteration so the cleanup phase can find and delete stale legacy readme
  * files left behind by older scans.

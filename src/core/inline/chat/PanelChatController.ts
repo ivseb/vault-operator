@@ -31,13 +31,17 @@ import { AgentTaskRunner } from '../../agent/AgentTaskRunner';
 import { ModeService } from '../../modes/ModeService';
 import { buildAgentRuntimeContext } from '../../agent/AgentRuntimeContext';
 import type { ConversationStore, UiMessage } from '../../history/ConversationStore';
-import { getModelKey } from '../../../types/settings';
-import { resolveTierModel } from '../../routing/tierResolution';
+import { getModelKey, modelToLLMProvider } from '../../../types/settings';
+import { resolveActiveProvider, resolveTierModel } from '../../routing/tierResolution';
+import { buildApiHandler, buildApiHandlerForModel } from '../../../api/index';
+import { buildPinnedCustomModel } from '../../../ui/sidebar/chatModelDropdown';
+import { isExplicitThinkingOverride, resolveEffectiveThinkingEnabled } from '../../../ui/sidebar/thinkingOverride';
 import { t } from '../../../i18n';
 import { Notice } from 'obsidian';
 import type ObsidianAgentPlugin from '../../../main';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 import type { InlinePanelHandle } from './InlineChatPanel';
+import { applyForcedWorkflow, shouldApplyForcedWorkflow } from '../../../ui/sidebar/forcedWorkflow';
 
 /**
  * Hard cap on inline-chat turns per ADR-143 ("maximal 20 Turns").
@@ -58,6 +62,17 @@ export interface PanelChatControllerOptions {
      */
     getAttachments?: () => { pending: Array<{ block: ContentBlock }>; clear: () => void } | null;
     /**
+     * FIX-30-07-05: per-panel model pin state (model id + thinking +
+     * effort) from the active PanelSurface. Without it the inline pin was
+     * cosmetic: the picker stored the choice, but the runner always got
+     * the global plugin.apiHandler.
+     */
+    getModelPin?: () => {
+        modelOverride: string | null;
+        thinkingOverride: import('../../../ui/sidebar/thinkingOverride').ThinkingOverride;
+        effortOverride: import('../../../ui/sidebar/effortOverride').EffortOverride;
+    } | null;
+    /**
      * Hook the AgentTask checkpoint-pipeline emits into. Every write-
      * tool snapshot (write_file, edit_file, append_to_file, etc.)
      * fires once per checkpoint. The orchestrator turns the payload
@@ -75,6 +90,7 @@ export class PanelChatController {
     private readonly ctx: InlineTriggerContext;
     private readonly modeService: ModeService;
     private readonly getAttachments?: () => { pending: Array<{ block: ContentBlock }>; clear: () => void } | null;
+    private readonly getModelPin?: PanelChatControllerOptions['getModelPin'];
     private readonly onCheckpointHook?: (
         checkpoint: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
         handle: import('./InlineChatPanel').InlinePanelHandle,
@@ -94,6 +110,8 @@ export class PanelChatController {
     private turnCounter = 0;
     private running = false;
     private modeServiceReady: Promise<void> | null = null;
+    /** Forced-workflow slugs already warned about being inapplicable, so the notice fires once per slug (mirrors the sidebar, FEAT-02-12). */
+    private readonly forcedWorkflowWarned = new Set<string>();
     /**
      * Session-scoped taskId for every checkpoint created during this
      * panel lifetime. Generated ONCE upfront and never rewritten --
@@ -109,6 +127,7 @@ export class PanelChatController {
     constructor(options: PanelChatControllerOptions) {
         this.plugin = options.plugin;
         this.ctx = options.ctx;
+        this.getModelPin = options.getModelPin;
         // Own ModeService instance per controller. ModeService is
         // plugin-stateless (lazy toolRegistry access) so a fresh
         // instance is safe and the sidebar's instance stays unchanged.
@@ -131,6 +150,30 @@ export class PanelChatController {
 
     get isRunning(): boolean { return this.running; }
     get isModeReady(): boolean { return this.modeServiceReady !== null; }
+
+    /**
+     * The mode slug this panel's turns actually run under: currentMode resolved
+     * through the ModeService fallback (a deleted or invalid slug resolves to
+     * 'agent'). The forced-workflow pin, chip, and send path all key on this so
+     * they cannot diverge (FEAT-02-12 review fix).
+     */
+    getActiveModeSlug(): string {
+        return this.modeService.getActiveMode().slug;
+    }
+
+    /**
+     * The panel's ModeService, guaranteed initialized (global modes loaded).
+     * Shared by the send path and the inline tool picker (IMP-02-12-02) --
+     * handing out an uninitialized instance would make the picker's
+     * unknown-mode fallback overwrite currentMode for global custom modes.
+     */
+    async getReadyModeService(): Promise<ModeService> {
+        if (this.modeServiceReady === null) {
+            this.modeServiceReady = this.modeService.initialize();
+        }
+        await this.modeServiceReady;
+        return this.modeService;
+    }
 
     /**
      * FEAT-33-12: snapshot the running conversation for hand-off to the
@@ -202,10 +245,7 @@ export class PanelChatController {
         this.turnCounter += 1;
 
         // Lazy ModeService init (idempotent).
-        if (this.modeServiceReady === null) {
-            this.modeServiceReady = this.modeService.initialize();
-        }
-        await this.modeServiceReady;
+        await this.getReadyModeService();
 
         // Slash/prompt/workflow expansion (shared with sidebar).
         const expansionMod = await import('./composerExpansion');
@@ -217,7 +257,30 @@ export class PanelChatController {
         });
         const effectiveInput = expanded ?? args.userInput;
 
-        const userMessage = this.buildUserMessage(effectiveInput);
+        let userMessage = this.buildUserMessage(effectiveInput);
+
+        // FEAT-02-12: apply this agent's forced workflow (if any) on the inline
+        // send path too, via the same pure helpers as the sidebar. Prepend to the
+        // built message so the #/§ expansion and vault context survive; a user
+        // /#§ command stands back; a deleted workflow warns once instead of
+        // silently sending plain text. Keyed on the RESOLVED mode slug (not raw
+        // currentMode) so the workflow matches the mode the turn actually runs
+        // under -- a deleted mode falls back to 'agent' in both places.
+        const forcedSlug = this.plugin.settings.forcedWorkflow?.[this.getActiveModeSlug()] ?? '';
+        if (shouldApplyForcedWorkflow(args.userInput, forcedSlug)) {
+            const loader = this.plugin.workflowLoader;
+            const instructions = loader
+                ? await loader.loadInstructions(forcedSlug, this.plugin.settings.workflowToggles ?? {})
+                : null;
+            if (instructions !== null) {
+                userMessage = applyForcedWorkflow(userMessage, instructions);
+                this.forcedWorkflowWarned.delete(forcedSlug);
+            } else if (!this.forcedWorkflowWarned.has(forcedSlug)) {
+                this.forcedWorkflowWarned.add(forcedSlug);
+                new Notice(t('notice.forcedWorkflowUnavailable', { slug: forcedSlug }));
+            }
+        }
+
         const callbacks = this.buildCallbacks(args.handle, args.assistantBubbleId);
 
         if (this.plugin.apiHandler === null) {
@@ -265,9 +328,58 @@ export class PanelChatController {
             activeConversationId: this.activeConversationId ?? undefined,
         });
 
+        // FIX-30-07-05: honour the panel's model pin exactly like the
+        // sidebar does. buildPinnedCustomModel is the shared resolver, so
+        // thinking + pin-only effort semantics stay identical on both
+        // surfaces; on any build failure we fall back to the global handler.
+        let resolvedApiHandler = this.plugin.apiHandler;
+        let modelOverrideActive = false;
+        const pin = this.getModelPin?.() ?? null;
+        if (pin?.modelOverride) {
+            const pinnedModel = buildPinnedCustomModel(
+                resolveActiveProvider(this.plugin.settings),
+                pin.modelOverride,
+                pin.thinkingOverride,
+                pin.effortOverride,
+            );
+            if (pinnedModel) {
+                try {
+                    resolvedApiHandler = buildApiHandlerForModel(pinnedModel);
+                    modelOverrideActive = true;
+                } catch (e) {
+                    console.warn('[PanelChatController] pinned-model handler build failed, using default:', e);
+                    resolvedApiHandler = this.plugin.apiHandler;
+                }
+            }
+        }
+        // Review-Finding: ein explizites Thinking-On/Off darf nicht verworfen
+        // werden, wenn KEIN Modell gepinnt ist ODER der Pin nicht mehr
+        // aufloesbar ist (buildPinnedCustomModel = null). Spiegel des
+        // Sidebar-Default-Active-Pfads: Handler aus dem Default-Modell mit
+        // angewandtem Thinking-Override neu bauen. Effort bleibt pin-only.
+        if (!modelOverrideActive && pin && isExplicitThinkingOverride(pin.thinkingOverride)) {
+            const defaultTier = this.plugin.settings.defaultMainModelTier ?? 'mid';
+            const defaultModel = this.plugin.getTierModel(defaultTier) ?? this.plugin.getActiveModel();
+            if (defaultModel) {
+                try {
+                    resolvedApiHandler = buildApiHandler(modelToLLMProvider({
+                        ...defaultModel,
+                        thinkingEnabled: resolveEffectiveThinkingEnabled(
+                            pin.thinkingOverride,
+                            defaultModel.thinkingEnabled,
+                        ),
+                    }));
+                } catch (e) {
+                    console.warn('[PanelChatController] thinking-override handler build failed, using default:', e);
+                    resolvedApiHandler = this.plugin.apiHandler;
+                }
+            }
+        }
+
         try {
             const runner = new AgentTaskRunner({
-                api: this.plugin.apiHandler,
+                api: resolvedApiHandler,
+                modelOverrideActive,
                 toolRegistry: this.plugin.toolRegistry,
                 callbacks,
                 modeService: this.modeService,

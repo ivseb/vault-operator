@@ -14,8 +14,11 @@
  * tier slot is empty. The caller renders that as a subtitle hint.
  */
 
-import type { DiscoveredModel, ModelTier, ProviderConfig } from '../../types/settings';
+import type { CustomModel, DiscoveredModel, ModelTier, ProviderConfig } from '../../types/settings';
 import { isEffortOptedIn, resolveEffortLevels, type EffortLevel } from '../../types/model-registry';
+import { providerConfigToCustomModel } from '../../core/routing/tierResolution';
+import { isExplicitThinkingOverride, resolveEffectiveThinkingEnabled, type ThinkingOverride } from './thinkingOverride';
+import { resolveEffectiveEffort, thinkingSwitchIsOn, type EffortOverride } from './effortOverride';
 
 export type ChatModelDropdownOption =
     | { id: 'auto'; label: string; kind: 'auto'; advisorDisabled: boolean }
@@ -133,6 +136,41 @@ export function resolveEffortLevelsForPin(
     const m = resolveOverrideModel(provider, overrideId);
     if (!m) return [];
     return resolveEffortLevels(m.id, provider.type, isEffortOptedIn(provider.effortOptIn, m.id));
+}
+
+/**
+ * FIX-30-07-05: shared pin-to-CustomModel resolution for BOTH chat
+ * surfaces. Given the active provider and the per-conversation pin state
+ * (model id + thinking + effort), returns the fully resolved CustomModel
+ * the turn must run on, or null when nothing is pinned. The sidebar and
+ * the inline panel build their api handler from exactly this value, so
+ * the two cannot drift again (the inline pin used to be cosmetic).
+ *
+ * Effort is pin-only AND thinking-gated: with the thinking switch off no
+ * effort level is sent and the model keeps its vendor default.
+ */
+export function buildPinnedCustomModel(
+    provider: ProviderConfig | null,
+    overrideId: string | null,
+    thinkingOverride: ThinkingOverride,
+    effortOverride: EffortOverride,
+): CustomModel | null {
+    const m = resolveOverrideModel(provider, overrideId);
+    if (!provider || !m) return null;
+    let cm = providerConfigToCustomModel(provider, m.id, m);
+    if (isExplicitThinkingOverride(thinkingOverride)) {
+        cm = {
+            ...cm,
+            thinkingEnabled: resolveEffectiveThinkingEnabled(thinkingOverride, cm.thinkingEnabled),
+        };
+    }
+    if (thinkingSwitchIsOn(thinkingOverride)) {
+        const effort = resolveEffectiveEffort(effortOverride);
+        if (effort !== undefined) {
+            cm = { ...cm, reasoningEffort: effort };
+        }
+    }
+    return cm;
 }
 
 /**

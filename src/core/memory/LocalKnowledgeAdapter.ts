@@ -2,7 +2,7 @@
  * LocalKnowledgeAdapter -- Setup-A/B implementation of KnowledgeGraphAdapter.
  *
  * Direct SQL against `knowledge.db` plus JS-Layer-BFS for multi-hop walks.
- * Spike-1 measured 0.3 ms p95 for 2-hop walks on Sebastian's vault, well
+ * Spike-1 measured 0.3 ms p95 for 2-hop walks on the user's vault, well
  * below the 500 ms target from FEATURE-0317. See SPIKE-001 for the
  * verdict that ATTACH DATABASE is not production-ready.
  *

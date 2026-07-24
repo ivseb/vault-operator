@@ -56,4 +56,11 @@ export interface NoteVerdict {
     modelId: string;
     /** Token cost of this verdict's LLM call(s). */
     tokensUsed: number;
+    /**
+     * FIX-19-05-05: true, wenn der Verifier-Lauf fehlschlug (Parse-Fehler,
+     * Truncation, Exception) statt ein echtes Urteil zu liefern. Ein
+     * Fehler-Lauf wird NICHT persistiert (der naechste Scan versucht ihn neu)
+     * und erscheint nicht als Befund. Fehlt das Feld, gilt der Verdict als echt.
+     */
+    verifierError?: boolean;
 }

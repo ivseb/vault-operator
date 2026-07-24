@@ -119,8 +119,11 @@ export interface ApiHandler {
      * Quick non-streaming text completion for lightweight classification tasks.
      * Used by skill matching LLM-fallback (~100 input tokens, ~10 output tokens).
      * Returns the raw text response trimmed of whitespace.
+     *
+     * FIX-19-05-05: optionaler maxTokens (Default 50). Der Freshness-Verifier
+     * uebergibt ~512, weil sein JSON-Urteil sonst abgeschnitten wird.
      */
-    classifyText?(prompt: string, abortSignal?: AbortSignal): Promise<string>;
+    classifyText?(prompt: string, abortSignal?: AbortSignal, maxTokens?: number): Promise<string>;
 
     /**
      * IMP-41-01-04 / ADR-148: exact prompt token count for the given request

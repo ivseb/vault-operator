@@ -22,12 +22,15 @@
  */
 
 import type { MessageParam, ContentBlock } from '../../api/types';
+import { truncateResultString } from '../agent/toolResultBudget';
 
 interface SanitizeStats {
     droppedOrphanToolUses: number;
     droppedOrphanToolResults: number;
     droppedEmptyMessages: number;
     repairedEmptyMessages: number;
+    /** FIX-24-03-05: oversized persisted tool_results capped at the wire. */
+    truncatedOversizedResults: number;
 }
 
 /**
@@ -47,13 +50,25 @@ function isEmptyContent(content: MessageParam['content']): boolean {
 
 export function sanitizeHistoryForApi(
     history: readonly MessageParam[],
+    opts?: {
+        /**
+         * FIX-24-03-05 / ADR-157 defence line 3: cap for a single persisted
+         * tool_result string at the wire. A conversation poisoned by an
+         * oversized result (persisted before the aggregate budget existed)
+         * becomes sendable again on reload; the STORED history keeps full
+         * fidelity -- this is wire-level only.
+         */
+        maxResultChars?: number;
+    },
 ): { history: MessageParam[]; stats: SanitizeStats } {
     const stats: SanitizeStats = {
         droppedOrphanToolUses: 0,
         droppedOrphanToolResults: 0,
         droppedEmptyMessages: 0,
         repairedEmptyMessages: 0,
+        truncatedOversizedResults: 0,
     };
+    const maxResultChars = opts?.maxResultChars;
 
     // FIX-PERF-18: single forward pass collects both sides plus an
     // orphan-detection flag. Previously this ran three full walks
@@ -64,6 +79,7 @@ export function sanitizeHistoryForApi(
     const emittedToolUseIds = new Set<string>();
     let anyToolUse = false;
     let anyEmptyMessage = false;
+    let anyOversized = false;
     for (const msg of history) {
         if (isEmptyContent(msg.content)) anyEmptyMessage = true;
         if (!Array.isArray(msg.content)) continue;
@@ -71,6 +87,11 @@ export function sanitizeHistoryForApi(
             if (msg.role === 'user' && block.type === 'tool_result'
                 && typeof block.tool_use_id === 'string') {
                 resolvedToolUseIds.add(block.tool_use_id);
+                if (maxResultChars !== undefined
+                    && typeof (block as { content?: unknown }).content === 'string'
+                    && ((block as { content: string }).content).length > maxResultChars) {
+                    anyOversized = true;
+                }
             } else if (msg.role === 'assistant' && block.type === 'tool_use'
                 && typeof block.id === 'string') {
                 emittedToolUseIds.add(block.id);
@@ -84,12 +105,14 @@ export function sanitizeHistoryForApi(
     // either side appeared we must verify pairing before bailing.
     // An empty message anywhere disables both bails — it must be
     // repaired in the rebuild pass regardless of tool pairing.
-    if (!anyEmptyMessage && !anyToolUse && resolvedToolUseIds.size === 0) {
+    if (!anyEmptyMessage && !anyOversized && !anyToolUse && resolvedToolUseIds.size === 0) {
         return { history: history.slice(), stats };
     }
     // Both sides exist - check if every emitted tool_use has a result
     // and every tool_result has an emitted tool_use. If so, bail.
-    let isClean = !anyEmptyMessage;
+    // An oversized result disables the bail: it must be capped in the
+    // rebuild even when the pairing is perfectly clean.
+    let isClean = !anyEmptyMessage && !anyOversized;
     for (const id of emittedToolUseIds) {
         if (!isClean) break;
         if (!resolvedToolUseIds.has(id)) { isClean = false; break; }
@@ -132,6 +155,16 @@ export function sanitizeHistoryForApi(
                     stats.droppedOrphanToolResults++;
                     continue;
                 }
+                const content = (block as { content?: unknown }).content;
+                if (maxResultChars !== undefined && typeof content === 'string'
+                    && content.length > maxResultChars) {
+                    stats.truncatedOversizedResults++;
+                    cleaned.push({
+                        ...block,
+                        content: truncateResultString(content, maxResultChars),
+                    });
+                    continue;
+                }
             }
             cleaned.push(block);
         }
@@ -155,16 +188,19 @@ export function sanitizeHistoryForApi(
 export function sanitizeAndLog(
     history: readonly MessageParam[],
     callsite: string,
+    maxResultChars?: number,
 ): MessageParam[] {
-    const { history: cleaned, stats } = sanitizeHistoryForApi(history);
+    const { history: cleaned, stats } = sanitizeHistoryForApi(history, { maxResultChars });
     if (stats.droppedOrphanToolUses + stats.droppedOrphanToolResults
-        + stats.droppedEmptyMessages + stats.repairedEmptyMessages > 0) {
+        + stats.droppedEmptyMessages + stats.repairedEmptyMessages
+        + stats.truncatedOversizedResults > 0) {
         console.warn(
             `[AgentTask:${callsite}] Sanitized history: ` +
                 `${stats.droppedOrphanToolUses} orphan tool_use, ` +
                 `${stats.droppedOrphanToolResults} orphan tool_result, ` +
                 `${stats.droppedEmptyMessages} empty messages dropped, ` +
-                `${stats.repairedEmptyMessages} empty messages repaired`,
+                `${stats.repairedEmptyMessages} empty messages repaired, ` +
+                `${stats.truncatedOversizedResults} oversized results capped`,
         );
     }
     return cleaned;

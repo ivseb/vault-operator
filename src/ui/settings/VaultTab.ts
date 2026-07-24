@@ -6,8 +6,10 @@ import { AgentFolderService, readStoredAgentFolder } from '../../core/utils/agen
 import { pickAgentFolder } from './AgentFolderPickerModal';
 import { promptModal, confirmModal } from '../modals/PromptModal';
 import { t } from '../../i18n';
-import { DEFAULT_VAULT_INGEST_SETTINGS, DEFAULT_SUMMARY_PROMPT_TEMPLATE, DEFAULT_INGEST_TEMPLATES } from '../../types/settings';
+import { DEFAULT_VAULT_INGEST_SETTINGS, DEFAULT_SUMMARY_PROMPT_TEMPLATE, DEFAULT_FRESHNESS_SETTINGS } from '../../types/settings';
+import { countDueNotesByCluster } from '../../core/health/clusterDueCounts';
 import { addSectionHeading, addSliderInput } from './utils';
+import { migrationBackupExists } from '../../core/utils/restoreLayoutFromBackup';
 import { resolveCoreTemplatesFolder } from '../../core/utils/templatesFolder';
 import { TemplateMaterializer } from '../../core/templates/TemplateMaterializer';
 import { makeTemplateTranslator } from '../../core/templates/translateTemplate';
@@ -170,16 +172,17 @@ export class VaultTab {
                     .onClick(() => { void this.handleMigrateClick(service); }),
             );
 
-        // ── FEAT-29-01 Storage Layout Migration ───────────────────────────
-        this.buildLayoutMigrationSection(containerEl, applyPathChange, service);
+        // ── Reset to default path (FEAT-30-07: aus der Layout-Section
+        //    hierher verschoben, gehoert thematisch zum Agent folder) ──────
+        this.buildAgentFolderResetSetting(containerEl, applyPathChange, service);
+
+        // ── FEAT-29-01 Storage Layout Migration (ADR-162: nur bei Bedarf) ─
+        this.buildLayoutMigrationSection(containerEl);
 
         // ── BA-25 Karpathy-Wiki-Pattern (Vault-Ingest) ────────────────────
         this.buildVaultIngestSection(containerEl);
 
-        // ── IMP-20-06-01 Wave 4: Freshness verifier sub-flags ─────────────
-        this.buildFreshnessSection(containerEl);
-
-        // ── IMP-19-01-01: Vault Health auto-apply for rule-based repairs ──
+        // ── Vault health (inkl. External freshness verification, ADR-163) ─
         this.buildVaultHealthSection(containerEl);
     }
 
@@ -195,15 +198,11 @@ export class VaultTab {
 
         const vh = this.plugin.settings.vaultHealth;
 
-        new Setting(containerEl)
-            .setName(t('settings.vault.vaultHealthAutoApply'))
-            .setDesc(t('settings.vault.vaultHealthAutoApplyDesc'))
-            .addToggle((tg) =>
-                tg.setValue(vh.autoApplyRuleRepairs).onChange(async (v) => {
-                    this.plugin.settings.vaultHealth = { ...vh, autoApplyRuleRepairs: v };
-                    await this.plugin.saveSettings();
-                }),
-            );
+        // ADR-163 / FEAT-30-07: der External-Freshness-Verifier ist der
+        // opt-in Web-Teilcheck von Vault health (Stufe 3 desselben Stacks
+        // wie der kostenlose lokale cluster_freshness-Check) und lebt
+        // deshalb hier statt als eigene Section.
+        this.buildFreshnessSection(containerEl);
     }
 
     /**
@@ -216,19 +215,24 @@ export class VaultTab {
     private buildFreshnessSection(containerEl: HTMLElement): void {
         addSectionHeading(containerEl, t('settings.vault.headingFreshness'), {
             body: t('settings.vault.sectionFreshnessInfo'),
-        });
+        }, { level: 'h4' });
 
+        // Review-Finding Stale-Capture: jede onChange liest den LIVE-Zustand
+        // statt des beim Render gecapturten Objekts, sonst revertiert die
+        // zweite Aenderung in derselben Settings-Sitzung die erste still.
         const freshness = this.plugin.settings.freshness;
+        const patchFreshness = (patch: Partial<typeof freshness>) => {
+            this.plugin.settings.freshness = { ...this.plugin.settings.freshness, ...patch };
+        };
 
         new Setting(containerEl)
             .setName(t('settings.vault.freshnessExternalSources'))
             .setDesc(t('settings.vault.freshnessExternalSourcesDesc'))
             .addToggle((tg) =>
                 tg.setValue(freshness.externalSources.enabled).onChange(async (v) => {
-                    this.plugin.settings.freshness = {
-                        ...freshness,
-                        externalSources: { ...freshness.externalSources, enabled: v },
-                    };
+                    patchFreshness({
+                        externalSources: { ...this.plugin.settings.freshness.externalSources, enabled: v },
+                    });
                     await this.plugin.saveSettings();
                 }),
             );
@@ -238,7 +242,7 @@ export class VaultTab {
             .setDesc(t('settings.vault.freshnessWriteFrontmatterDesc'))
             .addToggle((tg) =>
                 tg.setValue(freshness.writeFrontmatter).onChange(async (v) => {
-                    this.plugin.settings.freshness = { ...freshness, writeFrontmatter: v };
+                    patchFreshness({ writeFrontmatter: v });
                     await this.plugin.saveSettings();
                 }),
             );
@@ -248,7 +252,7 @@ export class VaultTab {
             .setDesc(t('settings.vault.freshnessFrontierEscalationDesc'))
             .addToggle((tg) =>
                 tg.setValue(freshness.allowFrontierEscalation).onChange(async (v) => {
-                    this.plugin.settings.freshness = { ...freshness, allowFrontierEscalation: v };
+                    patchFreshness({ allowFrontierEscalation: v });
                     await this.plugin.saveSettings();
                 }),
             );
@@ -260,7 +264,7 @@ export class VaultTab {
             min: 0.0, max: 1.0, step: 0.05,
             value: freshness.frontierConfidenceThreshold,
             onChange: async (v) => {
-                this.plugin.settings.freshness = { ...freshness, frontierConfidenceThreshold: v };
+                patchFreshness({ frontierConfidenceThreshold: v });
                 await this.plugin.saveSettings();
             },
         });
@@ -272,10 +276,134 @@ export class VaultTab {
                 text.setValue(freshness.excludePaths.join(', '))
                     .onChange(async (v) => {
                         const paths = v.split(',').map((s) => s.trim()).filter(Boolean);
-                        this.plugin.settings.freshness = { ...freshness, excludePaths: paths };
+                        patchFreshness({ excludePaths: paths });
                         await this.plugin.saveSettings();
                     });
             });
+
+        // FEAT-19-03-01: editierbares Wochenbudget. Deckelt den vault-weiten
+        // Lauf; hoeher = der Kaltstart-Rueckstand ist schneller aufgeholt.
+        new Setting(containerEl)
+            .setName(t('settings.vault.freshnessWeeklyBudget'))
+            .setDesc(t('settings.vault.freshnessWeeklyBudgetDesc'))
+            .addText((text) => {
+                text.setValue(String(freshness.weeklyBudgetUsd ?? DEFAULT_FRESHNESS_SETTINGS.weeklyBudgetUsd))
+                    .onChange(async (v) => {
+                        const parsed = Number.parseFloat(v.replace(',', '.'));
+                        // Ungueltig/negativ ignorieren, damit ein halb getippter
+                        // Wert das Budget nicht auf 0 setzt und den Lauf abwuergt.
+                        if (!Number.isFinite(parsed) || parsed <= 0) return;
+                        patchFreshness({ weeklyBudgetUsd: parsed });
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        // FEAT-19-03-01: Cluster-Ausschluss (Opt-out statt frueherem Opt-in).
+        new Setting(containerEl)
+            .setName(t('settings.vault.freshnessExcludeClusters'))
+            .setDesc(t('settings.vault.freshnessExcludeClustersDesc'))
+            .addTextArea((text) => {
+                text.setValue((freshness.excludeClusters ?? []).join('\n'))
+                    .onChange(async (v) => {
+                        const clusters = v.split('\n').map((s) => s.trim()).filter(Boolean);
+                        patchFreshness({ excludeClusters: clusters });
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        // FIX-30-07-03: der Stufe-3-Weekly-Job hatte nie ein UI-Toggle;
+        // die gesamte Verifier-Pipeline war ohne data.json-Handedit
+        // unerreichbar und die Hot-Cluster-Toggles wirkungslos.
+        const ingestCfg = this.plugin.settings.vaultIngest;
+        new Setting(containerEl)
+            .setName(t('settings.vault.freshnessWeeklyJob'))
+            .setDesc(t('settings.vault.freshnessWeeklyJobDesc'))
+            .addToggle((tg) =>
+                tg.setValue(ingestCfg?.stufe3PeriodicJob?.enabled ?? false).onChange(async (v) => {
+                    if (!ingestCfg) return;
+                    if (!ingestCfg.stufe3PeriodicJob) {
+                        ingestCfg.stufe3PeriodicJob = { enabled: v, lastRunIso: '' };
+                    } else {
+                        ingestCfg.stufe3PeriodicJob.enabled = v;
+                    }
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName(t('settings.vault.freshnessRunNow'))
+            .setDesc(t('settings.vault.freshnessRunNowDesc'))
+            .addButton((btn) =>
+                btn
+                    .setButtonText(t('settings.vault.freshnessRunNowButton'))
+                    .setIcon('radar')
+                    .onClick(() => { void this.plugin.runFreshnessCheckNow(); }),
+            );
+
+        // FEAT-19-03-01: der Scan deckt den GANZEN Vault alterungsgesteuert
+        // ab (keine manuelle Hot-Auswahl mehr). Statt Toggles zeigt dieser
+        // Block, was der naechste Lauf tun wuerde.
+        this.buildFreshnessScopeBlock(containerEl);
+    }
+
+    private buildFreshnessScopeBlock(containerEl: HTMLElement): void {
+        addSectionHeading(
+            containerEl,
+            t('settings.vault.headingFreshnessScope'),
+            { body: t('settings.vault.sectionFreshnessScopeInfo') },
+            { level: 'h4' },
+        );
+
+        const store = this.plugin.clusterMetadataStore;
+        const db = this.plugin.knowledgeDB;
+        if (!store || !db?.isOpen()) {
+            containerEl.createEl('p', { cls: 'agent-settings-desc', text: t('settings.vault.clusterStoreNotLoaded') });
+            return;
+        }
+        const all = store.getAll();
+        if (all.length === 0) {
+            containerEl.createEl('p', { cls: 'agent-settings-desc', text: t('settings.vault.noClusters') });
+            return;
+        }
+
+        // Was ist gerade faellig? Dieselbe Rechnung wie der Lauf, damit die
+        // Anzeige nicht behauptet, was der Scan nicht tut.
+        const fresh = this.plugin.settings.freshness ?? DEFAULT_FRESHNESS_SETTINGS;
+        const due = countDueNotesByCluster(
+            db.getDB() as never,
+            {
+                volatileRecheckDays: 7,
+                evolvingRecheckDays: 30,
+                stableRecheckDays: 90,
+                excludePaths: fresh.excludePaths,
+            },
+            new Date(),
+        );
+        const excluded = new Set(fresh.excludeClusters ?? []);
+        let dueClusters = 0;
+        let dueVol = 0, dueEvo = 0, dueSta = 0;
+        for (const [cluster, c] of due) {
+            if (excluded.has(cluster)) continue;
+            dueClusters++;
+            dueVol += c.dueVolatile; dueEvo += c.dueEvolving; dueSta += c.dueStable;
+        }
+
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: t('settings.vault.freshnessScopeSummary', {
+                clusters: all.length,
+                dueClusters,
+                volatile: dueVol,
+                evolving: dueEvo,
+                stable: dueSta,
+            }),
+        });
+        if (!fresh.externalSources?.enabled) {
+            containerEl.createEl('p', {
+                cls: 'agent-settings-desc mod-warning',
+                text: t('settings.vault.freshnessScopeExternalOff'),
+            });
+        }
     }
 
     /**
@@ -287,18 +415,28 @@ export class VaultTab {
      * because it relocates files across roots and switches the lookup paths
      * for dependent services.
      */
-    private buildLayoutMigrationSection(
-        containerEl: HTMLElement,
-        applyPathChange: (newPath: string) => Promise<void>,
-        service: AgentFolderService,
-    ): void {
+    private buildLayoutMigrationSection(containerEl: HTMLElement): void {
+        const statusValue = this.plugin.settings._layoutMigrationStatus ?? 'pending';
+        const legacyChatHistory = this.plugin.settings._chatHistoryFolderLegacy;
+
+        // ADR-162 / FIX-30-07-04: Auf konsolidierten Installationen ohne
+        // offenen Legacy-Hinweis verschwindet die Section. Die Restore-Zeile
+        // erscheint nur, wenn tatsaechlich ein Migrations-Backup unter
+        // ~/.vault-operator-migration-backups/ existiert. Review-Finding: der
+        // Probe-Aufruf ist synchron (kein fire-and-forget mehr), sonst haengte
+        // die Restore-Section nach allen folgenden Sections ans Tab-Ende bzw.
+        // nach einem Rerender an einen toten Container.
+        if (statusValue === 'complete' && !legacyChatHistory) {
+            this.maybeBuildRestoreSection(containerEl);
+            return;
+        }
+
         addSectionHeading(
             containerEl,
             t('settings.vault.headingLayoutMigration'),
             { body: t('settings.vault.sectionLayoutMigrationInfo') },
         );
 
-        const statusValue = this.plugin.settings._layoutMigrationStatus ?? 'pending';
         new Setting(containerEl)
             .setName(t('settings.vault.layoutMigrationStatus'))
             .setDesc(t('settings.vault.layoutMigrationStatusDesc', { status: statusValue }));
@@ -347,7 +485,66 @@ export class VaultTab {
                     }),
             );
 
-        // Reset agent folder path to default
+        // Restore previous layout from a backup snapshot
+        this.buildRestoreRow(containerEl, statusValue);
+
+        // Notice for users who had chatHistoryFolder set before the setting was removed
+        if (legacyChatHistory) {
+            this.buildChatHistoryRemovedNotice(containerEl, legacyChatHistory);
+        }
+    }
+
+    /**
+     * ADR-162: On consolidated installs the migration section is hidden;
+     * only when a migration backup snapshot exists does a compact restore
+     * section appear. Synchronous (desktop-only fs probe) so it renders
+     * inline at the right position instead of appending after later sections.
+     */
+    private maybeBuildRestoreSection(containerEl: HTMLElement): void {
+        const vaultBasePath = (this.app.vault.adapter as unknown as {
+            getBasePath?(): string;
+        }).getBasePath?.() ?? '';
+        if (!vaultBasePath) return;
+        let hasBackup = false;
+        try {
+            hasBackup = migrationBackupExists(vaultBasePath);
+        } catch {
+            // Probe failure (mobile / restricted FS): section stays hidden.
+            return;
+        }
+        if (!hasBackup) return;
+        addSectionHeading(
+            containerEl,
+            t('settings.vault.headingLayoutMigration'),
+            { body: t('settings.vault.sectionLayoutMigrationInfo') },
+        );
+        this.buildRestoreRow(containerEl, 'complete');
+    }
+
+    private buildChatHistoryRemovedNotice(containerEl: HTMLElement, legacyChatHistory: string): void {
+        new Setting(containerEl)
+            .setName(t('settings.vault.chatHistoryRemoved'))
+            .setDesc(t('settings.vault.chatHistoryRemovedDesc', { path: legacyChatHistory }))
+            .addButton((btn) =>
+                btn
+                    .setButtonText(t('settings.vault.chatHistoryRemovedDismiss'))
+                    .setIcon('check')
+                    .onClick(() => {
+                        void (async () => {
+                            this.plugin.settings._chatHistoryFolderLegacy = undefined;
+                            await this.plugin.saveSettings();
+                            this.rerender();
+                        })();
+                    }),
+            );
+    }
+
+    /** FEAT-30-07: Reset-to-default lives with the Agent-folder settings. */
+    private buildAgentFolderResetSetting(
+        containerEl: HTMLElement,
+        applyPathChange: (newPath: string) => Promise<void>,
+        service: AgentFolderService,
+    ): void {
         const currentPath = this.plugin.settings.agentFolderPath ?? DEFAULT_AGENT_FOLDER;
         const isDefault = currentPath === DEFAULT_AGENT_FOLDER;
         new Setting(containerEl)
@@ -422,7 +619,10 @@ export class VaultTab {
                     }),
             );
 
-        // Restore previous layout from a backup snapshot
+    }
+
+    /** Restore-Zeile der Layout-Migration (geteilt zwischen Voll-Section und ADR-162-Kompaktform). */
+    private buildRestoreRow(containerEl: HTMLElement, statusValue: string): void {
         new Setting(containerEl)
             .setName(t('settings.vault.layoutRestore'))
             .setDesc(
@@ -444,31 +644,11 @@ export class VaultTab {
                         void this.handleRestoreClick(statusValue);
                     }),
             );
-
-        // Notice for users who had chatHistoryFolder set before the setting was removed
-        const legacyChatHistory = this.plugin.settings._chatHistoryFolderLegacy;
-        if (legacyChatHistory) {
-            new Setting(containerEl)
-                .setName(t('settings.vault.chatHistoryRemoved'))
-                .setDesc(t('settings.vault.chatHistoryRemovedDesc', { path: legacyChatHistory }))
-                .addButton((btn) =>
-                    btn
-                        .setButtonText(t('settings.vault.chatHistoryRemovedDismiss'))
-                        .setIcon('check')
-                        .onClick(() => {
-                            void (async () => {
-                                this.plugin.settings._chatHistoryFolderLegacy = undefined;
-                                await this.plugin.saveSettings();
-                                this.rerender();
-                            })();
-                        }),
-                );
-        }
     }
 
     /**
      * BA-25 PLAN-10..14 Vault-Ingest-Settings:
-     *   - Standard-Prompt fuer Auto-Summary (Sebastians Wortlaut Default)
+     *   - Standard-Prompt fuer Auto-Summary (des Nutzers Wortlaut Default)
      *   - Auto-Summary-Toggle (Default off)
      *   - Frontmatter-Write-Toggle (Default off, Variante B aus BA-25)
      *   - Auto-Trigger via Frontmatter-Property (FEAT-19-27)
@@ -497,6 +677,9 @@ export class VaultTab {
         if (!cfg.topHubBlock) {
             cfg.topHubBlock = { ...DEFAULT_VAULT_INGEST_SETTINGS.topHubBlock };
         }
+        if (!cfg.incomingLinksBlock) {
+            cfg.incomingLinksBlock = { ...DEFAULT_VAULT_INGEST_SETTINGS.incomingLinksBlock };
+        }
         if (!cfg.stufe2Hint) {
             cfg.stufe2Hint = { ...DEFAULT_VAULT_INGEST_SETTINGS.stufe2Hint };
         }
@@ -522,7 +705,8 @@ export class VaultTab {
                 }),
             );
 
-        // Frontmatter-Write-Toggle
+        // Frontmatter-Write-Toggle (gilt NUR fuer den manuellen Backfill,
+        // nicht fuer das Indexing -- die Beschreibung sagt das jetzt auch).
         new Setting(containerEl)
             .setName(t('settings.vault.autoSummaryFrontmatter'))
             .setDesc(t('settings.vault.autoSummaryFrontmatterDesc'))
@@ -531,8 +715,28 @@ export class VaultTab {
                     cfg.autoSummary.writeFrontmatter = v;
                     this.plugin.settings.vaultIngest = cfg;
                     await this.plugin.saveSettings();
+                    this.rerender();
                 }),
             );
+
+        // Ziel-Property fuer den Backfill-Write. Default OKF `description`;
+        // nur sichtbar, wenn der Write ueberhaupt erlaubt ist.
+        if (cfg.autoSummary.writeFrontmatter) {
+            new Setting(containerEl)
+                .setName(t('settings.vault.autoSummaryProperty'))
+                .setDesc(t('settings.vault.autoSummaryPropertyDesc'))
+                .addText((text) =>
+                    text
+                        // eslint-disable-next-line obsidianmd/ui/sentence-case -- reason: Frontmatter-Property-Name, kein UI-Text. Die Property heisst kleingeschrieben; Sentence Case waere schlicht falsch.
+                        .setPlaceholder('description')
+                        .setValue(cfg.autoSummary.frontmatterProperty ?? 'description')
+                        .onChange(async (v) => {
+                            cfg.autoSummary.frontmatterProperty = v.trim() || 'description';
+                            this.plugin.settings.vaultIngest = cfg;
+                            await this.plugin.saveSettings();
+                        }),
+                );
+        }
 
         // Standard-Prompt-Editor
         new Setting(containerEl)
@@ -594,7 +798,8 @@ export class VaultTab {
             .addText((text) =>
                 text
                     .setValue(cfg.autoTrigger.propertyName)
-                    .setPlaceholder('Category')
+                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- reason: Frontmatter-Property-Name, kein UI-Text. Die Property heisst kleingeschrieben; Sentence Case waere schlicht falsch.
+                    .setPlaceholder('type')
                     .onChange(async (v) => {
                         cfg.autoTrigger.propertyName = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
@@ -608,7 +813,8 @@ export class VaultTab {
             .addText((text) =>
                 text
                     .setValue(Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(', ') : cfg.autoTrigger.propertyValue)
-                    .setPlaceholder('Source')
+                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- reason: Frontmatter-Property-Name, kein UI-Text. Die Property heisst kleingeschrieben; Sentence Case waere schlicht falsch.
+                    .setPlaceholder('source')
                     .onChange(async (v) => {
                         const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
                         cfg.autoTrigger.propertyValue = parts.length > 1 ? parts : (parts[0] ?? '');
@@ -650,75 +856,16 @@ export class VaultTab {
                     }),
             );
 
+        // FEAT-30-07: Die vier Template-Pfad-Textfelder sind entfernt. Kein
+        // Code-Pfad hat die Werte je gelesen (die Ingest-Skills lesen das
+        // OKF Template hardcoded, IMP-19-31-04 offen); nur der
+        // Re-materialize-Button tut etwas Reales und bleibt.
         addSectionHeading(
             containerEl,
             t('settings.vault.headingTemplates'),
             { body: t('settings.vault.sectionTemplatesInfo') },
             { level: 'h4' },
         );
-
-        new Setting(containerEl)
-            .setName(t('settings.vault.templateIngest'))
-            .setDesc(t('settings.vault.templateIngestDesc'))
-            .addText((text) =>
-                text
-                    .setPlaceholder('Tools & Settings/Templates/Quelle Template.md')
-                    .setValue(cfg.templates?.ingestNoteTemplate ?? '')
-                    .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
-                        cfg.templates.ingestNoteTemplate = v.trim();
-                        this.plugin.settings.vaultIngest = cfg;
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        new Setting(containerEl)
-            .setName(t('settings.vault.templateIngestDeep'))
-            .setDesc(t('settings.vault.templateIngestDeepDesc'))
-            .addText((text) =>
-                text
-                    .setPlaceholder('Tools & Settings/Templates/Quelle Template.md')
-                    .setValue(cfg.templates?.ingestDeepNoteTemplate ?? '')
-                    .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
-                        cfg.templates.ingestDeepNoteTemplate = v.trim();
-                        this.plugin.settings.vaultIngest = cfg;
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        new Setting(containerEl)
-            .setName(t('settings.vault.templateMeetingSummary'))
-            .setDesc(t('settings.vault.templateMeetingSummaryDesc'))
-            .addText((text) =>
-                text
-                    .setPlaceholder('Tools & Settings/Templates/Meeting-Notiz Template.md')
-                    .setValue(cfg.templates?.meetingSummaryTemplate ?? '')
-                    .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
-                        cfg.templates.meetingSummaryTemplate = v.trim();
-                        this.plugin.settings.vaultIngest = cfg;
-                        await this.plugin.saveSettings();
-                    }),
-            );
-
-        // FEAT-29-14: separate template for the Sense-Making-Notes /
-        // Zettel that /ingest and /ingest-deep produce on top of the
-        // source note. Default category is "Quellen-Notiz" / "Source note".
-        new Setting(containerEl)
-            .setName(t('settings.vault.templateSenseMaking'))
-            .setDesc(t('settings.vault.templateSenseMakingDesc'))
-            .addText((text) =>
-                text
-                    .setPlaceholder('Tools & Settings/Templates/Notiz Template.md')
-                    .setValue(cfg.templates?.quellenNotizTemplate ?? '')
-                    .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
-                        cfg.templates.quellenNotizTemplate = v.trim();
-                        this.plugin.settings.vaultIngest = cfg;
-                        await this.plugin.saveSettings();
-                    }),
-            );
 
         // FEAT-29-14: Re-materialize button. Re-runs the same code path
         // as the FirstRun-Templates step using the persisted
@@ -782,44 +929,39 @@ export class VaultTab {
             enabledSetting.descEl.createEl('em', { text: t('settings.vault.topHubDisabledHint') });
         }
 
+        // FEAT-19-04-01: selbstbildender Rueckverweis-Block. Eine Notiz gilt
+        // als Hub ab `threshold` eingehenden Links (einstellbar).
         addSectionHeading(
             containerEl,
-            t('settings.vault.headingHotClusters'),
-            { body: t('settings.vault.sectionHotClustersInfo') },
+            t('settings.vault.headingIncomingLinks'),
+            { body: t('settings.vault.sectionIncomingLinksInfo') },
             { level: 'h4' },
         );
+        new Setting(containerEl)
+            .setName(t('settings.vault.incomingLinksEnable'))
+            .setDesc(t('settings.vault.incomingLinksEnableDesc'))
+            .addToggle((toggle) =>
+                toggle.setValue(cfg.incomingLinksBlock.enabled).onChange(async (v) => {
+                    cfg.incomingLinksBlock.enabled = v;
+                    this.plugin.settings.vaultIngest = cfg;
+                    await this.plugin.saveSettings();
+                }),
+            );
+        const thresholdSetting = new Setting(containerEl)
+            .setName(t('settings.vault.incomingLinksThreshold'))
+            .setDesc(t('settings.vault.incomingLinksThresholdDesc'));
+        addSliderInput(thresholdSetting, {
+            min: 2, max: 20, step: 1,
+            value: cfg.incomingLinksBlock.threshold,
+            onChange: async (v) => {
+                cfg.incomingLinksBlock.threshold = v;
+                this.plugin.settings.vaultIngest = cfg;
+                await this.plugin.saveSettings();
+            },
+        });
 
-        const store = this.plugin.clusterMetadataStore;
-        if (!store) {
-            containerEl.createEl('p', { cls: 'agent-settings-desc', text: t('settings.vault.clusterStoreNotLoaded') });
-        } else {
-            const all = store.getAll();
-            if (all.length === 0) {
-                containerEl.createEl('p', {
-                    cls: 'agent-settings-desc',
-                    text: t('settings.vault.noClusters'),
-                });
-            } else {
-                for (const cluster of all) {
-                    new Setting(containerEl)
-                        .setName(cluster.cluster)
-                        .setDesc(cluster.lastExternalCheck
-                            ? t('settings.vault.clusterDesc', {
-                                days: cluster.halfLifeDays,
-                                date: cluster.lastExternalCheck.split('T')[0],
-                            })
-                            : t('settings.vault.clusterDescNoCheck', { days: cluster.halfLifeDays }))
-                        .addToggle((toggle) =>
-                            toggle
-                                .setValue(cluster.hotCluster)
-                                .onChange(async (v) => {
-                                    store.setHotCluster(cluster.cluster, v);
-                                    await this.plugin.knowledgeDB?.save();
-                                }),
-                        );
-                }
-            }
-        }
+        // FEAT-30-07: Hot-Cluster-Block lebt jetzt im Freshness-Unterblock
+        // der Vault-health-Section (buildHotClustersBlock).
 
         addSectionHeading(
             containerEl,
@@ -947,37 +1089,15 @@ export class VaultTab {
             return;
         }
         const nodePath = await import('path');
-        const nodeOs = await import('os');
-        const nodeFs = await import('fs');
-        const nodeCrypto = await import('crypto');
-        // Backup pfad mirror to main.ts -- {homedir}/.vault-operator-migration-backups/{vault-hash}/
-        // ensures snapshots stay outside any sync container (iCloud, Obsidian-Sync).
-        // AUDIT-034 Info-5: sha256 is the canonical hash; md5 path is probed as
-        // backward-compatibility fallback for backups written by older versions.
-        const vaultIdHashSha256 = nodeCrypto
-            .createHash('sha256')
-            .update(vaultBasePath)
-            .digest('hex')
-            .slice(0, 12);
-        const vaultIdHashMd5 = nodeCrypto
-            .createHash('md5')
-            .update(vaultBasePath)
-            .digest('hex')
-            .slice(0, 12);
-        const backupsRoot = nodePath.join(
-            nodeOs.homedir(),
-            '.vault-operator-migration-backups',
-        );
-        const sha256Dir = nodePath.join(backupsRoot, vaultIdHashSha256);
-        const legacyMd5Dir = nodePath.join(backupsRoot, vaultIdHashMd5);
-        const pluginDataDir = nodeFs.existsSync(sha256Dir) || !nodeFs.existsSync(legacyMd5Dir)
-            ? sha256Dir
-            : legacyMd5Dir;
-        const vaultParent = nodePath.dirname(vaultBasePath);
-
-        const { listBackupFolders, restoreLayoutFromBackup } = await import(
+        // Review-Finding: der Backup-Pfad wird jetzt zentral in
+        // restoreLayoutFromBackup.resolveMigrationBackupDirs berechnet
+        // (sha256 kanonisch, md5 als Back-compat-Fallback, ausserhalb jedes
+        // Sync-Containers). Kein dritter Copy-Paste der Hash-Kette mehr.
+        const { resolveMigrationBackupDirs, listBackupFolders, restoreLayoutFromBackup } = await import(
             '../../core/utils/restoreLayoutFromBackup'
         );
+        const pluginDataDir = resolveMigrationBackupDirs(vaultBasePath).preferredDir;
+        const vaultParent = nodePath.dirname(vaultBasePath);
         const backups = await listBackupFolders(pluginDataDir);
         if (backups.length === 0) {
             new Notice(

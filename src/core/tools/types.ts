@@ -73,12 +73,16 @@ export type ToolName =
     | 'attempt_completion'
     | 'switch_agent'
     | 'new_task'
+    // FEAT-24-10 / ADR-159: dedicated research delegation with source anchors.
+    | 'investigate'
     | 'run_in_background'
     // EPIC-26 / FEAT-26-01 / ADR-120: on-demand flagship escalation.
     | 'consult_flagship'
     | 'find_tool'
     // FEAT-24-09 / ADR-116: load a SKILL.md body on demand.
     | 'read_skill'
+    // Revise an existing skill by name (write counterpart of read_skill).
+    | 'write_skill'
     | 'update_todo_list'
     // MCP
     | 'use_mcp_tool'
@@ -243,7 +247,7 @@ export interface ToolExecutionContext {
      * Ask the user a followup question and wait for their answer.
      * Used by ask_followup_question tool.
      */
-    askQuestion?: (question: string, options?: string[], allowMultiple?: boolean) => Promise<string>;
+    askQuestion?: (question: string, options?: string[]) => Promise<string>;
 
     /**
      * Ask the user (in-chat card) to install a missing optional asset

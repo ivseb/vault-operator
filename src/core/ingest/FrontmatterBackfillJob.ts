@@ -3,7 +3,7 @@
  * Frontmatter-Properties auf bestehenden Vault-Notes.
  *
  * Backs FEAT-19-10 (Frontmatter-Write Toggle plus Backfill-Job).
- * Loese Sebastians Backfill-Schmerz: bei Aktivierung von autoSummary.
+ * Loese des Nutzers Backfill-Schmerz: bei Aktivierung von autoSummary.
  * writeFrontmatter werden 1.500 bestehende Notes durchgegangen, fehlende
  * Properties ergaenzt, NIEMALS bestehende ueberschrieben (ADR-95).
  *
@@ -37,6 +37,18 @@ export interface BackfillJobOptions {
     dryRun?: boolean;
     /** Optional: cap total files (for testing or budget control). */
     maxFiles?: number;
+    /**
+     * Consent-Gate (ADR-95, FIX-30-07-01): nur bei explizitem true werden
+     * generierte Summaries als Frontmatter-Property in die Note geschrieben.
+     * Default false (fail-closed); die DB-Spiegelung laeuft unabhaengig davon.
+     */
+    writeFrontmatter?: boolean;
+    /**
+     * Ziel-Property fuer den Summary-Write. Default 'description' (OKF).
+     * Frueher war 'Zusammenfassung' hart verdrahtet und passte damit nicht
+     * zum OKF-Template, das die Ingest-Skills schreiben.
+     */
+    frontmatterProperty?: string;
 }
 
 export class FrontmatterBackfillJob {
@@ -118,11 +130,13 @@ export class FrontmatterBackfillJob {
                     }
 
                     // Phase 2: write missing properties back to vault frontmatter (FEAT-19-10).
-                    if (!options.dryRun && ir.summaryGenerated) {
+                    // Gated auf das writeFrontmatter-Consent-Setting (FIX-30-07-01).
+                    if (!options.dryRun && options.writeFrontmatter === true && ir.summaryGenerated) {
                         const cached = this.noteSummaryStore.get(file.path);
                         if (cached) {
+                            const prop = (options.frontmatterProperty ?? '').trim() || 'description';
                             const patch: FrontmatterPatch = {
-                                Zusammenfassung: { value: cached.summary },
+                                [prop]: { value: cached.summary },
                             };
                             const wr: WriteResult = await writer.write(file, patch);
                             if (!wr.written && wr.skippedReason === 'error') {

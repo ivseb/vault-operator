@@ -155,7 +155,7 @@ Four internal LLM calls do not run on the main chat model:
 - `plan_presentation` (the internal LLM call inside the `create_pptx` template flow)
 - Recipe promotion (the call that decides whether a finished task qualifies as a reusable recipe)
 
-All four route to the `helperModelKey` provider/model pair from Settings > Vault Operator > Advanced > Loop > Task routing. Fail-closed: if the setting is invalid the helper calls fall back to the main model. Pick the cheapest model that still understands the prompts (Claude Haiku, GPT-4o-mini, Gemini Flash, local Ollama). The helper is invisible to the user-visible turn; you only see it in the cost log.
+All four route to the `helperModelKey` provider/model pair from Settings > Vault Operator > Agents > Loop > Task routing. Fail-closed: if the setting is invalid the helper calls fall back to the main model. Pick the cheapest model that still understands the prompts (Claude Haiku, GPT-4o-mini, Gemini Flash, local Ollama). The helper is invisible to the user-visible turn; you only see it in the cost log.
 
 ## Next
 

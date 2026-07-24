@@ -50,7 +50,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS vectors (
     enriched INTEGER NOT NULL DEFAULT 0,
     embedding_model TEXT NOT NULL DEFAULT 'unknown',
     domain TEXT NOT NULL DEFAULT 'note',
+    content_hash TEXT NOT NULL DEFAULT '',
     UNIQUE(path, chunk_index)
 );
 CREATE INDEX IF NOT EXISTS idx_vectors_path ON vectors(path);
@@ -495,6 +496,20 @@ export class KnowledgeDB {
         this.markDirty();
     }
 
+    /**
+     * Reclaim free pages after a large delete/re-insert churn (VACUUM).
+     * A full index rebuild deletes and re-inserts every vector row; sql.js
+     * never returns the freed pages to the file on its own, so the on-disk
+     * blob stays inflated (the 568 MB -> whole-file-load-at-boot problem).
+     * Called explicitly after a rebuild, not on every write. Marks dirty so
+     * the shrunk image is persisted.
+     */
+    vacuum(): void {
+        if (!this.db) return;
+        this.db.run('VACUUM');
+        this.markDirty();
+    }
+
     // -----------------------------------------------------------------------
     // Private: Schema
     // -----------------------------------------------------------------------
@@ -609,6 +624,23 @@ export class KnowledgeDB {
             // ueberschreibt den gleichen Wert idempotent.
             if (currentVersion < 13) {
                 migrateVectorsToDomainsV12ToV13(this.db);
+            }
+
+            // v13 -> v14: FIX semantic-reindex-mtime-sync. Additive
+            // content_hash column on vectors. Change-detection was mtime-only;
+            // Obsidian Sync re-stamps mtimes on unchanged notes, so every boot
+            // re-embedded hundreds of files (and destroyed their enrichment).
+            // The hash lets the indexer confirm a real content change behind
+            // the mtime tripwire. Backfilled empty; existing rows re-hash
+            // lazily on their next touch (empty hash never matches, so the
+            // first post-migration build treats them as needing a check, which
+            // is correct and one-time).
+            if (currentVersion < 14) {
+                try {
+                    this.db.run("ALTER TABLE vectors ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''");
+                } catch {
+                    // Column may already exist if schema was partially migrated
+                }
             }
 
             // Re-run DDL (CREATE IF NOT EXISTS is idempotent)
@@ -851,8 +883,45 @@ export class KnowledgeDB {
         } catch { /* non-fatal */ }
     }
 
+    /**
+     * SEC M-5 (Audit 2026-07-19): sql.js implementiert db.export() als
+     * close + reopen, und TEMP-Tabellen leben pro Connection. Ein Save,
+     * der in einen laufenden Health-Check faellt, loescht dessen
+     * Snapshot-Tabellen mitten im Lauf. Nach jedem Repair passiert das
+     * zuverlaessig: extractAll markiert hunderte Dateien dirty, der
+     * 2s-Timer feuert genau in den anschliessenden Re-Check.
+     *
+     * Der Suspend verzoegert nur, er verwirft nie: dirty bleibt gesetzt,
+     * und resumeSaves holt einen aufgeschobenen Save sofort nach.
+     */
+    private savesSuspended = 0;
+    private saveDeferredWhileSuspended = false;
+
+    suspendSaves(): void {
+        this.savesSuspended++;
+        if (this.saveTimer) {
+            window.clearTimeout(this.saveTimer);
+            this.saveTimer = null;
+            this.saveDeferredWhileSuspended = true;
+        }
+    }
+
+    resumeSaves(): void {
+        if (this.savesSuspended > 0) this.savesSuspended--;
+        if (this.savesSuspended > 0) return;
+        if (this.saveDeferredWhileSuspended || this.dirty) {
+            this.saveDeferredWhileSuspended = false;
+            this.scheduleSave();
+        }
+    }
+
     private scheduleSave(): void {
         if (this.saveTimer) return; // already scheduled
+        if (this.savesSuspended > 0) {
+            // Nicht verwerfen: nach dem Resume nachholen.
+            this.saveDeferredWhileSuspended = true;
+            return;
+        }
         this.saveTimer = window.setTimeout(() => {
             this.saveTimer = null;
             void this.save();

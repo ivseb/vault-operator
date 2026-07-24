@@ -10,7 +10,7 @@ The system prompt is the first thing the model sees. It tells the agent who it i
 The orchestrator is `buildSystemPromptForMode()` in `src/core/systemPrompt.ts`, and the sections live in `src/core/prompts/sections/`. Those paths are in the plugin source code (this repository) for contributors building from source. They are not files inside the installed plugin, so you will not find them in your vault or in `.obsidian/plugins/vault-operator/`.
 
 :::tip Trim the prompt as a user
-You do not need to edit source files to make the prompt smaller. Turn on Settings > Vault Operator > Advanced > Loop > Lean system prompt to switch to the compact prompt variants. It drops the long cost-heuristics text and collapses the plugin-skill catalogue, which re-expands once a skill is mentioned. The toggle saves several thousand tokens without removing tool, safety, or response-format guidance.
+You do not need to edit source files to make the prompt smaller. Turn on Settings > Vault Operator > Agents > Loop > Lean system prompt to switch to the compact prompt variants. It drops the long cost-heuristics text and collapses the plugin-skill catalogue, which re-expands once a skill is mentioned. The toggle saves several thousand tokens without removing tool, safety, or response-format guidance.
 :::
 
 ## Why modular?

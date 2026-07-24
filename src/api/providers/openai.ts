@@ -205,8 +205,8 @@ export class OpenAiProvider implements ApiHandler {
     }
 
     getModel(): { id: string; info: ModelInfo } {
-        // Get context window from central registry
-        const contextWindow = getModelContextWindow(this.config.model);
+        // ADR-158 stage 1: discovery-reported window wins; registry chain as fallback
+        const contextWindow = this.config.contextWindow ?? getModelContextWindow(this.config.model);
 
         return {
             id: this.config.model,

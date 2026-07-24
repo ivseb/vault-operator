@@ -18,9 +18,8 @@ import { McpTab }         from './settings/McpTab';
 import { VaultTab }       from './settings/VaultTab';
 import { InterfaceTab }   from './settings/InterfaceTab';
 import { InlineActionsTab } from './settings/InlineActionsTab';
-import { LogTab }         from './settings/LogTab';
-import { DebugTab }       from './settings/DebugTab';
-import { BackupTab }      from './settings/BackupTab';
+import { DataDiagnosticsTab } from './settings/DataDiagnosticsTab';
+import { RecipesTab }     from './settings/RecipesTab';
 import { MemoryTab }      from './settings/MemoryTab';
 import { ShellTab }       from './settings/ShellTab';
 import { OptionalAssetsTab } from './settings/OptionalAssetsTab';
@@ -196,6 +195,16 @@ export class AgentSettingsTab extends PluginSettingTab {
         }
     }
 
+    /**
+     * Guards a persisted active-sub-tab id against a (possibly changed) tab
+     * list: returns the id if still present, else the first tab. Centralizes
+     * the fallback that all three build*Tab methods need after the FEAT-30-07
+     * restructure (Review-Finding: was copy-pasted three times).
+     */
+    private resolveActiveSubTab(tabs: { id: string }[], current: string): string {
+        return tabs.some((tb) => tb.id === current) ? current : (tabs[0]?.id ?? current);
+    }
+
     private renderComingSoon(
         container: HTMLElement,
         icon: string,
@@ -240,14 +249,19 @@ export class AgentSettingsTab extends PluginSettingTab {
     // ---------------------------------------------------------------------------
 
     private buildAgentBehaviourTab(container: HTMLElement): void {
-        // 2026-05-18 restructure: Loop -> Advanced (tech tuning),
-        // Rules/Workflows/Skills/Prompts -> Customize (user-created
-        // recipes), MCP renamed to Connectors -> Customize.
+        // FEAT-30-07 restructure: Loop kehrt aus Advanced zurueck (die
+        // Settings steuern das Agent-Loop-Verhalten) und der Inline-Chat
+        // zieht als "Inline chat" hierher (er faehrt denselben Agent-Loop
+        // wie die Sidebar, nur die inline-spezifischen Trigger-Settings
+        // leben hier).
         const subTabs = [
             { id: 'modes',       label: t('settings.tab.modes')       },
             { id: 'permissions', label: t('settings.tab.autoApprove') },
             { id: 'memory',      label: t('settings.tab.memory')      },
+            { id: 'loop',        label: t('settings.tab.loop')        },
+            { id: 'inline-chat', label: t('settings.tab.inlineChat')  },
         ];
+        this.activeAgentSubTab = this.resolveActiveSubTab(subTabs, this.activeAgentSubTab);
         this.buildSubTabNav(container, subTabs, this.activeAgentSubTab,
             (id) => { this.activeAgentSubTab = id; this.redraw(); });
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
@@ -262,6 +276,8 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (this.activeAgentSubTab === 'modes')       new ModesTab(this.plugin, this.app, rerender, ms).build(content);
         if (this.activeAgentSubTab === 'permissions') new PermissionsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAgentSubTab === 'memory')      new MemoryTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAgentSubTab === 'loop')        new LoopTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAgentSubTab === 'inline-chat') new InlineActionsTab(this.plugin, this.app, rerender).build(content);
     }
 
     // ---------------------------------------------------------------------------
@@ -269,13 +285,18 @@ export class AgentSettingsTab extends PluginSettingTab {
     // ---------------------------------------------------------------------------
 
     private buildCustomizeTab(container: HTMLElement): void {
+        // FEAT-30-07: Recipes ziehen aus dem Shell-Tab hierher, neben
+        // Rules und Workflows (alle drei sind vom Nutzer verwaltete
+        // Bausteine; der Recipes-Tab erklaert die Abgrenzung).
         const subTabs = [
             { id: 'skills',     label: t('settings.tab.skills')     },
             { id: 'connectors', label: t('settings.tab.connectors') },
             { id: 'prompts',    label: t('settings.tab.prompts')    },
             { id: 'workflows',  label: t('settings.tab.workflows')  },
             { id: 'rules',      label: t('settings.tab.rules')      },
+            { id: 'recipes',    label: t('settings.tab.recipes')    },
         ];
+        this.activeCustomizeSubTab = this.resolveActiveSubTab(subTabs, this.activeCustomizeSubTab);
         this.buildSubTabNav(container, subTabs, this.activeCustomizeSubTab,
             (id) => { this.activeCustomizeSubTab = id; this.redraw(); });
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
@@ -285,40 +306,39 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (this.activeCustomizeSubTab === 'prompts')    new PromptsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeCustomizeSubTab === 'workflows')  new WorkflowsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeCustomizeSubTab === 'rules')      new RulesTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeCustomizeSubTab === 'recipes')    new RecipesTab(this.plugin, this.app, rerender).build(content);
     }
 
     // ---------------------------------------------------------------------------
-    // Advanced tab (Loop + Interface + Vault + Shell + Log + Debug + Backup)
+    // Advanced tab (Interface + Vault + Plugin API + Data & diagnostics
+    // + Optional assets). FEAT-30-07: Loop und Inline chat leben unter
+    // Agent behaviour, Recipes unter Customize; Log/Debug/Backup sind zu
+    // "Data & diagnostics" verschmolzen; der Shell-Tab heisst Plugin API
+    // (er hat nie eine Shell konfiguriert).
     // ---------------------------------------------------------------------------
 
     private buildAdvancedTab(container: HTMLElement): void {
+        const subTabs = [
+            { id: 'interface', label: t('settings.tab.interface') },
+            { id: 'vault',     label: t('settings.tab.vault')     },
+            { id: 'plugin-api', label: t('settings.tab.pluginApi') },
+            { id: 'data',      label: t('settings.tab.dataDiagnostics') },
+            { id: 'optional-assets', label: t('settings.tab.optionalAssets') },
+        ];
+        this.activeAdvancedSubTab = this.resolveActiveSubTab(subTabs, this.activeAdvancedSubTab);
         this.buildSubTabNav(
             container,
-            [
-                { id: 'loop',      label: t('settings.tab.loop')      },
-                { id: 'interface', label: t('settings.tab.interface') },
-                { id: 'vault',     label: t('settings.tab.vault')     },
-                { id: 'shell',     label: t('settings.tab.shell')     },
-                { id: 'log',       label: t('settings.tab.log')       },
-                { id: 'debug',     label: t('settings.tab.debug')     },
-                { id: 'backup',    label: t('settings.tab.backup')    },
-                { id: 'optional-assets', label: t('settings.tab.optionalAssets') },
-                { id: 'inline-actions', label: 'Inline AI' },
-            ],
+            subTabs,
             this.activeAdvancedSubTab,
             (id) => { this.activeAdvancedSubTab = id; this.redraw(); },
         );
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
         const rerender = () => this.redraw();
-        if (this.activeAdvancedSubTab === 'loop')      new LoopTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'interface') new InterfaceTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'vault')     new VaultTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'shell')     new ShellTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'log')       new LogTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'debug')     new DebugTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'backup')    new BackupTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'interface')  new InterfaceTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'vault')      new VaultTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'plugin-api') new ShellTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'data')       new DataDiagnosticsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'optional-assets') new OptionalAssetsTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'inline-actions') new InlineActionsTab(this.plugin, this.app, rerender).build(content);
     }
 }
 

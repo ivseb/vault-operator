@@ -118,6 +118,14 @@ export class FreshnessOrchestrator {
 
             tokensUsed += verdict.tokensUsed;
 
+            // FIX-19-05-05: einen gescheiterten Verifier-Lauf NICHT persistieren.
+            // Sonst blockiert ein leeres FAIL_CLOSED-Verdict die Notiz bis zu 90
+            // Tage (Recheck-Cooldown) und erscheint die ganze Zeit als leerer
+            // "Befund". Nicht schreiben heisst: der naechste Scan versucht sie neu.
+            if (verdict.verifierError) {
+                continue;
+            }
+
             this.persistVerdict(verdict, now);
             await this.maybeMirrorToFrontmatter(verdict);
             verdicts.push(verdict);

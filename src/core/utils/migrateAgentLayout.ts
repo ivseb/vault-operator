@@ -45,6 +45,74 @@
  */
 const rawFs = require('fs') as typeof import('fs');
 import * as pathModule from 'path';
+import * as osModule from 'os';
+
+// ─────────────────────────────────────────────────────────────────────────
+// ADR-162 / FIX-30-07-04: Fresh-install fast-path probe
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Single source of truth for the historical storage-root names that the
+ * FEAT-29-01 consolidation replaces (Review-Finding: was string-duplicated
+ * across the migration phases, GlobalFileService and the probe below).
+ * '.vault-operator' is intentionally NOT in these lists: it is the
+ * consolidated target root, not a legacy source.
+ */
+export const LEGACY_VAULT_LOCAL_ROOTS = ['.obsidian-agent', '.obsilo-vault', 'obsilo-vault'] as const;
+export const LEGACY_VAULT_PARENT_ROOTS = ['obsilo-shared', 'vault-operator-shared', '.obsidian-agent'] as const;
+/** Pre-consolidation vault-local asset-cache root; counts as legacy only for the fresh-install fast-path. */
+const PRE_CONSOLIDATION_LOCAL_ROOT = '.vault-operator';
+
+export interface LegacyLayoutProbeInput {
+    /** Absolute filesystem path to the vault root. Empty = cannot probe. */
+    vaultBasePath: string;
+    /** Absolute filesystem path to the vault parent (one level up). */
+    vaultParent: string;
+    /** Injectable existence probe (tests). Default: fs.existsSync. */
+    exists?: (p: string) => boolean;
+    /** Injectable home dir (tests). Default: os.homedir(). */
+    homeDir?: string;
+    /**
+     * ADR-162 sync guard: when set, the consolidated target root
+     * (typically '.vault-operator') is EXCLUDED from the candidate list.
+     * The fresh-install fast-path leaves this unset (a pre-consolidation
+     * `.vault-operator` cache means "not truly fresh"); the guard for an
+     * already-'complete' vault sets it so the consolidated root itself is
+     * not mistaken for legacy inventory (Review-Finding: false 'pending'
+     * reset when only cache/ but no data/ exists yet).
+     */
+    consolidatedFolder?: string;
+}
+
+/**
+ * Returns true when ANY known legacy storage root exists for this vault.
+ * Conservative by design (ADR-162): only a fully clean probe qualifies a
+ * fresh install for the automatic `_layoutMigrationStatus='complete'`
+ * fast-path; every hit keeps the explicit opt-in migration flow. An empty
+ * vaultBasePath fails safe (legacy assumed, no fast-path).
+ */
+export function detectLegacyLayoutPresence(input: LegacyLayoutProbeInput): boolean {
+    if (!input.vaultBasePath || !input.vaultParent) return true;
+    const exists = input.exists ?? ((p: string) => {
+        try { return rawFs.existsSync(p); } catch { return true; }
+    });
+    const localRoots: string[] = [...LEGACY_VAULT_LOCAL_ROOTS];
+    // The pre-consolidation asset-cache root only counts as legacy for the
+    // fast-path (consolidatedFolder unset); the guard excludes the very root
+    // it is checking so a consolidated install's own '.vault-operator' does
+    // not register as legacy inventory.
+    if (input.consolidatedFolder !== PRE_CONSOLIDATION_LOCAL_ROOT) {
+        localRoots.push(PRE_CONSOLIDATION_LOCAL_ROOT);
+    }
+    const candidates = [
+        ...localRoots.map((r) => pathModule.join(input.vaultBasePath, r)),
+        ...LEGACY_VAULT_PARENT_ROOTS.map((r) => pathModule.join(input.vaultParent, r)),
+        // Prae-FEATURE-1508 Home-Root (migrateToParentDir behandelt ihn
+        // weiterhin, also zaehlt er als Legacy-Bestand).
+        pathModule.join(input.homeDir ?? osModule.homedir(), '.obsidian-agent'),
+    ];
+    return candidates.some((p) => exists(p));
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Status flag for resume

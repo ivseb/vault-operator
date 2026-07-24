@@ -79,10 +79,12 @@ import { AttemptCompletionTool } from './agent/AttemptCompletionTool';
 import { UpdateTodoListTool } from './agent/UpdateTodoListTool';
 import { SwitchModeTool } from './agent/SwitchModeTool';
 import { NewTaskTool } from './agent/NewTaskTool';
+import { InvestigateTool } from './agent/InvestigateTool';
 import { RunInBackgroundTool } from './agent/RunInBackgroundTool';
 import { ConsultFlagshipTool } from './agent/ConsultFlagshipTool';
 import { FindToolTool } from './agent/FindToolTool';
 import { ReadSkillTool } from './agent/ReadSkillTool';
+import { WriteSkillTool } from './agent/WriteSkillTool';
 // Plugin Skills (PAS-1)
 import { ExecuteCommandTool } from './agent/ExecuteCommandTool';
 import { ResolveCapabilityGapTool } from './agent/ResolveCapabilityGapTool';
@@ -239,6 +241,7 @@ export class ToolRegistry {
         this.register(new UpdateTodoListTool(this.plugin));
         this.register(new SwitchModeTool(this.plugin));
         this.register(new NewTaskTool(this.plugin));
+        this.register(new InvestigateTool(this.plugin));
         this.register(new RunInBackgroundTool(this.plugin));
         // EPIC-26 / FEAT-26-01 / ADR-120: advisor-pattern escalation tool.
         // Filtered out of the prompt schema by AgentTask when no flagship
@@ -249,6 +252,10 @@ export class ToolRegistry {
         // FEAT-24-09 / ADR-116: load a SKILL.md body on demand (always
         // available; skillLoader is optional and may be wired in later).
         this.register(new ReadSkillTool(this.plugin, skillLoader ?? null));
+        // Write counterpart of read_skill: revise an existing skill by name.
+        // Same skillLoader wiring; writes flow through the vault adapter so the
+        // SkillWriteInterceptor snapshots the change.
+        this.register(new WriteSkillTool(this.plugin, skillLoader ?? null));
         // Plugin Skills (PAS-1)
         this.register(new ExecuteCommandTool(this.plugin));
         this.register(new ResolveCapabilityGapTool(this.plugin));
@@ -351,6 +358,17 @@ export class ToolRegistry {
     private invalidateDefinitionCache(): void {
         this.cachedAllDefinitions = null;
         this.cachedByName = null;
+    }
+
+    /**
+     * Public cache-buster for callers that change data a tool bakes into
+     * its getDefinition() output WITHOUT registering/unregistering a tool.
+     * FEAT-30-07 Review-Finding: execute_recipe embeds the user's custom
+     * recipes in its description; saving one in the Recipe editor must
+     * invalidate the cache so the agent sees it within the same session.
+     */
+    refreshDefinitions(): void {
+        this.invalidateDefinitionCache();
     }
 
     getToolDefinitions(options?: { includeDeferred?: boolean }): ToolDefinition[] {

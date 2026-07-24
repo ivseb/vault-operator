@@ -73,8 +73,8 @@ export interface ValidateUrlOptions {
     allowLocalhost?: boolean;
     /**
      * FEAT-26-07: opt-in for enterprise API-Gateway endpoints that proxy the
-     * Bedrock Runtime ConverseStream API (e.g. Acme's `gateway.integration-
-     * apihub.apim.example.com/genai/cowork/bedrock`). When set together with
+     * Bedrock Runtime ConverseStream API (e.g. an APIM host like
+     * `gateway.apim.example.com/genai/bedrock`). When set together with
      * providerType='bedrock', the strict `*.amazonaws.com` allow-list is
      * skipped but every other SSRF check (HTTPS-only, BLOCKED_HOSTNAMES,
      * local/private IP) remains in force. No-op for other provider types.

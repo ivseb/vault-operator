@@ -3,7 +3,10 @@ import type ObsidianAgentPlugin from '../../main';
 import type { ModeService } from '../../core/modes/ModeService';
 import type { ToolGroup } from '../../types/settings';
 import { TOOL_METADATA, GROUP_META, getToolsForGroup } from '../../core/tools/toolMetadata';
+import { isMcpServerActive, setMcpServerActive, setAllMcpActive } from '../../core/mcp/mcpActivation';
+import { getCatalogEntry } from '../../core/mcp/connectorCatalog';
 import { t } from '../../i18n';
+import { PopoverDismisser, positionPopover } from './popoverShell';
 
 /**
  * ToolPickerPopover — manages the "pocket-knife" tool/skill/workflow picker.
@@ -13,8 +16,7 @@ import { t } from '../../i18n';
  */
 export class ToolPickerPopover {
     private popoverEl: HTMLElement | null = null;
-    private closeHandler: ((e: MouseEvent) => void) | null = null;
-    private resizeHandler: (() => void) | null = null;
+    private readonly dismisser = new PopoverDismisser();
 
     constructor(
         private plugin: ObsidianAgentPlugin,
@@ -22,6 +24,13 @@ export class ToolPickerPopover {
     ) {}
 
     show(event: MouseEvent, anchorBtn: HTMLElement, containerEl: HTMLElement): void {
+        // Anchor click while open = toggle-close (IMP-02-12-03; the dismisser
+        // exempts the anchor from outside-close, so this is the button's only
+        // close path).
+        if (this.dismisser.isOpenFor(anchorBtn)) {
+            this.close();
+            return;
+        }
         this.close();
         try {
             this.renderPopover(anchorBtn, containerEl);
@@ -39,6 +48,7 @@ export class ToolPickerPopover {
             console.warn(`[ToolPicker] currentMode "${slug}" is unknown, falling back to "agent".`);
             this.plugin.settings.currentMode = 'agent';
             void this.plugin.saveSettings();
+            this.plugin.forcedWorkflowHub.notify();
             resolvedMode = this.modeService.getMode('agent');
             if (!resolvedMode) {
                 console.error('[ToolPicker] default "agent" mode is missing; cannot open picker.');
@@ -236,25 +246,32 @@ export class ToolPickerPopover {
             const mcpChecks: HTMLInputElement[] = [];
 
             if (servers.length > 0) {
-                const activeMcpServers: string[] = this.plugin.settings.activeMcpServers ?? [];
+                // FEAT-04-12: the selection is PER AGENT now -- say whose it is.
+                // Keyed on the RESOLVED mode slug (U5 pattern), not raw currentMode.
+                mcpCatBody.createEl('div', {
+                    cls: 'tp-section-hint',
+                    text: t('ui.toolPicker.mcpServersHint', { agent: mode.name }),
+                });
                 for (const serverName of servers) {
+                    // Show the friendly name from the catalog or the server's own
+                    // displayName (e.g. "GitHub"), matching the MCP settings list,
+                    // not the URL-like key. The key still drives activation below.
+                    const displayName = getCatalogEntry(serverName)?.displayName
+                        ?? this.plugin.settings.mcpServers?.[serverName]?.displayName
+                        ?? serverName;
                     const cb = makeItemRow(
-                        mcpCatBody, serverName, t('ui.toolPicker.mcpServer'), 'plug-2',
-                        activeMcpServers.length === 0 || activeMcpServers.includes(serverName),
+                        mcpCatBody, displayName, t('ui.toolPicker.mcpServer'), 'plug-2',
+                        isMcpServerActive(this.plugin.settings, mode.slug, serverName),
                         'tp-item-row tp-item-indent-cat',
                     );
                     mcpChecks.push(cb);
                     cb.addEventListener('change', () => { void (async () => {
-                        const cur: string[] = this.plugin.settings.activeMcpServers ?? [];
-                        if (cur.length === 0) {
-                            const all = Object.keys(this.plugin.settings.mcpServers ?? {});
-                            this.plugin.settings.activeMcpServers = all.filter((s) => s !== serverName);
-                        } else if (cb.checked) {
-                            this.plugin.settings.activeMcpServers = [...cur, serverName];
-                        } else {
-                            this.plugin.settings.activeMcpServers = cur.filter((s) => s !== serverName);
-                        }
+                        // Normalizes per agent: all -> key removed (all-active
+                        // default), none -> [], partial -> explicit list.
+                        // Single source of truth: mcpActivation.
+                        setMcpServerActive(this.plugin.settings, mode.slug, serverName, cb.checked, servers);
                         await this.plugin.saveSettings();
+                        mcpChecks.forEach((c, i) => { c.checked = isMcpServerActive(this.plugin.settings, mode.slug, servers[i]); });
                         const allCb = mcpChecks.every((c) => c.checked);
                         const someCb = mcpChecks.some((c) => c.checked);
                         mcpGroupCb.checked = allCb;
@@ -273,62 +290,21 @@ export class ToolPickerPopover {
             mcpGroupCb.addEventListener('change', () => { void (async () => {
                 for (const cb of mcpChecks) cb.checked = mcpGroupCb.checked;
                 mcpGroupCb.indeterminate = false;
-                this.plugin.settings.activeMcpServers = mcpGroupCb.checked ? [] : [];
+                // Off is representable per agent now: checked -> key removed
+                // (all-active default), unchecked -> [] (none for this agent).
+                setAllMcpActive(this.plugin.settings, mode.slug, mcpGroupCb.checked);
                 await this.plugin.saveSettings();
             })(); });
         }
 
-        // ── Workflows section (async) ─────────────────────────────────────────
-        const { catRow: wfCatRow, catBody: wfCatBody } = makeTopCat(t('ui.toolPicker.workflows'), false);
-        const wfGroupCb = wfCatRow.createEl('input', { type: 'checkbox' });
-        wfGroupCb.className = 'tp-cat-group-cb';
-        wfCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.loading') });
-
         // ── Position (clamped to container bounds) ──────────────────────────
-        const positionPopover = () => {
-            const br = anchorBtn.getBoundingClientRect();
-            const cr = containerEl.getBoundingClientRect();
-            const pad = 8;
-            popover.setCssProps({ '--tp-pos': 'fixed' });
-
-            // Constrain width to container
-            const popWidth = Math.min(400, cr.width - pad * 2);
-            popover.setCssProps({
-                '--tp-w': `${popWidth}px`,
-                '--tp-min-w': `${Math.min(320, popWidth)}px`,
-                '--tp-max-w': `${popWidth}px`,
+        const reposition = () => {
+            positionPopover(popover, anchorBtn, containerEl, {
+                cssPrefix: '--tp', maxWidth: 400, extraWidthVars: true,
             });
-
-            // Prefer opening upward; fall back to downward
-            const spaceAbove = br.top - cr.top - pad;
-            const spaceBelow = cr.bottom - br.bottom - pad;
-
-            if (spaceAbove >= spaceBelow) {
-                popover.setCssProps({
-                    '--tp-bottom': (window.innerHeight - br.top + 4) + 'px',
-                    '--tp-top': '',
-                    '--tp-max-h': `${Math.max(spaceAbove, 200)}px`,
-                });
-            } else {
-                popover.setCssProps({
-                    '--tp-top': (br.bottom + 4) + 'px',
-                    '--tp-bottom': '',
-                    '--tp-max-h': `${Math.max(spaceBelow, 200)}px`,
-                });
-            }
-
-            // Horizontal: keep inside container
-            let left = Math.max(br.left, cr.left + pad);
-            if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
-            left = Math.max(left, cr.left + pad);
-            popover.setCssProps({ '--tp-left': `${left}px` });
         };
         activeDocument.body.appendChild(popover);
-        positionPopover();
-
-        // Re-position on window resize so the popover tracks its anchor
-        this.resizeHandler = positionPopover;
-        window.addEventListener('resize', this.resizeHandler);
+        reposition();
 
         updateCount();
 
@@ -347,79 +323,16 @@ export class ToolPickerPopover {
             }
         });
 
-        // ── Async: workflows ──────────────────────────────────────────────────
-        void (async () => {
-            const workflowLoader = this.plugin.workflowLoader;
-            if (workflowLoader) {
-                wfCatBody.empty();
-                try {
-                    const workflows = await workflowLoader.discoverWorkflows();
-                    if (workflows.length === 0) {
-                        wfCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.noWorkflows') });
-                        wfGroupCb.disabled = true;
-                    } else {
-                        const wfCbs: HTMLInputElement[] = [];
-                        const activeWfSlug = this.plugin.settings.forcedWorkflow?.[slug] ?? '';
-                        wfCatRow.addClass('is-open');
-                        wfCatBody.classList.remove('agent-u-hidden');
-                        for (const wf of workflows) {
-                            const cb = makeItemRow(
-                                wfCatBody, wf.displayName, `/${wf.slug}`, 'git-branch',
-                                activeWfSlug === wf.slug, 'tp-item-row tp-item-indent-cat',
-                            );
-                            wfCbs.push(cb);
-                            cb.addEventListener('change', () => { void (async () => {
-                                if (!this.plugin.settings.forcedWorkflow) this.plugin.settings.forcedWorkflow = {};
-                                if (cb.checked) {
-                                    for (const other of wfCbs) { if (other !== cb) other.checked = false; }
-                                    this.plugin.settings.forcedWorkflow[slug] = wf.slug;
-                                } else {
-                                    this.plugin.settings.forcedWorkflow[slug] = '';
-                                }
-                                await this.plugin.saveSettings();
-                                wfGroupCb.checked = wfCbs.some((c) => c.checked);
-                                wfGroupCb.indeterminate = false;
-                                updateCount();
-                            })(); });
-                        }
-                        wfGroupCb.checked = wfCbs.some((c) => c.checked);
-                        wfGroupCb.addEventListener('change', () => { void (async () => {
-                            if (!wfGroupCb.checked) {
-                                for (const c of wfCbs) c.checked = false;
-                                if (!this.plugin.settings.forcedWorkflow) this.plugin.settings.forcedWorkflow = {};
-                                this.plugin.settings.forcedWorkflow[slug] = '';
-                                await this.plugin.saveSettings();
-                            }
-                            updateCount();
-                        })(); });
-                    }
-                } catch {
-                    wfCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.errorWorkflows') });
-                }
-            } else {
-                wfCatRow.remove();
-                wfCatBody.remove();
-            }
-        })();
-
-        // Close on outside click
-        this.closeHandler = (e: MouseEvent) => {
-            if (!this.popoverEl?.contains(e.target as Node) && e.target !== anchorBtn) {
-                this.close();
-            }
-        };
-        window.setTimeout(() => activeDocument.addEventListener('mousedown', this.closeHandler!), 50);
+        this.dismisser.attach({
+            el: popover,
+            anchor: anchorBtn,
+            onDismiss: () => this.close(),
+            reposition,
+        });
     }
 
     close(): void {
-        if (this.closeHandler) {
-            activeDocument.removeEventListener('mousedown', this.closeHandler);
-            this.closeHandler = null;
-        }
-        if (this.resizeHandler) {
-            window.removeEventListener('resize', this.resizeHandler);
-            this.resizeHandler = null;
-        }
+        this.dismisser.detach();
         this.popoverEl?.remove();
         this.popoverEl = null;
     }

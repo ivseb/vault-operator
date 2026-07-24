@@ -20,6 +20,10 @@ import {
     encryptProviderCredentialsInPlace,
     decryptProviderCredentialsInPlace,
 } from '../security/providerCredentialCrypto';
+import {
+    encryptMcpOAuthInPlace,
+    decryptMcpOAuthInPlace,
+} from '../security/mcpOAuthCrypto';
 
 // ---------------------------------------------------------------------------
 // Vault-local keys — everything NOT in this set is considered global
@@ -45,10 +49,57 @@ const VAULT_LOCAL_KEYS = new Set<string>([
     'modeToolOverrides',
     'modeSkillAllowList',
     'forcedSkills',
+    'forcedWorkflow',
+    'modeMcpOverrides',
     '_encrypted',
     '_globalStorageMigrated',
     '_syncDirMigrated',
+    '_forcedWorkflowVaultMigrated',
+    '_mcpPerModeMigrated',
 ]);
+
+/**
+ * ADR-160: forcedWorkflow moved from global to vault-local. Decide the
+ * vault-local value on load. Pre-ADR-160 the GLOBAL file won on load
+ * (mergeIntoVault), so data.json only mirrors a possibly-stale copy: whenever
+ * the global file has the key -- including an explicitly cleared map -- that IS
+ * the state the user last saw, and the vault adopts it. The vault mirror is
+ * only the fallback for installs whose global file never carried the key.
+ * Pure so the one-time migration can be asserted directly.
+ */
+export function resolveVaultForcedWorkflow(
+    vaultForced: Record<string, string> | undefined,
+    legacyGlobal: Record<string, string> | undefined,
+): Record<string, string> {
+    if (legacyGlobal !== undefined) {
+        return { ...legacyGlobal };
+    }
+    return { ...(vaultForced ?? {}) };
+}
+
+/**
+ * ADR-161 (FEAT-04-12): decide the vault-local per-mode MCP overrides on the
+ * one-time migration from the legacy GLOBAL activation. Only a legacy state
+ * that deviates from the all-active default is adopted, stamped into every
+ * mode known at migration time (disabled -> empty list per mode = none;
+ * explicit subset -> that subset per mode). A vault map that already has
+ * entries wins untouched. Pure so the migration can be asserted directly.
+ */
+export function resolveModeMcpOverrides(
+    vaultMap: Record<string, string[]> | undefined,
+    legacyActive: string[] | undefined,
+    legacyDisabled: boolean | undefined,
+    knownModeSlugs: string[],
+): Record<string, string[]> {
+    if (vaultMap && Object.keys(vaultMap).length > 0) return vaultMap;
+    if (legacyDisabled === true) {
+        return Object.fromEntries(knownModeSlugs.map((slug) => [slug, []]));
+    }
+    if (legacyActive && legacyActive.length > 0) {
+        return Object.fromEntries(knownModeSlugs.map((slug) => [slug, [...legacyActive]]));
+    }
+    return {};
+}
 
 // ---------------------------------------------------------------------------
 // GlobalSettingsService
@@ -67,6 +118,16 @@ export class GlobalSettingsService {
      * Returns partial settings (only the global keys that were persisted).
      */
     async loadGlobal(): Promise<Partial<ObsidianAgentSettings>> {
+        return (await this.loadGlobalOrNull()) ?? {};
+    }
+
+    /**
+     * Like loadGlobal, but distinguishes "file does not exist" ({}) from
+     * "file exists and cannot be read" (null). One-time migrations must NOT
+     * burn their flag on null: the data is still on disk, only this read
+     * failed, and the next boot can retry (ADR-160 review fix).
+     */
+    async loadGlobalOrNull(): Promise<Partial<ObsidianAgentSettings> | null> {
         try {
             const exists = await this.globalFs.exists(SETTINGS_FILE);
             if (!exists) return {};
@@ -77,7 +138,7 @@ export class GlobalSettingsService {
             return parsed as Partial<ObsidianAgentSettings>;
         } catch (e) {
             console.warn('[GlobalSettingsService] Failed to load global settings:', e);
-            return {};
+            return null;
         }
     }
 
@@ -97,6 +158,18 @@ export class GlobalSettingsService {
                 if (!VAULT_LOCAL_KEYS.has(key)) {
                     globalSubset[key] = value;
                 }
+            }
+            // ADR-160 review fix: forcedWorkflow is vault-local now, but OTHER
+            // vaults may not have run their one-time adoption yet. Preserve a
+            // legacy value already in the file instead of stripping it on the
+            // first save from any vault. The key is inert at runtime
+            // (mergeIntoVault skips vault-local keys); it only serves as the
+            // migration source for not-yet-migrated vaults. On a failed read
+            // (null) there is nothing we can do -- the subsequent write would
+            // likely fail too, and saveGlobal returns false on that path.
+            const existing = await this.loadGlobalOrNull();
+            if (existing?.forcedWorkflow !== undefined) {
+                globalSubset.forcedWorkflow = existing.forcedWorkflow;
             }
             // Encrypt API keys before writing
             const encrypted = this.encryptGlobal(globalSubset);
@@ -141,6 +214,14 @@ export class GlobalSettingsService {
         // shared with main.ts decryptSettings so the two paths cannot
         // desync on the credential keys.
         decryptProviderCredentialsInPlace(
+            settings as unknown as ObsidianAgentSettings,
+            this.safeStorage,
+        );
+        // AUDIT-2026-07-17 H-1: mcpServers is a GLOBAL key, so the OAuth
+        // tokens / client_secret / header credentials it carries are dual-
+        // written here. Mirror the data.json decrypt pass (main.ts) with the
+        // shared walker so the two paths cannot desync (CWE-312).
+        decryptMcpOAuthInPlace(
             settings as unknown as ObsidianAgentSettings,
             this.safeStorage,
         );
@@ -208,6 +289,15 @@ export class GlobalSettingsService {
         // (CWE-256 / CWE-312). Walker is shared with main.ts so the two
         // paths cannot desync on the credential keys.
         encryptProviderCredentialsInPlace(
+            copy as unknown as ObsidianAgentSettings,
+            this.safeStorage,
+        );
+        // AUDIT-2026-07-17 H-1: encrypt the FEAT-04-10/04-11 MCP connector
+        // secrets (oauth access/refresh token, client_secret, header-borne
+        // tokens like a GitHub PAT) before they reach the sync-prone global
+        // file. Without this the dual-write leaked them in plaintext while
+        // data.json held ciphertext (CWE-312). Shared walker keeps them in sync.
+        encryptMcpOAuthInPlace(
             copy as unknown as ObsidianAgentSettings,
             this.safeStorage,
         );

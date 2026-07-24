@@ -15,6 +15,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { BatchEditPreview } from '../editPreview';
 import { t } from '../../../i18n';
+import { buildHealthCheckOptions } from '../../knowledge/VaultHealthService';
 
 export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
     readonly name = 'vault_health_check' as const;
@@ -67,8 +68,9 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
             // methods, so plan and repair select the same targets.
             const targets = healthService.planRepairTargets(
                 action,
-                'Notizen',
+                this.plugin.settings.backlinksProperty ?? 'Notizen',
                 this.plugin.settings.categoryProperty ?? 'Kategorie',
+                this.plugin.settings.vaultHealth?.reciprocalProperties ?? [],
             );
             if (targets.length === 0) return null;
             return {
@@ -95,7 +97,27 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
     private async takeRepairSnapshot(action: string): Promise<void> {
         const cp = this.plugin.checkpointService;
         if (!cp) return;
-        const all = this.plugin.app.vault.getMarkdownFiles().map((f) => f.path);
+        // FEAT-19-04-01 W2c: die .base-Automatik ist abgeschaltet, der Plan
+        // enthaelt nur noch .md-Ziele (kein NEU angelegtes
+        // `<name>-Backlinks.base` mehr). Der Plan bleibt trotzdem die
+        // Snapshot-Quelle: er ist die autorisierte Aenderungsmenge, und die
+        // Vereinigung mit getMarkdownFiles schadet nicht.
+        // (Historie SEC M-3, Audit 2026-07-19: solange fixMissingBacklinks
+        // ueber ensureBacklinksBase .base-Dateien anlegte, fehlten die in
+        // checkpoint.newFiles und ueberlebten jedes Undo -- der Plan trug sie.)
+        const svc = this.plugin.vaultHealthService;
+        const planned = svc && (action === 'fix_backlinks' || action === 'cleanup' || action === 'fix_categories')
+            ? svc.planRepairTargets(
+                action,
+                this.plugin.settings.backlinksProperty ?? 'Notizen',
+                this.plugin.settings.categoryProperty ?? 'Kategorie',
+                this.plugin.settings.vaultHealth?.reciprocalProperties ?? [],
+            )
+            : [];
+        const all = [...new Set([
+            ...this.plugin.app.vault.getMarkdownFiles().map((f) => f.path),
+            ...planned,
+        ])];
         if (all.length === 0) return;
         const taskId = `vault-health-${action}-${Date.now()}`;
         try {
@@ -139,6 +161,12 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
         // to this set keeps the repair inside what the card showed even when
         // the vault changed while the card was open.
         const approvedScope = context.approvedBatchPaths;
+        // SEC L-1 (Audit 2026-07-19): der Fallback "kein Scope -> frisch
+        // berechneter Vollplan" war kein Schutz, sondern ein Freibrief: er
+        // band den Repair an die VOLLE Live-Selektion, also genau an die
+        // Menge, die ohne jede Approval entsteht. ADR-165 verlangt eine
+        // approvte Liste; fehlt sie, wird nicht geschrieben.
+        const boundScope = (): ReadonlySet<string> | null => approvedScope ?? null;
 
         try {
             if (action === 'refresh' || action === 'check') {
@@ -146,7 +174,9 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 if (action === 'refresh') {
                     const vault = this.plugin.app.vault;
                     if (this.plugin.graphExtractor) {
-                        this.plugin.graphExtractor.extractAll(vault);
+                        // FEAT-19-04-01 W3: extractAll ist async; awaiten, damit
+                        // Ontology-Bootstrap und Check frische Kanten lesen.
+                        await this.plugin.graphExtractor.extractAll(vault);
                         callbacks.log('Graph re-extracted');
                     }
                     if (this.plugin.ontologyStore) {
@@ -170,41 +200,60 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                     }
                 }
 
-                const findings = await healthService.runChecks(undefined, {
-                    backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
-                    silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
-                    orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
-                    reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
-                });
+                const findings = await healthService.runChecks(undefined, buildHealthCheckOptions(this.plugin.settings));
                 const formatted = healthService.formatFindings(findings);
                 callbacks.pushToolResult(formatted);
                 callbacks.log(`Vault health check: ${findings.length} finding(s)`);
 
             } else if (action === 'fix_backlinks') {
+                const scope = boundScope();
+                if (!scope) {
+                    callbacks.pushToolResult(
+                        'Repair aborted: no approved path list. The approval gate must run first '
+                        + '(vault_health_check surfaces the plan as a scope card); repairs never '
+                        + 'fall back to the full live selection.',
+                    );
+                    return;
+                }
                 await this.takeRepairSnapshot('fix_backlinks');
-                // Batch-fix all missing backlinks in pure code (0 LLM tokens)
-                // Uses Base-strategy: Thema/Konzept get embedded Base, others get frontmatter (max 10)
+                // Batch-fix all missing backlinks in pure code (0 LLM tokens).
+                // FEAT-19-04-01 W2c: nur Frontmatter-Rueck-Links (max
+                // MAX_FRONTMATTER_BACKLINKS). Overload-Hubs sind aus der
+                // Finding-Menge ausgeschlossen (Praedikat-Filter 3); ihre
+                // Rueckverweise zeigt der selbstbildende Block.
+                // ADR-164: Settings-Properties statt Hardcode 'Notizen'; die
+                // Reziprok-Paare gehen mit, damit Plan/Repair dieselbe Menge
+                // sehen wie der Check.
                 const result = await healthService.fixMissingBacklinks(
-                    'Notizen',
+                    this.plugin.settings.backlinksProperty ?? 'Notizen',
                     this.plugin.settings.categoryProperty ?? 'Kategorie',
-                    approvedScope,
+                    this.plugin.settings.vaultHealth?.reciprocalProperties ?? [],
+                    scope,
                 );
                 callbacks.pushToolResult(
                     `Missing backlinks fixed: ${result.entitiesFixed} entities updated, ` +
-                    `${result.linksAdded} frontmatter backlinks, ${result.basesCreated} embedded Bases created.\n` +
-                    `Strategy: Thema/Konzept notes get dynamic Base views, others get frontmatter links (max 10).\n` +
+                    `${result.linksAdded} frontmatter backlinks added.\n` +
                     `All changes are reversible via Undo. Run vault_health_check with action "refresh" to verify.`,
                 );
                 callbacks.log(`fix_backlinks: ${result.entitiesFixed} entities, ${result.linksAdded} links`);
 
             } else if (action === 'cleanup') {
+                const scope = boundScope();
+                if (!scope) {
+                    callbacks.pushToolResult(
+                        'Repair aborted: no approved path list. The approval gate must run first '
+                        + '(vault_health_check surfaces the plan as a scope card); repairs never '
+                        + 'fall back to the full live selection.',
+                    );
+                    return;
+                }
                 await this.takeRepairSnapshot('cleanup');
                 // Remove invalid backlinks from frontmatter (non-.md, broken, duplicates)
                 // Also clears Notizen for Thema/Konzept notes (Bases handle those)
                 const result = await healthService.cleanupInvalidBacklinks(
-                    'Notizen',
+                    this.plugin.settings.backlinksProperty ?? 'Notizen',
                     this.plugin.settings.categoryProperty ?? 'Kategorie',
-                    approvedScope,
+                    scope,
                 );
                 callbacks.pushToolResult(
                     `Cleanup complete: ${result.notesProcessed} notes processed, ${result.linksRemoved} invalid links removed.\n` +
@@ -215,9 +264,18 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 callbacks.log(`cleanup: ${result.notesProcessed} notes, ${result.linksRemoved} removed`);
 
             } else if (action === 'fix_categories') {
+                const scope = boundScope();
+                if (!scope) {
+                    callbacks.pushToolResult(
+                        'Repair aborted: no approved path list. The approval gate must run first '
+                        + '(vault_health_check surfaces the plan as a scope card); repairs never '
+                        + 'fall back to the full live selection.',
+                    );
+                    return;
+                }
                 await this.takeRepairSnapshot('fix_categories');
                 try {
-                    const result = await healthService.fixCategoryMismatches(approvedScope);
+                    const result = await healthService.fixCategoryMismatches(this.plugin.settings.categoryProperty ?? 'Kategorie', scope);
                     callbacks.pushToolResult(
                         `Category mismatches fixed: ${result.notesFixed} notes updated, ${result.valuesMovied} values moved.\n` +
                         `Thema/Konzept values moved to correct property.\n` +

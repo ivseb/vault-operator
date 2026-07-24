@@ -68,8 +68,8 @@ export class AnthropicProvider implements ApiHandler {
     }
 
     getModel(): { id: string; info: ModelInfo } {
-        // Get context window from central registry
-        const contextWindow = getModelContextWindow(this.config.model);
+        // ADR-158 stage 1: discovery-reported window wins; registry chain as fallback
+        const contextWindow = this.config.contextWindow ?? getModelContextWindow(this.config.model);
 
         return {
             id: this.config.model,
@@ -133,10 +133,13 @@ export class AnthropicProvider implements ApiHandler {
      * Quick non-streaming classification call (~100 input, ~10 output tokens).
      * Used by skill matching LLM-fallback when regex finds no match.
      */
-    async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+    async classifyText(prompt: string, abortSignal?: AbortSignal, maxTokens = 50): Promise<string> {
+        // FIX-19-05-05: maxTokens parametrisiert (Default 50 fuer den
+        // 1-Wort-Prefilter). Der Freshness-Verifier uebergibt ~512, damit sein
+        // JSON-Urteil nicht abgeschnitten wird und still auf FAIL_CLOSED faellt.
         const response = await this.client.messages.create({
             model: this.config.model,
-            max_tokens: 50,
+            max_tokens: maxTokens,
             messages: [{ role: 'user', content: prompt }],
         }, {
             signal: abortSignal ?? undefined,

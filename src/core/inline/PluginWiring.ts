@@ -27,7 +27,8 @@ import { CommandPicker, type CommandPickerItem } from '../../ui/sidebar/CommandP
 import { VaultFilePicker } from '../../ui/sidebar/VaultFilePicker';
 import { AttachmentHandler } from '../../ui/sidebar/AttachmentHandler';
 import { ChatModelPickerPopover } from '../../ui/sidebar/ChatModelPickerPopover';
-import { McpServerPopover } from '../../ui/sidebar/McpServerPopover';
+import { ToolPickerPopover } from '../../ui/sidebar/ToolPickerPopover';
+import { nextForcedWorkflow } from '../../ui/sidebar/forcedWorkflow';
 import type ObsidianAgentPlugin from '../../main';
 import { InlineActionRegistry } from './InlineActionRegistry';
 import { InlineTriggerResolver } from './InlineTriggerResolver';
@@ -50,14 +51,12 @@ import { InlineWebLookup } from './lookup/InlineWebLookup';
 import { resolveInlineActionsSettings, resolveInlineModelSnapshot } from './inlineSettings';
 import type { InlineLLMCaller, InlineLLMStreamArgs, InlineLLMStreamCallbacks } from './InlineLLMCaller';
 import type { InlineSettingsSnapshot } from './InlineTriggerContext';
-import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/AgentSidebarView';
+import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/viewTypes';
 // SelectionWatcher: re-enabled 2026-06-24, but gated behind the
 // `floatingMenuEnabled` setting which defaults to FALSE. The 2026-06-22
 // regression (blocking copy/read flows) only triggered when auto-open
 // was ON by default; the watcher itself stays opt-in.
 import { SelectionWatcher } from './SelectionWatcher';
-import { InlineSkillFilter, type SkillCapabilityProbe, type SkillEntry } from './skills/InlineSkillFilter';
-import { InlineSkillAction } from './skills/InlineSkillAction';
 import { inlineDiffExtension } from './diff/CodeMirrorDiffAdapter';
 import { InlineChatOrchestrator, type EditorChatProbe } from './chat/InlineChatOrchestrator';
 import { CodeMirrorBlockMount, inlineChatBlockExtension } from './chat/mount/CodeMirrorBlockMount';
@@ -353,18 +352,22 @@ interface PanelSurface {
     panelRoot: HTMLElement;
     attachments: AttachmentHandler;
     vaultFilePicker: VaultFilePicker;
-    mcpPicker: McpServerPopover;
     modelPicker: ChatModelPickerPopover;
     /** Per-turn chat model pin (mirrors AgentSidebarView.chatModelOverride). */
     chatModelOverride: string | null;
     chatThinkingOverride: import('../../ui/sidebar/thinkingOverride').ThinkingOverride;
     chatEffortOverride: import('../../ui/sidebar/effortOverride').EffortOverride;
+    /** Lazy: created on first "Select tools" click (IMP-02-12-02). */
+    toolPicker?: ToolPickerPopover;
 }
 
 let activePanelSurface: PanelSurface | null = null;
 
 /** Called from the orchestrator on panel-open / close to scope the picker instances. */
 export function setActivePanelSurface(surface: PanelSurface | null): void {
+    // The tool picker renders into document.body; close it with its surface
+    // so it cannot outlive the panel (IMP-02-12-02).
+    if (activePanelSurface !== surface) activePanelSurface?.toolPicker?.close();
     activePanelSurface = surface;
 }
 
@@ -375,13 +378,11 @@ export function buildPanelSurface(plugin: ObsidianAgentPlugin, panelRoot: HTMLEl
         plugin.app,
         async (files) => { for (const f of files) await attachments.addVaultFile(f); },
     );
-    const mcpPicker = new McpServerPopover(plugin);
     const modelPicker = new ChatModelPickerPopover();
     return {
         panelRoot,
         attachments,
         vaultFilePicker,
-        mcpPicker,
         modelPicker,
         chatModelOverride: null,
         chatThinkingOverride: 'follow',
@@ -397,6 +398,7 @@ async function buildCommandItems(
     plugin: ObsidianAgentPlugin,
     category: 'skills' | 'prompts' | 'workflows',
     handle: import('./chat/InlineChatPanel').InlinePanelHandle,
+    getModeSlug: () => string,
 ): Promise<CommandPickerItem[]> {
     if (category === 'skills') {
         const skills = (plugin as unknown as { selfAuthoredSkillLoader?: { getAllSkills: () => Array<{ name: string; description: string }> } }).selfAuthoredSkillLoader?.getAllSkills() ?? [];
@@ -431,7 +433,18 @@ async function buildCommandItems(
     if (workflowLoader === undefined) return [];
     const workflows = await workflowLoader.discoverWorkflows();
     const toggles = (plugin.settings as { workflowToggles?: Record<string, boolean> }).workflowToggles ?? {};
-    return workflows
+    const toggleForced = (slug: string) => {
+        const modeSlug = getModeSlug();
+        if (!plugin.settings.forcedWorkflow) plugin.settings.forcedWorkflow = {};
+        plugin.settings.forcedWorkflow[modeSlug] = nextForcedWorkflow(
+            plugin.settings.forcedWorkflow[modeSlug] ?? '', slug,
+        );
+        void plugin.saveSettings();
+        // Hub notify reaches BOTH surfaces' chips, incl. this panel's own
+        // subscription (IMP-02-12-01).
+        plugin.forcedWorkflowHub.notify();
+    };
+    const items: CommandPickerItem[] = workflows
         .filter((w) => toggles[w.path] !== false)
         .map((wf) => ({
             label: wf.displayName,
@@ -439,7 +452,36 @@ async function buildCommandItems(
             tag: t('ui.inline.tagWorkflow'),
             icon: 'workflow',
             onSelect: () => handle.insertIntoComposer(`§${wf.slug}`, 'prepend'),
+            // The pin forces the workflow on every message in this agent, the
+            // same control the sidebar shows (FEAT-02-12). The picker re-renders
+            // the pin state itself after the toggle.
+            pin: {
+                isActive: () => (plugin.settings.forcedWorkflow?.[getModeSlug()] ?? '') === wf.slug,
+                labelOff: t('ui.commandPicker.forceWorkflowOff'),
+                labelOn: t('ui.commandPicker.forceWorkflowOn'),
+                onToggle: () => toggleForced(wf.slug),
+            },
         }));
+    // A forced workflow whose file was deleted or disabled would otherwise have
+    // no unpin control anywhere (the chip is not interactive). Render it as a
+    // synthetic row so the pin stays reachable (FEAT-02-12 review fix).
+    const forcedSlug = plugin.settings.forcedWorkflow?.[getModeSlug()] ?? '';
+    if (forcedSlug !== '' && !items.some((i) => i.sub === `§${forcedSlug}`)) {
+        items.push({
+            label: t('ui.commandPicker.forcedWorkflowMissing', { slug: forcedSlug }),
+            sub: `§${forcedSlug}`,
+            tag: t('ui.inline.tagWorkflow'),
+            icon: 'workflow',
+            onSelect: () => handle.insertIntoComposer(`§${forcedSlug}`, 'prepend'),
+            pin: {
+                isActive: () => (plugin.settings.forcedWorkflow?.[getModeSlug()] ?? '') === forcedSlug,
+                labelOff: t('ui.commandPicker.forceWorkflowOff'),
+                labelOn: t('ui.commandPicker.forceWorkflowOn'),
+                onToggle: () => toggleForced(forcedSlug),
+            },
+        });
+    }
+    return items;
 }
 
 async function openCommandPicker(
@@ -448,8 +490,9 @@ async function openCommandPicker(
     anchor: HTMLElement,
     panelRoot: HTMLElement,
     handle: import('./chat/InlineChatPanel').InlinePanelHandle,
+    getModeSlug: () => string,
 ): Promise<void> {
-    const items = await buildCommandItems(plugin, category, handle);
+    const items = await buildCommandItems(plugin, category, handle, getModeSlug);
     const title = category === 'skills' ? t('ui.inline.searchSkills')
         : category === 'prompts' ? t('ui.inline.searchPrompts')
         : t('ui.inline.searchWorkflows');
@@ -560,33 +603,6 @@ function buildSettingsSnapshotProvider(plugin: ObsidianAgentPlugin): () => Inlin
 }
 
 /**
- * Build a SkillCapabilityProbe over the active SelfAuthoredSkillLoader.
- * The probe reads skill name + description from the loader and the
- * inline-capability mapping from settings (FEAT-33-08 ADR-141).
- * Returns an empty list when the loader is missing -- safe default.
- */
-function buildSkillProbe(plugin: ObsidianAgentPlugin): SkillCapabilityProbe {
-    interface LoaderHost {
-        selfAuthoredSkillLoader?: { getAllSkills?: () => Array<{ name: string; description?: string }> } | null;
-    }
-    const host = plugin as unknown as LoaderHost;
-    return {
-        listSkills: (): SkillEntry[] => {
-            const loader = host.selfAuthoredSkillLoader;
-            if (loader === undefined || loader === null || typeof loader.getAllSkills !== 'function') return [];
-            const skills = loader.getAllSkills();
-            const caps = plugin.settings.inlineActions?.skillCapabilities ?? {};
-            return skills.map((s): SkillEntry => ({
-                id: s.name,
-                label: s.name,
-                description: s.description,
-                capability: caps[s.name],
-            }));
-        },
-    };
-}
-
-/**
  * Build action-aware callbacks for the legacy InlineActionService
  * trigger path (kept for /coding test wiring + command-palette dispatch
  * shortcuts that bypass the chat panel). The hot path goes through
@@ -666,7 +682,6 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             return {
                 enabled: r.vaultRagInLookup,
                 confidenceThreshold: r.vaultRagConfidenceThreshold,
-                showSourcesInTooltip: r.showVaultSourcesInTooltip,
                 topN: 5,
                 webFallbackEnabled: true,
             };
@@ -680,29 +695,9 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
     registry.register(new FindActionItemsAction({ caller: llmCaller }));
     // free-chat / inline-chat: handled by PanelChatController (not the registry).
 
-    // FEAT-33-08: Skills marked as inline-eligible via settings appear
-    // in the floating menu. The user opts a skill in via the Settings
-    // tab (skillCapabilities mapping). No-op when the loader is not yet
-    // initialised or no skill has been opted in.
-    const skillProbe = buildSkillProbe(plugin);
-    const skillFilter = new InlineSkillFilter({
-        probe: skillProbe,
-        topN: resolveInlineActionsSettings(plugin.settings.inlineActions).skillsTopN,
-    });
-    const skillInvoker = async (skill: SkillEntry, _ctx: import('./InlineTriggerContext').InlineTriggerContext, cbs: import('../AgentTask').AgentTaskCallbacks): Promise<void> => {
-        // Skill invocation through the existing invoke_skill tool is
-        // deferred: the Skill-Engine needs a typed entry-point that
-        // does not exist yet on the loader. For now, emit a stub
-        // notice so the user sees the skill was triggered.
-        cbs.onText(t('ui.inline.skillInvocationDeferred', { skill: skill.label }));
-        cbs.onComplete();
-    };
-    // Register each currently-eligible skill at wire time. The list is
-    // captured once; users adding skills later need to reload the plugin.
-    for (const entry of skillProbe.listSkills()) {
-        if (entry.capability?.eligible !== true) continue;
-        registry.register(new InlineSkillAction({ entry, invoker: skillInvoker }));
-    }
+    // FEAT-30-07: FEAT-33-08-Skill-Wiring entfernt (InlineSkillFilter/
+    // InlineSkillAction bedienten nur den unerreichbaren Legacy-
+    // Floating-Menu-Pfad; der Invoker war ein Stub).
 
     const service = new InlineActionService({
         editorProbe,
@@ -869,9 +864,9 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         },
         // Plus menu mirrors the sidebar: attach file, add vault file,
         // insert skill/prompt/workflow via the searchable CommandPicker,
-        // MCP server picker. Per-panel state lives in
-        // panelSurface (built at panel-open and threaded through the
-        // dispatch callbacks).
+        // and the shared tools & MCP picker (ToolPickerPopover,
+        // IMP-02-12-02). Per-panel state lives in panelSurface (built at
+        // panel-open and threaded through the dispatch callbacks).
         showPlusMenu: (anchor, _ctx, handle) => {
             const surface = activePanelSurface;
             if (surface === null) return;
@@ -888,20 +883,27 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             menu.addItem(item => item
                 .setTitle(t('ui.inline.insertSkill'))
                 .setIcon('sparkles')
-                .onClick(() => void openCommandPicker(plugin, 'skills', anchor, surface.panelRoot, handle)));
+                .onClick(() => void openCommandPicker(plugin, 'skills', anchor, surface.panelRoot, handle, () => orchestrator.getActiveModeSlug())));
             menu.addItem(item => item
                 .setTitle(t('ui.inline.insertPrompt'))
                 .setIcon('message-square-quote')
-                .onClick(() => void openCommandPicker(plugin, 'prompts', anchor, surface.panelRoot, handle)));
+                .onClick(() => void openCommandPicker(plugin, 'prompts', anchor, surface.panelRoot, handle, () => orchestrator.getActiveModeSlug())));
             menu.addItem(item => item
                 .setTitle(t('ui.inline.insertWorkflow'))
                 .setIcon('workflow')
-                .onClick(() => void openCommandPicker(plugin, 'workflows', anchor, surface.panelRoot, handle)));
+                .onClick(() => void openCommandPicker(plugin, 'workflows', anchor, surface.panelRoot, handle, () => orchestrator.getActiveModeSlug())));
+            // IMP-02-12-02: restore the MCP/tool access the deleted
+            // McpServerPopover used to provide -- same picker as the sidebar.
             menu.addSeparator();
             menu.addItem(item => item
-                .setTitle(t('ui.sidebar.selectMcpServers'))
-                .setIcon('plug-2')
-                .onClick((evt) => surface.mcpPicker.show(evt as unknown as MouseEvent, anchor, surface.panelRoot)));
+                .setTitle(t('ui.sidebar.selectTools'))
+                .setIcon('pocket-knife')
+                .onClick((evt) => { void (async () => {
+                    const ms = await orchestrator.getReadyModeService();
+                    if (ms === null) return;
+                    surface.toolPicker ??= new ToolPickerPopover(plugin, ms);
+                    surface.toolPicker.show(evt as MouseEvent, anchor, surface.panelRoot);
+                })(); }));
             menu.showAtMouseEvent({
                 clientX: anchor.getBoundingClientRect().left,
                 clientY: anchor.getBoundingClientRect().bottom,
@@ -1044,7 +1046,6 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         },
     });
     selectionWatcher.start();
-    skillFilter; // suppress unused warning (kept available for Settings UI consumers)
 
     return {
         service,

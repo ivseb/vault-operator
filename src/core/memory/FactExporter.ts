@@ -3,7 +3,7 @@
  *
  * Phase-2 deliverable from FEATURE-0316 (PLAN-005 task 2). Two purposes:
  *
- *   1. Backup safety: Sebastian can dump the live DB to a Markdown file
+ *   1. Backup safety: the user can dump the live DB to a Markdown file
  *      before the v1 -> v2 migration cuts over (FEATURE-0316 SC-05).
  *   2. Inspection: a quick `cat memory.md`-style overview of what the
  *      engine actually stores, grouped by primary topic so categories
@@ -19,7 +19,7 @@
  *
  *   ## tools (5 facts)
  *
- *   - **Sebastian uses Obsidian as primary note app**
+ *   - **The user uses Obsidian as primary note app**
  *     `(importance: 0.85, kind: preference, source: session://abc)`
  *   - ...
  *
@@ -39,7 +39,7 @@ export interface ExportOptions {
     onlyLatest?: boolean;
     /** Optional kind filter, forwarded to FactStore.listLatest. */
     kind?: ListOptions['kind'];
-    /** Maximum facts to export. Default: 10000 (effectively all for Sebastian). */
+    /** Maximum facts to export. Default: 10000 (effectively all for a typical vault). */
     limit?: number;
     /** Override the timestamp shown in the title (mostly for tests). */
     timestamp?: string;

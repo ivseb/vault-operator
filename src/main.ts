@@ -3,7 +3,7 @@ import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, Markd
 import { formatHotkeyHint, formatSendSelectionToSidebarHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
-import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider, OKF_DEFAULTS } from './types/settings';
+import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider, OKF_DEFAULTS, INCOMING_LINKS_DEFAULT_THRESHOLD } from './types/settings';
 import type { CustomModel, ModelTier, ProviderConfig } from './types/settings';
 import { resolveActiveProvider, resolveAdvisorModel, resolveTierModel } from './core/routing/tierResolution';
 import { migrateActiveModelsToProviders, type MigrationSummary } from './core/settings/migrations/activeModelsToProviders';
@@ -33,12 +33,13 @@ import { getPluginSkillsDir, getSelfAuthoredSkillsDir, getAgentDataDir, getInter
 import { SkillProvenanceStore } from './core/skills/SkillProvenanceStore';
 import { isSafePathSegment } from './core/utils/safePathName';
 import { confirmModal } from './ui/modals/PromptModal';
-import { GlobalSettingsService } from './core/storage/GlobalSettingsService';
+import { GlobalSettingsService, resolveVaultForcedWorkflow, resolveModeMcpOverrides } from './core/storage/GlobalSettingsService';
+import { RefreshHub } from './core/events/RefreshHub';
 import { GlobalMigrationService } from './core/storage/GlobalMigrationService';
 // SyncBridge removed (FEATURE-1508: storage consolidated to vault-parent)
 import { RulesLoader } from './core/context/RulesLoader';
 import { WorkflowLoader } from './core/context/WorkflowLoader';
-import { SkillsManager } from './core/context/SkillsManager';
+import { SkillsManager, loadableSkills } from './core/context/SkillsManager';
 import { GitCheckpointService } from './core/checkpoints/GitCheckpointService';
 import { SemanticIndexService } from './core/semantic/SemanticIndexService';
 import { EmbeddingService } from './core/memory/EmbeddingService';
@@ -50,11 +51,15 @@ import { VaultRenameHandler } from './core/knowledge/VaultRenameHandler';
 import { SnapshotJob, type SnapshotTarget } from './core/persistence/SnapshotJob';
 import { OntologyStore } from './core/knowledge/OntologyStore';
 import { CommunityDetectionService } from './core/knowledge/CommunityDetectionService';
-import { VaultHealthService } from './core/knowledge/VaultHealthService';
+import { VaultHealthService, buildHealthCheckOptions } from './core/knowledge/VaultHealthService';
 // BA-25 Karpathy-Wiki-Pattern (PLAN-10..14)
 import { NoteSummaryStore } from './core/knowledge/NoteSummaryStore';
 import { FrontmatterPropertyStore } from './core/knowledge/FrontmatterPropertyStore';
 import { ClusterMetadataStore } from './core/knowledge/ClusterMetadataStore';
+import type { ClusterMetadataRecord } from './core/knowledge/ClusterMetadataStore';
+import { countDueNotesByCluster } from './core/health/clusterDueCounts';
+import { selectDueClusters, type ClusterFreshnessInput } from './core/health/ClusterFreshnessPriority';
+import { DEFAULT_FRESHNESS_SETTINGS } from './types/settings';
 import { ClusterSourceStatsStore } from './core/knowledge/ClusterSourceStatsStore';
 import { IngestSessionStore } from './core/ingest/IngestSessionStore';
 import { IngestTriageLogStore } from './core/ingest/IngestTriageLogStore';
@@ -91,6 +96,9 @@ import { DriftEventBus } from './core/memory/DriftEventBus';
 import { TokenBudgetGuard } from './core/memory/TokenBudgetGuard';
 import { generateSoakReport } from './core/memory/SoakReport';
 import { McpClient } from './core/mcp/McpClient';
+import { DeviceLocalStore, createDeviceLocalStore } from './core/storage/DeviceLocalStore';
+import { pruneUntouchedSeededBuiltinsInPlace } from './core/mcp/connectorCatalog';
+import { encryptMcpOAuthInPlace, decryptMcpOAuthInPlace } from './core/security/mcpOAuthCrypto';
 import { VaultDNAScanner } from './core/skills/VaultDNAScanner';
 import { SkillRegistry } from './core/skills/SkillRegistry';
 import { CapabilityGapResolver } from './core/skills/CapabilityGapResolver';
@@ -245,7 +253,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     historyIndexer: import('./core/memory/HistoryIndexer').HistoryIndexer | null = null;
     rerankerService: RerankerService | null = null;
     bundleLoader: import('./core/assets/BundleLoader').BundleLoader | null = null;
-    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
+    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; deployedWorkerVersion: string | null; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
     private autoIndexDebounceTimers = new Map<string, number>();
     /** FEAT-03-26 Lifecycle: Debounce-Timer fuer Top-Hub-Block Regen bei Ontology-Changes. */
     private topHubBlockRegenTimer: number | null = null;
@@ -269,6 +277,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     driftBus: DriftEventBus | null = null;
     tokenBudget: TokenBudgetGuard | null = null;
     mcpClient: McpClient;
+    /** FEAT-04-13 / ADR-168: device-local (non-synced) store for stdio MCP
+     *  server configs + per-device spawn trust. Created in onload. */
+    deviceLocalStore: DeviceLocalStore | null = null;
     vaultDNAScanner: VaultDNAScanner | null = null;
     skillRegistry: SkillRegistry | null = null;
     capabilityGapResolver: CapabilityGapResolver | null = null;
@@ -291,6 +302,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     /** IMP-41-03-05: single-slot background research task runner. */
     backgroundTaskRunner: BackgroundTaskRunner | null = null;
     globalSettingsService: GlobalSettingsService | null = null;
+    /** IMP-02-12-01: cross-surface refresh channel for the forced-workflow chip. */
+    readonly forcedWorkflowHub = new RefreshHub();
     // syncBridge removed (FEATURE-1508)
     ringBuffer: ConsoleRingBuffer;
     /** FIX-PERF-39: central scheduler. Jobs migrate over time. */
@@ -599,6 +612,11 @@ export default class ObsidianAgentPlugin extends Plugin {
         // next reload (latent setting-loss bug).
         let savedFolderPath: string | undefined;
         let savedLayoutMigrationStatus: string | undefined;
+        // ADR-162-Guard: true wenn ein per Sync angekommenes 'complete'-Flag
+        // auf diesem Geraet als fremd erkannt wurde (Legacy-Bestand ohne
+        // konsolidiertes data-Root). Haelt den Boot auch dann konsistent,
+        // wenn der korrigierende saveData-Write fehlschlaegt.
+        let adr162GuardTripped = false;
         try {
             const rawSaved = await this.loadData() as Record<string, unknown> | null;
             savedFolderPath = typeof rawSaved?.agentFolderPath === 'string'
@@ -611,6 +629,84 @@ export default class ObsidianAgentPlugin extends Plugin {
             const renameReport = await migrateFolderRename(this.app, vaultBasePath, savedFolderPath);
             if (renameReport.vaultLocalRenamed || renameReport.globalRenamed) {
                 console.debug('[Plugin] Folder rename migrated:', renameReport);
+            }
+
+            // ADR-162 / FIX-30-07-04: Fresh-install fast-path. Ohne jeden
+            // Legacy-Bestand gibt es nichts zu migrieren; der Status wird
+            // direkt auf 'complete' gesetzt, damit GlobalFileService (unten)
+            // von Anfang an auf {vault}/.vault-operator/data/ zeigt statt
+            // dauerhaft auf dem Legacy-Layout im Vault-Parent zu landen.
+            // Jeder Legacy-Treffer laesst den Opt-in-Migrationspfad unberuehrt.
+            if (vaultBasePath) {
+                const { detectLegacyLayoutPresence } = await import('./core/utils/migrateAgentLayout');
+                const vaultParentDir = nodePath.dirname(vaultBasePath);
+                if (savedLayoutMigrationStatus !== 'complete') {
+                    const hasLegacy = detectLegacyLayoutPresence({
+                        vaultBasePath,
+                        vaultParent: vaultParentDir,
+                    });
+                    if (!hasLegacy) {
+                        const folderForHint = savedFolderPath ?? '.vault-operator';
+                        const persisted = rawSaved ?? {};
+                        persisted._layoutMigrationStatus = 'complete';
+                        if (typeof persisted.agentFolderPath !== 'string') {
+                            persisted.agentFolderPath = folderForHint;
+                        }
+                        await this.saveData(persisted);
+                        // Erst NACH erfolgreichem Persist uebernehmen: wirft
+                        // saveData, bleibt dieser Boot konsistent auf dem
+                        // Legacy-Hint (Review-Finding Split-Brain).
+                        savedLayoutMigrationStatus = 'complete';
+                        savedFolderPath = folderForHint;
+                        console.debug('[VaultOperator] ADR-162 fresh-install fast-path: no legacy roots found, layout marked complete');
+                    }
+                } else {
+                    // ADR-162-Guard (Review-Finding, High): 'complete' kann per
+                    // Obsidian-Sync/iCloud von einem ANDEREN Geraet stammen,
+                    // waehrend dieses Geraet noch unmigrierten Legacy-Bestand
+                    // hat. Diskriminator: ein lokal wirklich migrierter (oder
+                    // fast-gepfadeter) Vault hat das konsolidierte data-Root;
+                    // fehlt es UND existiert echter Legacy-Bestand, ist das
+                    // Flag fremd. Dann gilt auf diesem Geraet wieder 'pending'
+                    // (Legacy-Layout bleibt aktiv, Migrations-Section sichtbar).
+                    const consolidatedFolder = savedFolderPath ?? '.vault-operator';
+                    // Zuerst die billige Ein-Aufruf-Probe (Review-Finding
+                    // Effizienz): ist das data-Root da, ist das Flag echt und
+                    // die teure Legacy-Kette entfaellt.
+                    let dataRootExists = true;
+                    try {
+                        // eslint-disable-next-line @typescript-eslint/no-require-imports -- one-time fs probe for the ADR-162 sync guard; same pattern as the md5-backup probe below
+                        const nodeFs = require('fs') as typeof import('fs');
+                        dataRootExists = nodeFs.existsSync(
+                            nodePath.join(vaultBasePath, consolidatedFolder, 'data'),
+                        );
+                    } catch {
+                        // Probe-Fehler: Flag im Zweifel respektieren (kein Guard).
+                    }
+                    // consolidatedFolder ausschliessen (Review-Finding #16):
+                    // das eigene '.vault-operator' des konsolidierten Vaults
+                    // darf NICHT als Legacy-Treffer zaehlen, sonst wird eine
+                    // frisch fast-gepfadete Installation mit cache/ aber ohne
+                    // data/ faelschlich auf 'pending' zurueckgestuft.
+                    const hasLegacy = !dataRootExists && detectLegacyLayoutPresence({
+                        vaultBasePath,
+                        vaultParent: vaultParentDir,
+                        consolidatedFolder,
+                    });
+                    if (hasLegacy && !dataRootExists) {
+                        savedLayoutMigrationStatus = undefined;
+                        adr162GuardTripped = true;
+                        try {
+                            const persisted = rawSaved ?? {};
+                            persisted._layoutMigrationStatus = 'pending';
+                            await this.saveData(persisted);
+                        } catch {
+                            // Non-fatal: der In-Memory-Override nach loadSettings
+                            // haelt diesen Boot trotzdem konsistent.
+                        }
+                        console.debug('[VaultOperator] ADR-162 guard: synced complete-flag without local consolidated data root; treating layout as pending on this device');
+                    }
+                }
             }
         } catch (e) {
             console.warn('[Plugin] Folder rename migration failed (non-fatal):', e);
@@ -630,6 +726,16 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 1. Load settings (merges global + vault-local)
         await this.loadSettings();
+
+        // ADR-162-Guard-Nachlauf: falls der korrigierende Persist oben
+        // fehlschlug, traegt loadSettings noch das fremde 'complete'.
+        // In-Memory auf 'pending' zwingen, damit der spaetere
+        // useVaultLocalRoot-Block nicht auf das nicht-migrierte Root zeigt
+        // und der naechste saveSettings den Zustand persistiert.
+        if (adr162GuardTripped && this.settings._layoutMigrationStatus === 'complete') {
+            this.settings._layoutMigrationStatus = 'pending';
+            this.markSettingsDirty();
+        }
 
         // 1a. Settings consolidation after the folder rename: rewrite any
         //     known legacy default to the current default so VaultTab and
@@ -652,6 +758,50 @@ export default class ObsidianAgentPlugin extends Plugin {
             Notice,
             this.settings.safeStoragePlaintextFallbackAcknowledged === true,
         );
+
+        // 1a-orphan. FIX-19-01-12 -- drop the legacy `Inbox/Orphans/` exclude
+        //     prefix. It only ever made sense together with the orphan
+        //     move-repair, which is deleted: moving a note creates no incoming
+        //     link, so the note stayed an orphan AND the prefix then hid it
+        //     from the very check that would have reported it. Exact-match
+        //     removal, guarded by a one-shot flag so a deliberate re-add sticks.
+        try {
+            if (!this.settings._orphanExcludeLegacyCleaned) {
+                const prefixes = this.settings.vaultHealth?.orphanExcludePathPrefixes;
+                if (Array.isArray(prefixes)) {
+                    const cleaned = prefixes.filter((p) => p !== 'Inbox/Orphans/');
+                    if (cleaned.length !== prefixes.length) {
+                        this.settings.vaultHealth.orphanExcludePathPrefixes = cleaned;
+                        console.debug('[Plugin] FIX-19-01-12: dropped legacy Inbox/Orphans/ exclude prefix');
+                    }
+                }
+                this.settings._orphanExcludeLegacyCleaned = true;
+                this.markSettingsDirty();
+            }
+        } catch (e) {
+            console.warn('[Plugin] Orphan exclude-prefix migration failed (non-fatal):', e);
+        }
+
+        // 1a-verdict. W4 (IMP-19-01-03): deutsche Verdict-Literale im
+        //     frontierSeverityFilter einmalig auf die englischen Werte
+        //     uebersetzen, die der FreshnessVerifier vergleicht.
+        try {
+            if (!this.settings._freshnessVerdictLiteralsMigrated) {
+                const filter = this.settings.freshness?.frontierSeverityFilter;
+                if (Array.isArray(filter)) {
+                    const { migrateVerdictLiterals } = await import('./core/health/knowledgeReviewGates');
+                    const { migrated, changed } = migrateVerdictLiterals(filter);
+                    if (changed) {
+                        this.settings.freshness.frontierSeverityFilter = migrated as typeof filter;
+                        console.debug('[Plugin] W4: verdict literals migrated to english values');
+                    }
+                }
+                this.settings._freshnessVerdictLiteralsMigrated = true;
+                this.markSettingsDirty();
+            }
+        } catch (e) {
+            console.warn('[Plugin] Verdict-literal migration failed (non-fatal):', e);
+        }
 
         // 1b. EPIC-26 / FEAT-26-04 / ADR-123 -- one-shot migration from
         //     legacy activeModels[] to providerConfigs[]. Idempotent (no-op
@@ -1226,13 +1376,40 @@ export default class ObsidianAgentPlugin extends Plugin {
         // reads the per-server `allowLocalUrls` flag off each McpServerConfig.
         // No global opt-in is needed here; the McpTab modal manages the flag
         // per server.
-        this.mcpClient = new McpClient();
+        // FEAT-04-13 / ADR-168: device-local store for stdio configs + trust.
+        // Desktop only (needs Node fs/os); on mobile it stays null and the
+        // stdio path is unreachable anyway.
+        this.deviceLocalStore = Platform.isDesktopApp ? createDeviceLocalStore(this.safeStorage) : null;
+
+        this.mcpClient = new McpClient({
+            // FEAT-04-10: OAuth connectors open the system browser for the
+            // authorization redirect and persist the resulting tokens.
+            openExternal: (url) => {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron shell only loadable via dynamic require in the renderer
+                const electron = require('electron') as { shell?: { openExternal: (u: string) => Promise<void> } };
+                if (electron.shell?.openExternal) {
+                    void electron.shell.openExternal(url);
+                } else {
+                    window.open(url);
+                }
+            },
+            persistOAuth: () => { void this.saveSettings(); },
+            // FEAT-04-13: spawn trust is checked per device against the local store.
+            isStdioTrusted: (name: string) => this.deviceLocalStore?.isTrusted(name) ?? false,
+            // FEAT-04-13: stdio env secrets are stored encrypted; decrypt right
+            // before spawn (passthrough for plaintext / non-secret values).
+            decryptSecret: (v: string) => this.safeStorage.decrypt(v),
+        });
         // FIX-PERF-28d: mcp client constructed; consumers can begin
         // requesting servers via this.mcpClient. Actual server
         // connections come later but the client API surface exists.
         this.markMcpReady();
-        if (Object.keys(this.settings.mcpServers ?? {}).length > 0) {
-            this.mcpClient.connectAll(this.settings.mcpServers).catch((e) =>
+        // stdio servers live in the device-local store, not in synced settings;
+        // merge them in so the boot connect covers both transports.
+        const stdioServers = this.deviceLocalStore?.listStdioServers() ?? {};
+        const allMcpServers = { ...(this.settings.mcpServers ?? {}), ...stdioServers };
+        if (Object.keys(allMcpServers).length > 0) {
+            this.mcpClient.connectAll(allMcpServers).catch((e) =>
                 console.warn('[Plugin] MCP connect failed (non-fatal):', e)
             );
         }
@@ -1410,7 +1587,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             } else {
             this.vectorStore = new VectorStore(this.knowledgeDB);
             this.graphStore = new GraphStore(this.knowledgeDB);
-            this.ontologyStore = new OntologyStore(this.knowledgeDB);
+            this.ontologyStore = new OntologyStore(this.knowledgeDB, () => this.clusterMetadataStore);
             this.vaultRenameHandler = new VaultRenameHandler(this.knowledgeDB);
             // BA-25 Stores (knowledge.db v10 tables)
             this.noteSummaryStore = new NoteSummaryStore(this.knowledgeDB);
@@ -1581,14 +1758,21 @@ export default class ObsidianAgentPlugin extends Plugin {
 
             // Graph Extraction (FEATURE-1502): extract Wikilinks, MOC-Properties, Tags
             if (this.settings.enableGraphExpansion && this.graphStore) {
+                // FIX-19-01-15: Provider statt Momentaufnahme. Der Extractor
+                // liest mocPropertyNames + backlinksProperty +
+                // reciprocalProperties bei jeder Extraktion frisch.
                 this.graphExtractor = new GraphExtractor(
                     this.app,
                     this.graphStore,
-                    this.settings.mocPropertyNames ?? [],
+                    () => this.settings,
                 );
-                // Full extraction on startup (fast: reads metadataCache only, no file I/O)
+                // Full extraction on startup. FEAT-19-04-01 W3: extractAll ist
+                // async (selektiver Read nur fuer Notizen mit HTML-Kommentar,
+                // um Block-Kanten zu klassifizieren); der Normalfall bleibt
+                // read-frei.
                 this.app.workspace.onLayoutReady(() => {
-                    this.graphExtractor?.extractAll(this.app.vault);
+                    void this.graphExtractor?.extractAll(this.app.vault)
+                        .catch((e) => console.warn('[Plugin] boot extractAll failed:', e));
                 });
 
                 // IMP-06-01-01 hint: PDF embeddings created before v2.14.10
@@ -1694,16 +1878,18 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const persistence = new ClusterMetadataStatePersistence(this.knowledgeDB);
 
                 // IMP-20-06-01 W2-T5: note-level FreshnessVerifier wiring.
-                // All freshness sub-flags default OFF; the orchestrator is
-                // instantiated unconditionally so settings-toggles take
-                // effect without a plugin reload.
-                const freshnessSettings = this.settings.freshness;
-                const webSettings = this.settings.webTools;
-                const webProvider: 'brave' | 'tavily' = webSettings?.provider === 'tavily' ? 'tavily' : 'brave';
-                const webApiKey = (webProvider === 'brave' ? webSettings?.braveApiKey : webSettings?.tavilyApiKey) ?? '';
-
-                const freshnessOrchestrator: FreshnessOrchestrator | null = (() => {
+                // ADR-163 / FEAT-30-07: Factory statt Boot-Instanz. Der
+                // Orchestrator wird pro Lauf (Weekly-Job oder On-demand-
+                // Button) frisch gebaut und liest alle Freshness- und
+                // Web-Settings zum Aufrufzeitpunkt. Die alten by-value-
+                // Konstruktor-Snapshots wirkten erst nach Plugin-Reload,
+                // obwohl der Kommentar hier Live-Wirkung behauptete.
+                const buildFreshnessOrchestrator = (): FreshnessOrchestrator | null => {
                     if (!this.knowledgeDB || !this.apiHandler) return null;
+                    const freshnessSettings = this.settings.freshness;
+                    const webSettings = this.settings.webTools;
+                    const webProvider: 'brave' | 'tavily' = webSettings?.provider === 'tavily' ? 'tavily' : 'brave';
+                    const webApiKey = (webProvider === 'brave' ? webSettings?.braveApiKey : webSettings?.tavilyApiKey) ?? '';
                     const db = this.knowledgeDB.getDB();
                     const verifierProvider = new LlmVerifierProvider({
                         midApi: this.apiHandler,
@@ -1765,7 +1951,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                             return f instanceof TFile ? f : null;
                         },
                     });
-                })();
+                };
 
                 // REF-12: 4 hooks (preFilter / webUpdatePass / notificationSink /
                 // budgetExceededSink) extracted into src/core/health/Stufe3Hooks.ts
@@ -1774,21 +1960,31 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const { buildStufe3Hooks } = await import('./core/health/Stufe3Hooks');
                 const { preFilter, webUpdatePass, notificationSink, budgetExceededSink } = buildStufe3Hooks(
                     {
-                        apiHandler: this.apiHandler,
+                        // Live-Getter: das Wiring laeuft VOR initApiHandler();
+                        // ein Snapshot waere dauerhaft null (Review-Finding).
+                        getApiHandler: () => this.apiHandler,
                         getWebSearchTool: () => this.toolRegistry?.getTool('web_search') ?? null,
                         plugin: this,
                     },
-                    freshnessOrchestrator,
+                    buildFreshnessOrchestrator,
                 );
                 this.stufe3PeriodicJob = new Stufe3PeriodicJob(
                     this.clusterMetadataStore,
                     preFilter,
                     webUpdatePass,
                     notificationSink,
-                    { weeklyBudgetUsd: 2.0, notificationThreshold: 0.8 },
+                    {
+                        weeklyBudgetUsd: 2.0,
+                        notificationThreshold: 0.8,
+                        // FEAT-19-03-01: editierbares Budget, live gelesen.
+                        weeklyBudgetGetter: () => this.settings.freshness?.weeklyBudgetUsd
+                            ?? DEFAULT_FRESHNESS_SETTINGS.weeklyBudgetUsd,
+                    },
                     undefined,
                     budgetExceededSink,
                     persistence,
+                    // FEAT-19-03-01: vault-weite, alterungspriorisierte Auswahl.
+                    () => this.selectFreshnessClusters(),
                 );
                 // FIX-19-20-01: dediziertes stufe3-Flag statt autoTrigger.enabled
                 // (das war Co-Trigger fuer mehrere Auto-Trigger). Stuendlicher
@@ -1813,14 +2009,12 @@ export default class ObsidianAgentPlugin extends Plugin {
                         if (Number.isFinite(sinceMs) && sinceMs < 6 * 86_400_000) return;
                     }
 
-                    void this.stufe3PeriodicJob.run()
-                        .then(() => {
-                            const cfg = this.settings.vaultIngest?.stufe3PeriodicJob;
-                            if (cfg) {
-                                cfg.lastRunIso = new Date().toISOString();
-                                void this.saveSettings();
-                            }
-                        })
+                    // Review-Findings: geteilter Chokepoint statt direktem
+                    // run() -- das externalSources-Privacy-Gate, der
+                    // In-flight-Guard gegen Overlap mit dem On-demand-Button
+                    // und die Budget-No-op-Behandlung (lastRunIso NICHT bei
+                    // 0 Clustern setzen) gelten damit auch hier.
+                    void this.runStufe3Freshness()
                         .catch((e) => {
                             console.debug('[Stufe3] periodic run failed:', e);
                         });
@@ -1891,28 +2085,51 @@ export default class ObsidianAgentPlugin extends Plugin {
             // Vault Health Check (FEATURE-1901): background lint on startup
             if ((this.settings.enableVaultHealthCheck ?? true) && this.knowledgeDB) {
                 this.vaultHealthService = new VaultHealthService(this.app, this.knowledgeDB);
+                // FIX-19-01-12: dieselbe VectorStore-Instanz wie der Semantik-
+                // Index, damit die Orphan-Verknuepfungs-Vorschlaege auf den
+                // vorhandenen Note-Vektoren rechnen statt einen zweiten Cache
+                // aufzubauen. Null-safe: ohne Index gibt es keine Vorschlaege.
+                this.vaultHealthService.vectorStore = this.vectorStore;
+            // SEC M-2: Health-Repairs laufen an der ToolExecutionPipeline
+            // vorbei; der Ignore-/Protected-Ausschluss muss deshalb direkt
+            // am Service haengen.
+            this.vaultHealthService.ignoreGate = this.ignoreService;
+            // SEC Info-5 (Audit 2026-07-19): das Delta hat den .then()-Block
+            // entfernt, der nach dem Boot-Check updateHealthBadge aufrief,
+            // und den Push-Ersatz nie verdrahtet -- der Badge blieb nach dem
+            // Start leer, bis der Nutzer das Modal oeffnete.
+            this.vaultHealthService.onFindingsUpdated = (findings) => {
+                try {
+                    const svc = this.vaultHealthService;
+                    const count = findings.length;
+                    const severity = svc ? svc.getMaxSeverity() : null;
+                    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR)) {
+                        const view = leaf.view as unknown as {
+                            updateHealthBadge?: (n: number, s: 'high' | 'medium' | 'low' | null) => void;
+                        };
+                        view.updateHealthBadge?.(count, severity);
+                    }
+                } catch (e) {
+                    console.warn('[Plugin] health badge refresh failed (non-fatal):', e);
+                }
+            };
+        // ADR-166: Extraktions-Zugang fuer die applyAndVerify-Sequenz.
+        if (this.graphExtractor) this.vaultHealthService.graphExtractor = this.graphExtractor;
                 this.app.workspace.onLayoutReady(() => {
-                    void this.vaultHealthService?.runChecks(undefined, {
-                        backlinksProperty: this.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
-                        silenceWithContextOrphans: this.settings.vaultHealth?.silenceWithContextOrphans ?? true,
-                        orphanExcludePathPrefixes: this.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
-                        reciprocalProperties: this.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
-                    }).then(() => {
-                        // Update badge in sidebar view after health check completes
-                        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-                        if (leaves.length > 0 && this.vaultHealthService) {
-                            const view = leaves[0].view as AgentSidebarView;
-                            // Badge shows all findings (discuss is available for every type)
-                            const findings = this.vaultHealthService.getFindings();
-                            const highCount = findings.filter(f => f.severity === 'high').length;
-                            view.updateHealthBadge(
-                                findings.length,
-                                highCount > 0 ? 'high' : (findings.length > 0 ? 'medium' : null),
-                            );
-                        }
-                    });
+                    void this.vaultHealthService?.runChecks(undefined, buildHealthCheckOptions(this.settings));
                 });
             }
+
+            // FIX-19-06-03 (USER 2026-07-20): Hub-History beim Reload IMMER neu
+            // bauen, entkoppelt vom Boot-Health-Check. Frueher haing die
+            // Regeneration am .then() des Health-Checks -- war der Check aus,
+            // aktualisierten sich die Hub-Tabellen beim Neuladen nie. Der
+            // Boot-Check ist read-only (Repairs laufen nur ueber das Modal), die
+            // Regeneration liest denselben Graph-Store, also kein Konflikt. Nur
+            // geschrieben wird bei echter Aenderung (djb2-sha-Kurzschluss).
+            this.app.workspace.onLayoutReady(() => {
+                void this.regenerateIncomingLinksBlocks();
+            });
 
             // Implicit Connections (FEATURE-1503): discover semantically similar notes
             if (this.settings.enableImplicitConnections && this.vectorStore && this.graphStore) {
@@ -1971,7 +2188,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                     this.graphExtractor?.removeFile(oldPath);
                     this.ontologyStore?.removeEntriesForPath(oldPath);
                     if (file.extension === 'md') {
-                        this.graphExtractor?.extractFile(file);
+                        // FEAT-19-04-01 W3: extractFile ist async; fire-and-forget
+                        // im Event-Handler (kein Consumer wartet auf die Kanten).
+                        void this.graphExtractor?.extractFile(file)
+                            ?.catch((e) => console.warn('[Plugin] extractFile (rename) failed:', e));
                         this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                         this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
                         this.scheduleTopHubBlockRegen();
@@ -1992,7 +2212,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                     // that the repair just produced. The repair's
                     // post-write extractAll handles the graph refresh.
                     if (!this.vaultHealthRepairInProgress) {
-                        this.graphExtractor?.extractFile(file);
+                        // FEAT-19-04-01 W3: extractFile ist async; fire-and-forget.
+                        void this.graphExtractor?.extractFile(file)
+                            ?.catch((e) => console.warn('[Plugin] extractFile (modify) failed:', e));
                     }
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                     this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
@@ -2003,7 +2225,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 if (!autoIndex || !(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
                 if (file.extension === 'md') {
-                    this.graphExtractor?.extractFile(file);
+                    // FEAT-19-04-01 W3: extractFile ist async; fire-and-forget.
+                    void this.graphExtractor?.extractFile(file)
+                        ?.catch((e) => console.warn('[Plugin] extractFile (create) failed:', e));
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                     this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
                     this.scheduleTopHubBlockRegen();
@@ -2426,6 +2650,17 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.inlineActions = null;
         }
 
+        // FIX-19-09-05: die vault-operator-Auto-Block-Marker im Editor
+        // ausblenden (Fold-Callout + .base). Eigenstaendige CM6-Extension,
+        // unabhaengig vom Inline-Chat; rein additiv, faellt bei Fehler auf
+        // sichtbare Marker zurueck.
+        try {
+            const { markerHideExtension } = await import('./core/inline/markerHide/markerHideExtension');
+            this.registerEditorExtension(markerHideExtension());
+        } catch (e) {
+            console.debug('[main] marker-hide-extension registration failed (non-fatal):', e);
+        }
+
         this.addCommand({
             id: 'open-inline-ai-menu',
             name: t('plugin.commandOpenInlineChat'),
@@ -2536,12 +2771,17 @@ export default class ObsidianAgentPlugin extends Plugin {
             callback: () => { void this.generateAndCopySoakReport(); },
         });
 
-        // Development: Test tool execution
-        this.addCommand({
-            id: 'test-tool-execution',
-            name: t('plugin.commandTestToolExecution'),
-            callback: () => this.testToolExecution()
-        });
+        // Development: Test tool execution. Only registered when debugMode is
+        // on, so it does not clutter the command palette for normal users
+        // (the callback already self-blocks without debugMode; this keeps it
+        // out of sight entirely). Toggling debugMode takes effect on reload.
+        if (this.settings.debugMode) {
+            this.addCommand({
+                id: 'test-tool-execution',
+                name: t('plugin.commandTestToolExecution'),
+                callback: () => this.testToolExecution()
+            });
+        }
 
         // BA-25 FEAT-19-10: Frontmatter-Backfill-Job Command
         this.addCommand({
@@ -2562,6 +2802,24 @@ export default class ObsidianAgentPlugin extends Plugin {
             id: 'ba25-refresh-moc-pages',
             name: t('plugin.commandRefreshMocPages'),
             callback: () => { void this.refreshAllMOCs(); },
+        });
+
+        // FIX-19-09-01 (USER 2026-07-21): "Update Links" -- baut die
+        // Rueckverweis-Tabellen neu. Fuer strukturelle Hub-Typen traegt die
+        // Tabelle (echte Wikilinks -> Graph-Rueckkante) die Reziprozitaet, die
+        // frueher der related-Frontmatter-Repair uebernahm; beides ist derselbe
+        // Need. Command-ID bleibt stabil (Hotkey-Kompat), nur Label geaendert.
+        this.addCommand({
+            id: 'ba25-update-hubs',
+            name: t('plugin.commandUpdateHubs'),
+            callback: () => {
+                void this.regenerateIncomingLinksBlocks().then((r) => {
+                    if (r.status === 'disabled') { new Notice(t('notice.incomingLinks.disabled')); return; }
+                    if (r.status === 'unavailable') { new Notice(t('notice.incomingLinks.unavailable')); return; }
+                    if (r.status === 'busy') { new Notice(t('notice.incomingLinks.busy')); return; }
+                    new Notice(t('notice.incomingLinks.done', { updated: r.written, hubs: r.hubs }));
+                });
+            },
         });
 
         // BA-25 FEAT-19-11: Initial-Marker-Injection in MOC-Kandidaten.
@@ -2633,6 +2891,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         // protection against foreign pages).
         this.registerObsidianProtocolHandler('vault-operator-run', (params) => {
             void this.runSkillFromParams(params);
+        });
+
+        // FEAT-04-10: OAuth redirect target for MCP connectors. obsidian:// URLs
+        // are openable by any web page, so handleOAuthRedirect validates the
+        // OAuth state against the pending flow before exchanging the code (ADR-155).
+        this.registerObsidianProtocolHandler('vault-operator-mcp-oauth', (params) => {
+            void this.mcpClient.handleOAuthRedirect(params);
         });
 
         // Phase 2.3: command to open the setup wizard manually
@@ -2874,6 +3139,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (didMigrate) {
                 this.settings._globalStorageMigrated = true;
                 await this.saveData({ ...saved, _globalStorageMigrated: true });
+                // Keep the in-memory boot snapshot in sync: later one-time
+                // migrations in this loadSettings spread `saved` into their own
+                // saveData and would otherwise clobber the flag on disk.
+                saved._globalStorageMigrated = true;
                 // Write global settings.json immediately after migration
                 if (this.globalSettingsService) {
                     await this.globalSettingsService.saveGlobal(this.settings);
@@ -2883,9 +3152,70 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Merge global settings (cross-vault) — global keys override vault-local data.json
         if (this.globalSettingsService) {
-            const globalSettings = await this.globalSettingsService.loadGlobal();
+            // OrNull so the one-time migration below can tell "file missing"
+            // ({}) from "file unreadable" (null) and not burn its flag on a
+            // transient read failure (ADR-160 review fix).
+            const globalSettingsOrNull = await this.globalSettingsService.loadGlobalOrNull();
+            const globalSettings = globalSettingsOrNull ?? {};
             if (Object.keys(globalSettings).length > 0) {
                 this.settings = this.globalSettingsService.mergeIntoVault(this.settings, globalSettings);
+            }
+            // FEAT-02-12 / ADR-160: forcedWorkflow moved from global to vault-local.
+            // One-time: adopt the legacy global forcedWorkflow into this vault (the
+            // global file won on load pre-ADR-160, so it is the authoritative
+            // source; the vault mirror is only a fallback). saveGlobal preserves
+            // the legacy key for vaults that have not migrated yet.
+            if (!saved._forcedWorkflowVaultMigrated) {
+                if (globalSettingsOrNull === null) {
+                    console.warn('[Plugin] Global settings unreadable; deferring forcedWorkflow migration to next boot');
+                } else {
+                    this.settings.forcedWorkflow = resolveVaultForcedWorkflow(
+                        this.settings.forcedWorkflow,
+                        globalSettings.forcedWorkflow,
+                    );
+                    this.settings._forcedWorkflowVaultMigrated = true;
+                    await this.saveData({
+                        ...saved,
+                        forcedWorkflow: this.settings.forcedWorkflow,
+                        _forcedWorkflowVaultMigrated: true,
+                    });
+                    // Keep the boot snapshot in sync so a later one-time
+                    // migration spreading `saved` cannot clobber these keys
+                    // on disk (M5 lesson).
+                    saved.forcedWorkflow = this.settings.forcedWorkflow;
+                    saved._forcedWorkflowVaultMigrated = true;
+                }
+            }
+
+            // FEAT-04-12 / ADR-161: MCP activation moved from global to
+            // per-mode. One-time: a legacy narrowing (explicit subset or
+            // mcp-off) is stamped into every mode known right now; the
+            // all-active default migrates to no overrides at all. Reads the
+            // post-merge settings values (global wins when present, vault
+            // data.json otherwise). Same fail-open guard as above.
+            if (!saved._mcpPerModeMigrated) {
+                if (globalSettingsOrNull === null) {
+                    console.warn('[Plugin] Global settings unreadable; deferring MCP per-mode migration to next boot');
+                } else {
+                    const knownSlugs = [
+                        ...BUILT_IN_MODES.map((m) => m.slug),
+                        ...(this.settings.customModes ?? []).map((m) => m.slug),
+                    ];
+                    this.settings.modeMcpOverrides = resolveModeMcpOverrides(
+                        this.settings.modeMcpOverrides,
+                        this.settings.activeMcpServers,
+                        this.settings.mcpDisabled,
+                        knownSlugs,
+                    );
+                    this.settings._mcpPerModeMigrated = true;
+                    await this.saveData({
+                        ...saved,
+                        modeMcpOverrides: this.settings.modeMcpOverrides,
+                        _mcpPerModeMigrated: true,
+                    });
+                    saved.modeMcpOverrides = this.settings.modeMcpOverrides;
+                    saved._mcpPerModeMigrated = true;
+                }
             }
         }
 
@@ -3064,14 +3394,33 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settings.mastery.learnedRecipesEnabled = true;
         this.settings.mastery.recipeToggles = this.settings.mastery.recipeToggles ?? masteryDefaults.recipeToggles;
 
-        // Enable recipes for existing users — 6 other security layers remain active.
-        if (this.settings.recipes && !this.settings.recipes.enabled) {
-            this.settings.recipes.enabled = true;
-            void this.saveData(this.encryptSettingsForSave(this.settings));
+        // FIX-30-07-02: kein Boot-Force-Enable fuer recipes.enabled mehr.
+        // Die einmalige Alt-Nutzer-Aktivierung ist seit langem persistiert;
+        // der Block machte den Master-Toggle zum Placebo (User-Abwahl wurde
+        // bei jedem Start ueberschrieben).
+
+        // FEAT-30-07 Phase 3b: Custom-Recipes load-time validieren. Die
+        // Eintraege bleiben in data.json erhalten (der User kann sie im
+        // Recipe-Editor korrigieren); ungueltige werden zur Laufzeit von
+        // materializeCustomRecipes verworfen und hier einmal angezeigt.
+        const storedCustomRecipes = this.settings.recipes?.customRecipes ?? [];
+        if (storedCustomRecipes.length > 0) {
+            const { validateStoredRecipe } = await import('./core/tools/agent/recipeRegistry');
+            for (const s of storedCustomRecipes) {
+                const v = validateStoredRecipe(s);
+                if (!v.ok) {
+                    console.warn(`[VaultOperator] custom recipe "${String((s as { id?: unknown })?.id)}" is invalid and will be ignored:`, v.errors);
+                }
+            }
         }
 
-        // Seed built-in MCP servers (EPIC-011: design asset integration)
+        // Seed the permanent built-in helpers only (EPIC-011: icons8 design
+        // assets). The OAuth connector catalog (FEAT-04-10) is NO LONGER seeded
+        // into the visible list -- it lives in the discovery search and
+        // materializes on add (hidden-catalog model, ADR-156 revision). The
+        // reconcile only syncs transport/url, never `disabled`/`oauth`.
         this.settings.mcpServers = this.settings.mcpServers ?? {};
+        const permanentBuiltins = new Set(Object.keys(BUILTIN_MCP_SERVERS));
         for (const [name, config] of Object.entries(BUILTIN_MCP_SERVERS)) {
             const existing = this.settings.mcpServers[name];
             if (!existing) {
@@ -3082,11 +3431,11 @@ export default class ObsidianAgentPlugin extends Plugin {
                 existing.url = config.url;
             }
         }
-        // Remove stale built-in servers no longer shipped with the plugin
-        for (const [name, config] of Object.entries(this.settings.mcpServers)) {
-            if (config.isBuiltIn && !BUILTIN_MCP_SERVERS[name]) {
-                delete this.settings.mcpServers[name];
-            }
+        // Migrate older installs to the hidden-catalog model: drop seeded
+        // catalog placeholders the user never engaged with. Authorized/enabled
+        // built-ins and user-added servers are kept untouched (grandfathering).
+        if (pruneUntouchedSeededBuiltinsInPlace(this.settings, permanentBuiltins)) {
+            void this.saveData(this.encryptSettingsForSave(this.settings));
         }
 
         // Migrate auto-approval: ensure newer keys have sensible defaults
@@ -3288,7 +3637,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         const selfLoader = this.selfAuthoredSkillLoader;
 
         const toggles = this.settings.manualSkillToggles ?? {};
-        const userSkills = skillsManager ? await skillsManager.discoverSkills() : [];
+        // FIX-29-05-03: loadableSkills() drops entries that fail the same hard
+        // validation the SelfAuthoredSkillLoader applies. Listing one here would
+        // advertise a skill invoke_skill cannot start.
+        const userSkills = skillsManager ? loadableSkills(await skillsManager.discoverSkills()) : [];
         const filteredUserSkills = Object.keys(toggles).length > 0
             ? userSkills.filter(s => toggles[s.path] !== false)
             : userSkills;
@@ -3380,6 +3732,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.mcpServerToken) {
             settings.mcpServerToken = this.safeStorage.decrypt(settings.mcpServerToken);
         }
+        // FEAT-04-10: OAuth MCP connector tokens (ADR-155).
+        decryptMcpOAuthInPlace(settings, this.safeStorage);
     }
 
     /**
@@ -3459,6 +3813,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (copy.mcpServerToken && !this.safeStorage.isEncrypted(copy.mcpServerToken)) {
             copy.mcpServerToken = this.safeStorage.encrypt(copy.mcpServerToken);
         }
+        // FEAT-04-10: OAuth MCP connector tokens (ADR-155).
+        encryptMcpOAuthInPlace(copy, this.safeStorage);
         copy._encrypted = true;
         return copy;
     }
@@ -3822,6 +4178,131 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
     }
 
+    /**
+     * Review-Finding: verhindert parallele Laeufe (On-demand-Doppelklick
+     * UND Scheduler-Overlap) auf dem geteilten Budget-State. Beide
+     * Trigger laufen jetzt durch runStufe3Freshness, das dieses Flag
+     * setzt/prueft -- vorher schuetzte es nur den On-demand-Pfad.
+     */
+    private freshnessRunInFlight = false;
+
+    /**
+     * Ergebnis-Codes des geteilten Stufe-3-Chokepoints (ADR-163):
+     *   - 'ran': mindestens ein Cluster verarbeitet, lastRunIso gesetzt
+     *   - 'budget-noop': Budget erschoepft, 0 Cluster, lastRunIso NICHT gesetzt
+     *   - 'busy': ein anderer Lauf ist bereits aktiv
+     *   - 'external-off': Privacy-Toggle freshness.externalSources.enabled=false
+     *   - 'not-ready': Job/Store noch nicht initialisiert
+     */
+    /**
+     * FEAT-19-03-01: die vault-weite, alterungspriorisierte Kandidatenliste
+     * fuer den Freshness-Lauf. Kombiniert alle registrierten Cluster, die
+     * faelligen Notizzahlen (Klassen-Cooldown) und die Prioritaets-Regel.
+     * Ersetzt die manuelle Hot-Auswahl.
+     */
+    private selectFreshnessClusters(): ClusterMetadataRecord[] {
+        if (!this.clusterMetadataStore || !this.knowledgeDB?.isOpen()) return [];
+        const all = this.clusterMetadataStore.getAll();
+        if (all.length === 0) return [];
+
+        const fresh = this.settings.freshness ?? DEFAULT_FRESHNESS_SETTINGS;
+        const dueByCluster = countDueNotesByCluster(
+            this.knowledgeDB.getDB() as never,
+            {
+                volatileRecheckDays: 7,
+                evolvingRecheckDays: 30,
+                stableRecheckDays: 90,
+                excludePaths: fresh.excludePaths,
+            },
+            new Date(),
+        );
+        const excluded = new Set(fresh.excludeClusters ?? []);
+
+        const inputs: ClusterFreshnessInput[] = all.map((c) => {
+            const d = dueByCluster.get(c.cluster) ?? { dueVolatile: 0, dueEvolving: 0, dueStable: 0 };
+            return {
+                cluster: c.cluster,
+                halfLifeDays: c.halfLifeDays,
+                lastExternalCheck: c.lastExternalCheck,
+                dueVolatile: d.dueVolatile,
+                dueEvolving: d.dueEvolving,
+                dueStable: d.dueStable,
+                excluded: excluded.has(c.cluster),
+            };
+        });
+
+        const ranked = selectDueClusters(inputs, new Date());
+        // Zurueck auf die vollen Records, in der priorisierten Reihenfolge.
+        const byName = new Map(all.map((c) => [c.cluster, c]));
+        return ranked.map((r) => byName.get(r.cluster)).filter((c): c is ClusterMetadataRecord => !!c);
+    }
+
+    private async runStufe3Freshness(): Promise<'ran' | 'budget-noop' | 'busy' | 'external-off' | 'not-ready'> {
+        if (!this.stufe3PeriodicJob) return 'not-ready';
+        if (this.freshnessRunInFlight) return 'busy';
+        // Privacy-Gate (Review-Finding): der gesamte Stufe-3-Pass ist eine
+        // externe Web-Freshness-Pruefung. freshness.externalSources.enabled
+        // ist der dokumentierte "no external traffic"-Schalter; ohne ihn
+        // darf weder der Weekly-Job noch der On-demand-Button Web-Queries
+        // an Brave/Tavily senden. (Der Note-Verifier-Pfad prueft ihn
+        // bereits; dieser Cluster-Level-Pfad tat es nicht.)
+        if (this.settings.freshness?.externalSources?.enabled !== true) return 'external-off';
+        this.freshnessRunInFlight = true;
+        try {
+            const result = await this.stufe3PeriodicJob.run();
+            // Review-Finding: ein Budget-No-op darf lastRunIso NICHT setzen
+            // (das wuerde den Weekly-Job bis zu 6 Tage verzoegern, obwohl
+            // nichts gelaufen ist). Gilt jetzt fuer BEIDE Trigger.
+            if (result.budgetExceeded && result.clustersProcessed === 0) {
+                return 'budget-noop';
+            }
+            const cfg = this.settings.vaultIngest?.stufe3PeriodicJob;
+            if (cfg) {
+                cfg.lastRunIso = new Date().toISOString();
+                void this.saveSettings();
+            }
+            return 'ran';
+        } finally {
+            this.freshnessRunInFlight = false;
+        }
+    }
+
+    /**
+     * ADR-163 / FEAT-30-07: On-demand-Trigger fuer den External-Freshness-
+     * Check aus der Vault-health-Section. Laeuft ueber die als hot
+     * markierten Cluster (derselbe Pfad wie der Weekly-Job inklusive
+     * Budget-Cap und Privacy-Gate) und aktualisiert lastRunIso.
+     */
+    async runFreshnessCheckNow(): Promise<void> {
+        if (!this.stufe3PeriodicJob || !this.clusterMetadataStore) {
+            new Notice(t('notice.freshness.notReady'), 6000);
+            return;
+        }
+        if (this.settings.freshness?.externalSources?.enabled !== true) {
+            new Notice(t('notice.freshness.externalSourcesOff'), 8000);
+            return;
+        }
+        // FEAT-19-03-01: kein Hot-Gate mehr. Der Lauf deckt den ganzen
+        // Vault alterungsgesteuert ab; sind gerade keine Notizen faellig,
+        // ist das ein Ergebnis, keine Sackgasse.
+        const due = this.selectFreshnessClusters();
+        if (due.length === 0) {
+            new Notice(t('notice.freshness.nothingDue'), 6000);
+            return;
+        }
+        new Notice(t('notice.freshness.runStarted', { count: due.length }), 5000);
+        try {
+            const outcome = await this.runStufe3Freshness();
+            if (outcome === 'busy') { new Notice(t('notice.freshness.alreadyRunning'), 5000); return; }
+            if (outcome === 'budget-noop') { new Notice(t('notice.freshness.budgetExhausted'), 8000); return; }
+            if (outcome === 'ran') { new Notice(t('notice.freshness.runDone'), 6000); return; }
+            // external-off/not-ready sind oben bereits abgefangen.
+        } catch (e) {
+            console.warn('[Freshness] on-demand run failed:', e);
+            new Notice(t('notice.freshness.runFailed', { error: e instanceof Error ? e.message : String(e) }), 8000);
+        }
+    }
+
     async runFrontmatterBackfill(): Promise<void> {
         if (!this.noteSummaryStore || !this.frontmatterPropertyStore) {
             new Notice(t('notice.backfill.storesNotReady'));
@@ -3848,7 +4329,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             summaryGenerator,
         );
         new Notice(t('notice.backfill.started'), 5000);
-        const result = await job.run({}, (progress) => {
+        const result = await job.run({
+            writeFrontmatter: cfg.autoSummary.writeFrontmatter === true,
+            frontmatterProperty: cfg.autoSummary.frontmatterProperty,
+        }, (progress) => {
             if (progress.processed % 50 === 0 && progress.processed > 0) {
                 new Notice(t('notice.backfill.progress', { processed: progress.processed, total: progress.total, summaries: progress.summariesWritten, errors: progress.errors }), 4000);
             }
@@ -4000,6 +4484,97 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
         new Notice(t('notice.moc.markersInjected', { injected, skipped }));
+    }
+
+    /**
+     * FEAT-19-04-01: baut/aktualisiert den selbstbildenden Rueckverweis-Block
+     * in allen Hub-Notizen. Laeuft NACH einem Health-Check-Lauf (USER-Wahl:
+     * gebuendelt zu einem bekannten Zeitpunkt statt live per Edit-Event).
+     *
+     * Reines Script, KEIN LLM: getHubTargets (eine SQL-Query) + getSourcesFor
+     * pro Hub + String-Bau + djb2-Hash-Vergleich. Geschrieben wird nur, wenn
+     * sich der Blocktext wirklich aendert (replaceOrInsertAutoBlock kurzt
+     * no-change ab) und die Notiz nicht vom Nutzer im Block editiert wurde.
+     */
+    async regenerateIncomingLinksBlocks(): Promise<{ status: 'disabled' | 'unavailable' | 'busy' | 'ok'; written: number; hubs: number }> {
+        const cfg = this.settings.vaultIngest?.incomingLinksBlock;
+        if (!cfg?.enabled) return { status: 'disabled', written: 0, hubs: 0 };
+        if (!this.graphStore || !this.knowledgeDB?.isOpen()) return { status: 'unavailable', written: 0, hubs: 0 };
+        // Nicht mitten in einen Health-Repair schreiben (geteilter Mutex).
+        if (this.vaultHealthRepairInProgress) return { status: 'busy', written: 0, hubs: 0 };
+
+        const settingsThreshold = cfg.threshold ?? INCOMING_LINKS_DEFAULT_THRESHOLD;
+        const { computeIncomingBlockUpdate, INCOMING_BLOCK_ID } = await import('./core/knowledge/incomingLinksMaintainer');
+        const { frontmatterCellText } = await import('./core/knowledge/incomingLinksBlock');
+        const { buildBacklinksBaseBlock } = await import('./core/knowledge/backlinksBaseBlock');
+        const { effectiveHubThreshold, isHubType } = await import('./core/knowledge/hubTypeThreshold');
+        const { findAutoBlock } = await import('./core/ingest/MOCMaintainer');
+        const summaryProp = this.settings.summaryProperty ?? OKF_DEFAULTS.summaryProperty;
+        const typeProp = this.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
+        // FEAT-19-04-01 W6: der lesbare .base-Block ist fuer alle Hub-Typen
+        // identisch (er filtert live via file.hasLink(this.file)) -- einmal bauen.
+        const baseBlock = buildBacklinksBaseBlock(summaryProp, typeProp);
+
+        const typeOf = (file: TFile): string | undefined =>
+            frontmatterCellText(this.app.metadataCache.getFileCache(file)?.frontmatter?.[typeProp]);
+
+        // FIX-19-09-01 (USER 2026-07-21): die Zielmenge ist die UNION aus
+        //  (a) allen Notes mit MINDESTENS EINEM echten Backlink -- getHubTargets(1)
+        //      deckt Threshold-Hubs, strukturelle Hub-Typen (Threshold 1) UND
+        //      unter-Settings-Threshold-gefallene Notes ab, und
+        //  (b) allen Notes mit bereits vorhandenem Block (Ground Truth aus dem
+        //      Dateisystem, resilient gegen Extraktions-Lag).
+        // Es gibt KEINE Sonderaufnahme fuer type:person mehr: Hub-Typen haben
+        // Threshold 1 (Block ab dem ersten Backlink, kein leerer Block), also
+        // deckt getHubTargets(1) sie bereits ab. computeIncomingBlockUpdate
+        // entscheidet pro Note anhand des effektiven Thresholds, ob ANGELEGT
+        // wird; ein vorhandener Block wird IMMER aktualisiert und nie entfernt.
+        const targetPaths = new Set<string>(
+            this.graphStore.getHubTargets(1, { excludeLinkTypes: ['backlink-block'] }),
+        );
+        for (const file of this.app.vault.getMarkdownFiles()) {
+            // (b) Notes mit vorhandenem Block -- Ground Truth aus dem File.
+            try {
+                const content = await this.app.vault.read(file);
+                if (!content.includes('incoming-links')) continue; // schneller Vorfilter
+                if (findAutoBlock(content, INCOMING_BLOCK_ID)) targetPaths.add(file.path);
+            } catch { /* unlesbare Datei ueberspringen */ }
+        }
+
+        let written = 0;
+        for (const hubPath of targetPaths) {
+            const file = this.app.vault.getAbstractFileByPath(hubPath);
+            if (!(file instanceof TFile)) continue;
+            // FEAT-19-04-01 W6: die technische Tabelle zeigt nur noch den
+            // Note-Link -- keine Anreicherung (description/type/timestamp) mehr
+            // noetig. Die lesbare .base liest diese Properties live.
+            const sources = this.graphStore.getSourcesFor(hubPath, { excludeLinkTypes: ['backlink-block'] });
+            // FIX-19-09-01 (USER 2026-07-21): strukturelle Hub-Typen
+            // (person/topic/concept/project/organisation + DE-Synonyme) bekommen
+            // Threshold 1 -- einen Block ab dem ersten Backlink. Alle anderen
+            // Notes erst ab dem konfigurierbaren Settings-Threshold. Die Regel
+            // ist hartkodiert (nicht ueber Settings aenderbar).
+            const noteType = typeOf(file);
+            const effectiveThreshold = effectiveHubThreshold(noteType, settingsThreshold);
+            // FEAT-19-04-01 W6: die lesbare .base gibt es NUR fuer Hub-Typen UND
+            // nur wenn die Note tatsaechlich Backlinks hat (sonst kein Base ohne
+            // Callout). Nicht-Hub-Typen -> undefined -> ein evtl. alter .base-
+            // Block wird entfernt.
+            const hubBacklinks = sources.filter((s) => s.sourcePath !== hubPath).length;
+            const useBase = isHubType(noteType) && hubBacklinks >= 1 ? baseBlock : undefined;
+            try {
+                const content = await this.app.vault.read(file);
+                const updated = computeIncomingBlockUpdate(content, sources, effectiveThreshold, hubPath, useBase);
+                if (updated !== null && updated !== content) {
+                    await this.app.vault.modify(file, updated);
+                    written++;
+                }
+            } catch (e) {
+                console.debug('[IncomingLinks] regen failed for', hubPath, e);
+            }
+        }
+        if (written > 0) console.debug(`[IncomingLinks] updated ${written} hub note(s)`);
+        return { status: 'ok', written, hubs: targetPaths.size };
     }
 
     /** Hilfs-Renderer fuer MOC-Auto-Body (Hub-Status + Cluster-Statistik). */

@@ -100,3 +100,79 @@ export class Modal {
 }
 
 export function setIcon(_el: unknown, _name: string): void { /* no-op */ }
+
+/**
+ * Minimal Setting stub (FIX-19-05-07: VaultHealthRepairModal renders its
+ * scan/re-check toolbars as native Settings). Mirrors the production call
+ * chain `new Setting(container).setName().setDesc().addButton(cb)`. It builds
+ * real fakeDom children on the container so the modal tests, which assert on
+ * rendered text, keep seeing the labels. The button callback receives a
+ * ButtonComponent whose click can be simulated via the static registry.
+ */
+interface SettingHost {
+    createDiv: (opts?: unknown) => SettingHost;
+    createEl: (tag: string, opts?: unknown) => SettingHost;
+    createSpan?: (opts?: unknown) => SettingHost;
+    addClass: (...c: string[]) => void;
+    setText?: (t: string) => void;
+    addEventListener?: (type: string, fn: () => void) => void;
+    setAttribute?: (k: string, v: string) => void;
+}
+
+export class ButtonComponent {
+    static instances: ButtonComponent[] = [];
+    static reset(): void { ButtonComponent.instances = []; }
+    private clickCb: (() => void) | null = null;
+    text = '';
+    constructor(public buttonEl: SettingHost) { ButtonComponent.instances.push(this); }
+    setButtonText(t: string): this { this.text = t; this.buttonEl.setText?.(t); return this; }
+    setIcon(_i: string): this { return this; }
+    setCta(): this { this.buttonEl.addClass('mod-cta'); return this; }
+    setDisabled(_d: boolean): this { return this; }
+    onClick(cb: () => void): this { this.clickCb = cb; return this; }
+    simulateClick(): void { this.clickCb?.(); }
+}
+
+export class Setting {
+    settingEl: SettingHost;
+    nameEl: SettingHost;
+    descEl: SettingHost;
+    controlEl: SettingHost;
+    constructor(container: SettingHost) {
+        this.settingEl = container.createDiv('setting-item');
+        const info = this.settingEl.createDiv('setting-item-info');
+        this.nameEl = info.createDiv('setting-item-name');
+        this.descEl = info.createDiv('setting-item-description');
+        this.controlEl = this.settingEl.createDiv('setting-item-control');
+    }
+    setName(name: string): this { this.nameEl.setText?.(name); return this; }
+    setDesc(desc: string): this { this.descEl.setText?.(desc); return this; }
+    addButton(cb: (b: ButtonComponent) => void): this {
+        const btnEl = this.controlEl.createEl('button');
+        cb(new ButtonComponent(btnEl));
+        return this;
+    }
+    addToggle(cb: (t: ToggleComponent) => void): this {
+        cb(new ToggleComponent(this.controlEl));
+        return this;
+    }
+}
+
+/**
+ * Minimal ToggleComponent stub (FEAT-02-12: ChatOptionsPopover renders real
+ * switches). Mirrors the production call order `new ToggleComponent(host)
+ * .setValue(x).onChange(cb)`: setValue only records state, it never fires the
+ * callback. Tests reach the instances a component created internally via the
+ * static registry and flip them with simulateClick().
+ */
+export class ToggleComponent {
+    static instances: ToggleComponent[] = [];
+    static reset(): void { ToggleComponent.instances = []; }
+    value = false;
+    private changeCb: ((v: boolean) => void) | null = null;
+    constructor(public containerEl: unknown) { ToggleComponent.instances.push(this); }
+    setValue(v: boolean): this { this.value = v; return this; }
+    onChange(cb: (v: boolean) => void): this { this.changeCb = cb; return this; }
+    /** Test helper: simulate the user flipping the switch. */
+    simulateClick(): void { this.value = !this.value; this.changeCb?.(this.value); }
+}

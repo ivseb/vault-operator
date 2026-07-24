@@ -7,6 +7,27 @@ All notable changes to Vault Operator are documented here. Format follows
 ---
 
 
+## [Unreleased]
+
+### MCP remote relay: redeploy after updating
+
+If you use the remote MCP relay, the Cloudflare worker is bundled inside the
+plugin and does not update itself. After a plugin update that changes the
+worker, you have to press **Redeploy** in Settings, MCP for the new worker
+code to go live on your account. Opening the connector URL in a browser only
+proves the worker is deployed, not that it runs the current code. This was the
+root of the confusing retest in issue #53, where a redeploy before the fixed
+build was published pushed the old worker again and reported success.
+
+### Removed
+
+- **`relay/` directory** -- an older standalone WebSocket-based worker with its
+  own `wrangler deploy` instructions. It predates the current HTTP long-polling
+  design and the plugin cannot talk to it, so following its README produced a
+  relay that never connects. The worker the plugin actually deploys lives in
+  `src/mcp/relayWorkerCode.ts` and is untouched.
+
+
 ## [3.1.1] -- 2026-06-24
 
 ### Inline chat polish round 3 + selection-pill scope-fix

@@ -7,9 +7,9 @@
 
 /** A single task item extracted from agent response text */
 export interface TaskItem {
-    /** Full original checkbox text (e.g. "@Sebastian: Budget-Analyse erstellen (due: 2026-03-10)") */
+    /** Full original checkbox text (e.g. "@Alex: Budget-Analyse erstellen (due: 2026-03-10)") */
     text: string;
-    /** Parsed assignee (e.g. "@Sebastian") or empty string */
+    /** Parsed assignee (e.g. "@Alex") or empty string */
     assignee: string;
     /** Parsed due date in ISO format (e.g. "2026-03-10") or empty string */
     dueDate: string;

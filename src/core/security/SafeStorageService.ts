@@ -78,11 +78,36 @@ export class SafeStorageService {
     }
 
     /**
+     * One-shot guard so the plaintext-persist warning is logged at most once
+     * per session, not on every secret written during a settings save.
+     */
+    private plaintextPersistLogged = false;
+
+    /**
      * Encrypt a plaintext string.
      * Returns `enc:v1:<base64>` on success, or the original plaintext on failure / unavailability.
+     *
+     * AUDIT 2026-07-22 SEC-L-01: when the OS keychain is unavailable there is
+     * no viable alternative to plaintext on that platform (keychain-less
+     * Linux); refusing to persist would silently drop the user's keys, a worse
+     * failure mode. The degraded state is disclosed via the persistent
+     * ProvidersTab banner + one-time Notice (see notifyPlaintextFallbackOnce)
+     * and the `_encrypted=false` marker in data.json. We additionally log the
+     * first actual plaintext PERSIST (not just the constructor's availability
+     * warning) at error level so it is visible in any captured log, once.
      */
     encrypt(plainText: string): string {
-        if (!plainText || !this.available || !this.storage) return plainText;
+        if (!plainText) return plainText;
+        if (!this.available || !this.storage) {
+            if (!this.plaintextPersistLogged) {
+                this.plaintextPersistLogged = true;
+                console.error(
+                    '[SafeStorage] Persisting a secret in PLAINTEXT: OS keychain unavailable. '
+                    + 'Install a system keyring (libsecret/GNOME Keyring/KWallet on Linux) to enable encryption.',
+                );
+            }
+            return plainText;
+        }
         try {
             const encrypted = this.storage.encryptString(plainText);
             return ENCRYPTED_PREFIX + encrypted.toString('base64');

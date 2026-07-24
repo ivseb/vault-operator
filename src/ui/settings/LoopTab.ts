@@ -1,6 +1,7 @@
 import { App, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
+import { DEFAULT_CONDENSING_ENABLED } from '../../core/condensingDefaults';
 import { addInfoButton, addSectionHeading, addSliderInput } from './utils';
 
 export class LoopTab {
@@ -49,17 +50,8 @@ export class LoopTab {
             },
         });
 
-        const approvalTimeoutSetting = new Setting(containerEl)
-            .setName(t('settings.loop.approvalTimeout'))
-            .setDesc(t('settings.loop.approvalTimeoutDesc'));
-        addSliderInput(approvalTimeoutSetting, {
-            min: 0, max: 60, step: 5,
-            value: this.plugin.settings.advancedApi.approvalTimeoutMinutes ?? 10,
-            onChange: async (v) => {
-                this.plugin.settings.advancedApi.approvalTimeoutMinutes = v;
-                await this.plugin.saveSettings();
-            },
-        });
+        // FEAT-30-07: Approval timeout lebt jetzt bei den Permissions
+        // (Agent behaviour > Auto-approve), er gehoert zum Approval-System.
 
         const maxIterSetting = new Setting(containerEl)
             .setName(t('settings.loop.maxIterations'))
@@ -94,7 +86,7 @@ export class LoopTab {
             .setName(t('settings.loop.enableCondensing'))
             .setDesc(t('settings.loop.enableCondensingDesc'));
         condensingSetting.addToggle((c) =>
-            c.setValue(this.plugin.settings.advancedApi.condensingEnabled ?? false).onChange(async (v) => {
+            c.setValue(this.plugin.settings.advancedApi.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED).onChange(async (v) => {
                 this.plugin.settings.advancedApi.condensingEnabled = v;
                 await this.plugin.saveSettings();
                 thresholdSetting.settingEl.classList.toggle('agent-u-hidden', !v);
@@ -113,7 +105,7 @@ export class LoopTab {
             },
         });
         thresholdSetting.settingEl.classList.toggle('agent-u-hidden',
-            !(this.plugin.settings.advancedApi.condensingEnabled ?? false));
+            !(this.plugin.settings.advancedApi.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED));
 
         // ── Power steering ──────────────────────────────────────────────
         this.section(containerEl, 'settings.loop.headingPowerSteering', 'settings.loop.sectionPowerSteeringDesc');

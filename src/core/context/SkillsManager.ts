@@ -21,6 +21,8 @@
  */
 
 import type { FileAdapter } from '../storage/types';
+import { validateSkillFrontmatter } from '../skills/SkillFrontmatterValidator';
+import { parseSkillFrontmatterBlock, splitSkillFrontmatter } from '../skills/skillFrontmatterParser';
 
 export interface SkillMeta {
     /** Path relative to FileAdapter root (e.g. "skills/my-skill/SKILL.md") */
@@ -33,6 +35,19 @@ export interface SkillMeta {
     source?: 'learned' | 'user' | 'bundled' | 'pro';
     /** Optional trigger regex for fast-path matching */
     trigger?: string;
+    /**
+     * FIX-29-05-03: set when the frontmatter fails the same hard validation the
+     * SelfAuthoredSkillLoader applies. Such a skill does NOT load and must not
+     * reach a prompt; it is carried this far only so Settings can show the user
+     * why it was rejected instead of hiding it. Every consumer that feeds a
+     * model MUST filter these out -- use `loadableSkills()`.
+     */
+    invalidReason?: string;
+}
+
+/** Skills that actually load. The only list safe to put in front of a model. */
+export function loadableSkills(skills: SkillMeta[]): SkillMeta[] {
+    return skills.filter(s => s.invalidReason === undefined);
 }
 
 /**
@@ -182,69 +197,41 @@ export class SkillsManager {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private parseFrontmatter(content: string, folder: string, skillPath: string): SkillMeta | null {
-        // Extract YAML frontmatter between --- delimiters
-        const match = content.match(/^---\n([\s\S]*?)\n---/);
-        if (!match) return null;
-        const yaml = match[1];
+        // RE-AUDIT N-5: shared fence detection, not just a shared key parser.
+        const split = splitSkillFrontmatter(content);
+        if (!split) return null;
 
-        const name = extractYamlField(yaml, 'name') ?? folder.split('/').pop() ?? 'unknown';
-        const description = extractYamlField(yaml, 'description') ?? '';
-        const source = extractYamlField(yaml, 'source') as SkillMeta['source'];
-        const trigger = extractYamlField(yaml, 'trigger');
+        // FIX-29-05-02: shared parser, so this reader and the
+        // SelfAuthoredSkillLoader cannot disagree about the same file.
+        const fm = parseSkillFrontmatterBlock(split.frontmatter);
+
+        const name = fm.name || folder.split('/').pop() || 'unknown';
+        const description = fm.description ?? '';
+        const source = fm.source as SkillMeta['source'];
+        const trigger = fm.trigger;
 
         if (!description) return null;
+
+        // FIX-29-05-03: run the SAME hard validation the loader runs. Without
+        // this, a skill the loader rejected still surfaced here -- listed in
+        // Settings and injected into the <available_skills> prompt block --
+        // while invoke_skill could not find it, so the model saw a skill it
+        // was unable to start. A skill is now either valid for both readers
+        // or for neither. The reason is carried so the UI can explain the
+        // rejection instead of silently hiding the skill.
+        const validation = validateSkillFrontmatter(fm);
+        if (!validation.valid) {
+            return {
+                path: skillPath,
+                name,
+                description,
+                source,
+                trigger,
+                invalidReason: validation.errors.join('; '),
+            };
+        }
 
         return { path: skillPath, name, description, source, trigger };
     }
 }
 
-/**
- * Extract a scalar field from a minimal YAML frontmatter block.
- * Supports:
- *   key: value                    -- plain single line
- *   key: >                        -- folded: newlines collapse to a single space
- *     line 1
- *     line 2
- *   key: |                        -- literal: newlines are preserved
- *     line 1
- *     line 2
- * The block scalar terminates at the next top-level key or at the end of the
- * frontmatter (this parser only ever sees the content between the --- fences).
- * Nested keys, anchors, tags and other YAML features are intentionally unsupported.
- */
-function extractYamlField(yaml: string, key: string): string | undefined {
-    const lines = yaml.split('\n');
-    const keyRe = new RegExp(`^${key}:\\s*(.*)$`);
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const m = line.match(keyRe);
-        if (!m) continue;
-
-        const rest = m[1].trim();
-        if (rest !== '>' && rest !== '|') {
-            return rest.length > 0 ? rest : undefined;
-        }
-
-        // Block scalar: collect indented follow-up lines until we hit a top-level key.
-        const collected: string[] = [];
-        for (let j = i + 1; j < lines.length; j++) {
-            const follow = lines[j];
-            // Blank lines terminate '>' folding cleanly but do not end the block;
-            // for our purposes (single description paragraph) treat them as separators.
-            if (follow.trim() === '') {
-                if (rest === '|') collected.push('');
-                continue;
-            }
-            // A non-indented line that looks like `newkey:` ends the block.
-            if (/^[A-Za-z_][\w-]*\s*:/.test(follow)) break;
-            collected.push(follow.replace(/^\s+/, ''));
-        }
-
-        const joined = rest === '|' ? collected.join('\n') : collected.join(' ');
-        const trimmed = joined.trim();
-        return trimmed.length > 0 ? trimmed : undefined;
-    }
-
-    return undefined;
-}

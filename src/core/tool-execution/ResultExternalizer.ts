@@ -50,6 +50,11 @@ const SKIP_EXTERNALIZATION = new Set([
     'ask_followup_question', 'attempt_completion', 'switch_agent',
     'update_todo_list', 'update_settings', 'configure_model',
     'manage_source', 'manage_mcp_server',
+    // FEAT-24-10 live-probe fix (2026-07-18): the investigate completion IS
+    // the answer the parent needs verbatim (incl. the Sources anchor list).
+    // Externalizing it forced a 4x capped re-read cascade of the tmp file --
+    // exactly the ADR-63 re-read loop. Same class as new_task below.
+    'investigate',
     'enable_plugin', 'new_task', 'evaluate_expression',
     'open_note', 'get_daily_note',
     // Memory v2 retrieval (FEATURE-0317/0320): output is already curated

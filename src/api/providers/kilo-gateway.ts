@@ -60,7 +60,8 @@ export class KiloGatewayProvider implements ApiHandler {
         return {
             id: this.config.model,
             info: {
-                contextWindow: getModelContextWindow(this.config.model),
+                // ADR-158 stage 1: discovery-reported window wins
+                contextWindow: this.config.contextWindow ?? getModelContextWindow(this.config.model),
                 supportsTools: true,
                 supportsStreaming: true,
             },

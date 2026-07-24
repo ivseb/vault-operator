@@ -71,7 +71,7 @@ export interface CrossSurfaceSettings {
      * Wenn true: jeder MCP-Read-Call MUSS source_interface mitbringen,
      * und das Plugin filtert zwangslaeufig auf diesen Wert -- ein
      * ChatGPT-Connector kann dann keine Claude-History sehen. Default
-     * false (heute existing behaviour). Sebastian sollte das ON setzen,
+     * false (heute existing behaviour). Der Nutzer sollte das ON setzen,
      * sobald er Familien-Account-Reads (ChatGPT/Perplexity) strikt von
      * persoenlichen (Claude.ai/Code) trennen will.
      */
@@ -80,7 +80,7 @@ export interface CrossSurfaceSettings {
 
 /**
  * Privacy-sichere Defaults: ChatGPT und Perplexity gelten als
- * Familien-geteilte Accounts (Sebastian-Use-Case). Claude-Tools
+ * Familien-geteilte Accounts (user use case). Claude-Tools
  * gelten als persoenlich.
  */
 export const DEFAULT_CROSS_SURFACE_SETTINGS: CrossSurfaceSettings = {

@@ -13,10 +13,11 @@
  * single round-trip, not two.
  */
 
-import { BaseTool } from '../BaseTool';
+import { BaseTool, defangBoundaryTags, sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { McpClient, McpToolInfo } from '../../mcp/McpClient';
+import { isMcpServerActive } from '../../mcp/mcpActivation';
 
 export class ReadMcpToolTool extends BaseTool<'read_mcp_tool'> {
     readonly name = 'read_mcp_tool' as const;
@@ -66,13 +67,12 @@ export class ReadMcpToolTool extends BaseTool<'read_mcp_tool'> {
             return;
         }
 
-        // Same whitelist check as use_mcp_tool: the user must have enabled
-        // this MCP server in the tool picker.
-        const activeMcpServers: string[] = this.plugin.settings.activeMcpServers ?? [];
-        if (activeMcpServers.length > 0 && !activeMcpServers.includes(server)) {
+        // Same activation check as use_mcp_tool (single source of truth:
+        // mcpActivation). Empty == all active, mcpDisabled == off.
+        if (!isMcpServerActive(this.plugin.settings, context.mode, server)) {
             callbacks.pushToolResult(
                 this.formatError(new Error(
-                    `MCP server "${server}" is not enabled. `
+                    `MCP server "${server}" is not enabled for this chat. `
                     + 'Use the tool picker (pocket-knife button) in the chat toolbar to enable it.',
                 )),
             );
@@ -83,7 +83,7 @@ export class ReadMcpToolTool extends BaseTool<'read_mcp_tool'> {
         if (!conn || conn.status !== 'connected') {
             const connected = this.mcpClient.getConnections()
                 .filter(c => c.status === 'connected')
-                .map(c => c.name);
+                .map(c => sanitizeDirectoryEntry(c.name, 64));
             const list = connected.length > 0 ? connected.join(', ') : '(none)';
             callbacks.pushToolResult(
                 this.formatError(new Error(
@@ -95,7 +95,9 @@ export class ReadMcpToolTool extends BaseTool<'read_mcp_tool'> {
 
         const tool = conn.tools.find(t => t.name === toolName);
         if (!tool) {
-            const available = conn.tools.map(t => t.name);
+            // AUDIT 2026-07-17 M-1: tool names are attacker-controlled; defang
+            // + flatten before echoing them into the message history (CWE-1427).
+            const available = conn.tools.map(t => sanitizeDirectoryEntry(t.name, 64));
             const list = available.length > 0 ? available.join(', ') : '(server reports no tools)';
             callbacks.pushToolResult(
                 this.formatError(new Error(
@@ -113,10 +115,16 @@ export class ReadMcpToolTool extends BaseTool<'read_mcp_tool'> {
     // -----------------------------------------------------------------------
 
     private render(server: string, tool: McpToolInfo): string {
-        const description = tool.description?.trim();
-        const schemaSummary = this.renderInputSchemaSummary(tool.inputSchema);
+        // FIX-04-11-01: the full description and the schema field texts are
+        // server-controlled. The compact listing in the system prompt defangs
+        // them (sanitizeDirectoryEntry, Codex M-1); this on-demand full view
+        // must apply the same neutralisation before the text enters the
+        // message history.
+        const description = tool.description ? defangBoundaryTags(tool.description).trim() : undefined;
+        const rawSchemaSummary = this.renderInputSchemaSummary(tool.inputSchema);
+        const schemaSummary = rawSchemaSummary ? defangBoundaryTags(rawSchemaSummary) : rawSchemaSummary;
         const parts: string[] = [
-            `## MCP TOOL: ${server}.${tool.name}`,
+            `## MCP TOOL: ${server}.${sanitizeDirectoryEntry(tool.name, 80)}`,
             'Call this tool via use_mcp_tool(server, tool_name, arguments) when ready.',
             '',
         ];

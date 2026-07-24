@@ -106,6 +106,7 @@ export class VectorStore {
         mtime: number,
         enriched = 0,
         domain?: KnowledgeDomain,
+        contentHash = '',
     ): void {
         const db = this.getDB();
         const resolvedDomain: KnowledgeDomain = domain ?? pathPrefixToDomain(filePath);
@@ -115,11 +116,11 @@ export class VectorStore {
 
         // Insert new chunks
         const stmt = db.prepare(
-            'INSERT INTO vectors (path, chunk_index, text, vector, mtime, enriched, domain) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO vectors (path, chunk_index, text, vector, mtime, enriched, domain, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         );
         for (let i = 0; i < chunks.length; i++) {
             const vecBytes = new Uint8Array(vectors[i].buffer, vectors[i].byteOffset, vectors[i].byteLength);
-            stmt.run([filePath, i, chunks[i], vecBytes, mtime, enriched, resolvedDomain]);
+            stmt.run([filePath, i, chunks[i], vecBytes, mtime, enriched, resolvedDomain, contentHash]);
         }
         stmt.free();
 
@@ -138,8 +139,9 @@ export class VectorStore {
         vectors: Float32Array[],
         mtime: number,
         enriched = 0,
+        contentHash = '',
     ): void {
-        this.insertChunks(filePath, chunks, vectors, mtime, enriched, 'note');
+        this.insertChunks(filePath, chunks, vectors, mtime, enriched, 'note', contentHash);
     }
 
     /** Insert session-transcript chunks (domain = 'session'). Path is forced to `session:<id>`. */
@@ -203,6 +205,39 @@ export class VectorStore {
             }
         }
         return map;
+    }
+
+    /**
+     * Get each indexed path's stored content hash. Used by the delta logic to
+     * confirm a real content change behind the mtime tripwire (Obsidian Sync
+     * re-stamps mtimes without changing content). All chunks of a path share
+     * one hash, so MIN == MAX; MIN is arbitrary-but-stable. Legacy rows from
+     * before schema v14 carry '' and never match, so they get one re-check.
+     */
+    getPathHashes(): Map<string, string> {
+        const db = this.getDB();
+        const result = db.exec('SELECT path, MIN(content_hash) as h FROM vectors GROUP BY path');
+        const map = new Map<string, string>();
+        if (result.length > 0) {
+            for (const row of result[0].values) {
+                map.set(row[0] as string, (row[1] as string) ?? '');
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Refresh only the stored mtime for a path, leaving vectors, enrichment
+     * and content_hash untouched. Called when the content hash confirms a
+     * file is unchanged despite a newer mtime (Sync re-stamp): we adopt the
+     * new mtime so the next build's cheap mtime pre-filter stops flagging it,
+     * without re-embedding or destroying its Pass-2 enrichment.
+     */
+    touchMtime(filePath: string, mtime: number): void {
+        const db = this.getDB();
+        db.run('UPDATE vectors SET mtime = ? WHERE path = ?', [mtime, filePath]);
+        this.knowledgeDB.markDirty();
+        // No invalidateCache(): mtime is not part of the search cache.
     }
 
     /**

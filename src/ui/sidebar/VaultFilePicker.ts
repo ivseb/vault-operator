@@ -1,6 +1,7 @@
 import type { App } from 'obsidian';
 import { setIcon, TFile } from 'obsidian';
 import { t } from '../../i18n';
+import { PopoverDismisser, positionPopover } from './popoverShell';
 
 /**
  * VaultFilePicker — floating search/multi-select popover for vault files.
@@ -20,7 +21,7 @@ export class VaultFilePicker {
     private selected = new Set<string>(); // file paths
     private filtered: Array<{ file: TFile; label: string }> = [];
     private activeIdx = 0;
-    private resizeHandler: (() => void) | null = null;
+    private readonly dismisser = new PopoverDismisser();
 
     constructor(
         private app: App,
@@ -28,6 +29,10 @@ export class VaultFilePicker {
     ) {}
 
     show(anchor: HTMLElement, parentContainerEl?: HTMLElement): void {
+        if (this.dismisser.isOpenFor(anchor)) {
+            this.hide();
+            return;
+        }
         this.hide();
         this.selected.clear();
         this.activeIdx = 0;
@@ -35,48 +40,13 @@ export class VaultFilePicker {
         // ── Container ────────────────────────────────────────────────
         this.containerEl = activeDocument.body.createDiv('vault-file-picker');
 
-        const positionPopover = () => {
+        const reposition = () => {
             if (!this.containerEl) return;
-            const br = anchor.getBoundingClientRect();
-            const cr = parentContainerEl
-                ? parentContainerEl.getBoundingClientRect()
-                : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth, width: window.innerWidth };
-            const pad = 8;
-
-            this.containerEl.setCssProps({ '--vfp-pos': 'fixed' });
-
-            // Constrain width to container
-            const popWidth = Math.min(320, cr.width - pad * 2);
-            this.containerEl.setCssProps({ '--vfp-w': `${popWidth}px` });
-
-            // Prefer opening upward; fall back to downward
-            const spaceAbove = br.top - cr.top - pad;
-            const spaceBelow = cr.bottom - br.bottom - pad;
-
-            if (spaceAbove >= spaceBelow) {
-                this.containerEl.setCssProps({
-                    '--vfp-bottom': (window.innerHeight - br.top + 4) + 'px',
-                    '--vfp-top': '',
-                    '--vfp-max-h': `${Math.max(spaceAbove, 200)}px`,
-                });
-            } else {
-                this.containerEl.setCssProps({
-                    '--vfp-top': (br.bottom + 4) + 'px',
-                    '--vfp-bottom': '',
-                    '--vfp-max-h': `${Math.max(spaceBelow, 200)}px`,
-                });
-            }
-
-            // Horizontal: keep inside container
-            let left = Math.max(br.left, cr.left + pad);
-            if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
-            left = Math.max(left, cr.left + pad);
-            this.containerEl.setCssProps({ '--vfp-left': `${left}px` });
+            positionPopover(this.containerEl, anchor, parentContainerEl ?? null, {
+                cssPrefix: '--vfp', maxWidth: 320,
+            });
         };
-        positionPopover();
-
-        this.resizeHandler = positionPopover;
-        window.addEventListener('resize', this.resizeHandler);
+        reposition();
 
         // ── Search row ───────────────────────────────────────────────
         const searchRow = this.containerEl.createDiv('vfp-search-row');
@@ -134,14 +104,14 @@ export class VaultFilePicker {
             }
         });
 
-        // Close on outside click
-        const closeOnOutside = (e: MouseEvent) => {
-            if (this.containerEl && !this.containerEl.contains(e.target as Node)) {
-                this.hide();
-                activeDocument.removeEventListener('mousedown', closeOnOutside);
-            }
-        };
-        activeDocument.addEventListener('mousedown', closeOnOutside);
+        // Dismiss lifecycle: outside click, Escape, resize (IMP-02-12-03;
+        // the old inline handler leaked one listener per show()).
+        this.dismisser.attach({
+            el: this.containerEl,
+            anchor,
+            onDismiss: () => this.hide(),
+            reposition,
+        });
 
         this.renderList();
         this.updateCount();
@@ -151,10 +121,7 @@ export class VaultFilePicker {
     }
 
     hide(): void {
-        if (this.resizeHandler) {
-            window.removeEventListener('resize', this.resizeHandler);
-            this.resizeHandler = null;
-        }
+        this.dismisser.detach();
         this.containerEl?.remove();
         this.containerEl = null;
         this.searchInput = null;

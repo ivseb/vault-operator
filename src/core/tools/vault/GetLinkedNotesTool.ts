@@ -86,8 +86,25 @@ export class GetLinkedNotesTool extends BaseTool<'get_linked_notes'> {
 
             // Backlinks
             if (direction === 'both' || direction === 'backlinks') {
-                const backlinks = this.app.metadataCache.getBacklinksForFile(file);
-                const backlinkPaths = backlinks ? Object.keys(backlinks.data) : [];
+                // FEAT-19-04-01: aus der edges-Tabelle statt aus Obsidians
+                // getBacklinksForFile. Die edges kennen jede Frontmatter-
+                // Property (moc/related/resource) UND Body-Links -- dieselbe
+                // Menge, die der Health-Check repariert und der
+                // Rueckverweis-Block anzeigt. So sieht der Agent nicht laenger
+                // eine andere Backlink-Zahl als der Graph. Block-erzeugte
+                // Kanten (backlink-block) sind ausgeschlossen, damit ein Hub
+                // sich nicht ueber seinen eigenen Block selbst zaehlt.
+                const graphStore = this.plugin.graphStore;
+                let backlinkPaths: string[];
+                if (graphStore) {
+                    backlinkPaths = graphStore
+                        .getSourcesFor(file.path, { excludeLinkTypes: ['backlink-block'] })
+                        .map((s) => s.sourcePath);
+                } else {
+                    // Fallback, falls der Graph-Index (noch) nicht bereit ist.
+                    const backlinks = this.app.metadataCache.getBacklinksForFile(file);
+                    backlinkPaths = backlinks ? Object.keys(backlinks.data) : [];
+                }
 
                 lines.push(`\nBacklinks (${backlinkPaths.length}):`);
                 if (backlinkPaths.length > 0) {

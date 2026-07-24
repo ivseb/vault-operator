@@ -65,7 +65,7 @@ FLOW (follow exactly this order, one question per turn):
       question: "Do you have a backup from an earlier setup?"
       options: ["Yes, I want to import a backup", "No, let's start fresh"]
    On "yes":
-     1. update_settings action="open_tab", tab="advanced", sub_tab="backup"
+     1. update_settings action="open_tab", tab="advanced", sub_tab="data"
      2. Write briefly: "I've opened the backup settings for you."
      3. -> ask_followup_question:
         question: "Did the import work?"

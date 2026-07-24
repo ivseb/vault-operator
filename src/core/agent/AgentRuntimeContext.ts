@@ -25,6 +25,8 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { ModeConfig } from '../../types/settings';
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
+import { loadableSkills } from '../context/SkillsManager';
+import { resolveAllowedMcpServers } from '../mcp/mcpActivation';
 import { MemoryRetriever } from '../memory/MemoryRetriever';
 import { OnboardingService } from '../memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../onboarding-status';
@@ -108,21 +110,25 @@ export async function buildAgentRuntimeContext(
     }
 
     // --- MCP allow-list ------------------------------------------
-    // 2026-05-18: per-mode allow-list removed; activeMcpServers is the
-    // global source of truth via McpBridge. Passing undefined means
-    // "no per-agent restriction".
-    ctx.allowedMcpServers = undefined;
+    // Resolve the global MCP activation to the catalogue filter so advertised
+    // MCP tools match what the gates allow: undefined = all, [] = MCP off,
+    // subset = narrowed (IMP-04-10-02, single source of truth: mcpActivation).
+    ctx.allowedMcpServers = resolveAllowedMcpServers(plugin.settings, args.mode.slug);
 
     return ctx;
 }
 
 /** Mirrors AgentSidebarView.buildSkillDirectory (sidebar:1268-1293). */
 async function buildSkillDirectory(plugin: ObsidianAgentPlugin): Promise<string | undefined> {
-    const skillsManager = (plugin as unknown as { skillsManager?: { discoverSkills: () => Promise<Array<{ name: string; description: string; path: string }>> } }).skillsManager;
+    const skillsManager = (plugin as unknown as { skillsManager?: { discoverSkills: () => Promise<Array<{ name: string; description: string; path: string; invalidReason?: string }>> } }).skillsManager;
     const selfLoader = (plugin as unknown as { selfAuthoredSkillLoader?: { getMetadataSummary?: () => string; getAllSkills?: () => Array<{ name: string }> } }).selfAuthoredSkillLoader;
 
     const toggles = (plugin.settings as { manualSkillToggles?: Record<string, boolean> }).manualSkillToggles ?? {};
-    const userSkills = skillsManager !== undefined ? await skillsManager.discoverSkills() : [];
+    // FIX-29-05-03: mirror the sidebar -- skills that fail hard validation do
+    // not load, so they must not be advertised in the inline-chat prompt.
+    const userSkills = skillsManager !== undefined
+        ? loadableSkills(await skillsManager.discoverSkills())
+        : [];
     const filteredUserSkills = Object.keys(toggles).length > 0
         ? userSkills.filter(s => toggles[s.path] !== false)
         : userSkills;

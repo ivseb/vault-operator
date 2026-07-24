@@ -166,7 +166,7 @@ structured tool call that captures everything memory-relevant.
 
 ATOMIC FACT RULE
 Each fact is a single self-contained claim. Compound sentences must be split. Preserve
-the user's voice -- "Sebastian prefers Plan-Mode" stays first-person flavoured if the
+the user's voice -- "Alex prefers Plan-Mode" stays first-person flavoured if the
 source is "I prefer Plan-Mode".
 
 KIND

@@ -14,11 +14,12 @@
  *  - Click sets the override on the parent and closes the popover
  */
 
-import { setIcon } from 'obsidian';
+import { DropdownComponent, setIcon } from 'obsidian';
 import type { DiscoveredModel, ProviderConfig } from '../../types/settings';
 import { getTierBadgeLabel } from '../../types/settings';
 import type { EffortLevel } from '../../types/model-registry';
 import { t } from '../../i18n';
+import { PopoverDismisser, positionPopover } from './popoverShell';
 import { buildChatModelPickerRows } from './chatModelDropdown';
 import type { ThinkingOverride } from './thinkingOverride';
 import type { EffortOverride } from './effortOverride';
@@ -32,7 +33,7 @@ import {
     thinkingSwitchIsOn,
 } from './effortOverride';
 
-/** One switchable provider chip in the picker's provider row (issue #48.5). */
+/** One switchable provider entry in the picker's provider dropdown (issue #48.5). */
 export interface ChatProviderNavItem {
     id: string;
     label: string;
@@ -40,8 +41,9 @@ export interface ChatProviderNavItem {
 
 /**
  * Provider-switcher wiring for the chat model picker (issue #48.5). When more
- * than one provider is enabled the picker shows a chip row so the user can
- * change the active provider without opening Settings.
+ * than one provider is enabled the picker shows a dropdown (IMP-26-05-01;
+ * chips before that) so the user can change the active provider without
+ * opening Settings.
  */
 export interface ChatProviderNav {
     items: ChatProviderNavItem[];
@@ -73,8 +75,7 @@ export interface ChatModelPickerCallbacks {
 
 export class ChatModelPickerPopover {
     private popoverEl: HTMLElement | null = null;
-    private closeHandler: ((e: MouseEvent) => void) | null = null;
-    private resizeHandler: (() => void) | null = null;
+    private readonly dismisser = new PopoverDismisser();
     private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
     show(
@@ -85,6 +86,11 @@ export class ChatModelPickerPopover {
         callbacks: ChatModelPickerCallbacks,
         providerNav?: ChatProviderNav,
     ): void {
+        // Anchor click while open = toggle-close (IMP-02-12-03).
+        if (this.dismisser.isOpenFor(anchorBtn)) {
+            this.close();
+            return;
+        }
         this.close();
 
         const popover = activeDocument.createElement('div');
@@ -105,18 +111,19 @@ export class ChatModelPickerPopover {
         // global change (settings.activeProviderId); the caller persists it and
         // re-opens the picker on the newly active provider.
         if (providerNav && providerNav.items.length > 1) {
+            // Dropdown instead of a chip row (IMP-26-05-01): with many enabled
+            // providers the chips wrapped over two lines and pushed the model
+            // list down; a select scales without eating vertical space.
             const navRow = popover.createDiv('chat-model-picker-providers');
+            const dropdown = new DropdownComponent(navRow);
             for (const item of providerNav.items) {
-                const chip = navRow.createEl('button', {
-                    cls: 'chat-model-picker-provider-chip',
-                    text: item.label,
-                });
-                if (item.id === providerNav.activeId) chip.addClass('is-active');
-                chip.addEventListener('click', () => {
-                    if (item.id === providerNav.activeId) return;
-                    providerNav.onSelect(item.id);
-                });
+                dropdown.addOption(item.id, item.label);
             }
+            if (providerNav.activeId !== null) dropdown.setValue(providerNav.activeId);
+            dropdown.onChange((id) => {
+                if (id === providerNav.activeId) return;
+                providerNav.onSelect(id);
+            });
         }
 
         // ── Search input ─────────────────────────────────────────────────
@@ -240,31 +247,27 @@ export class ChatModelPickerPopover {
 
         // ── Mount + position ────────────────────────────────────────────
         activeDocument.body.appendChild(popover);
-        this.positionPopover(popover, anchorBtn, containerEl);
-        this.resizeHandler = () => this.positionPopover(popover, anchorBtn, containerEl);
-        window.addEventListener('resize', this.resizeHandler);
+        const reposition = () => {
+            positionPopover(popover, anchorBtn, containerEl, {
+                cssPrefix: '--tp', maxWidth: 400, minVisibleHeight: 240, extraWidthVars: true,
+            });
+        };
+        reposition();
 
         // Focus search on open
         window.setTimeout(() => searchInput.focus(), 30);
 
-        // Close on outside click
-        this.closeHandler = (e: MouseEvent) => {
-            if (!this.popoverEl?.contains(e.target as Node) && e.target !== anchorBtn) {
-                this.close();
-            }
-        };
-        window.setTimeout(() => activeDocument.addEventListener('mousedown', this.closeHandler!), 50);
+        // Dismiss lifecycle: outside click, Escape, resize (IMP-02-12-03).
+        this.dismisser.attach({
+            el: popover,
+            anchor: anchorBtn,
+            onDismiss: () => this.close(),
+            reposition,
+        });
     }
 
     close(): void {
-        if (this.closeHandler) {
-            activeDocument.removeEventListener('mousedown', this.closeHandler);
-            this.closeHandler = null;
-        }
-        if (this.resizeHandler) {
-            window.removeEventListener('resize', this.resizeHandler);
-            this.resizeHandler = null;
-        }
+        this.dismisser.detach();
         this.popoverEl?.remove();
         this.popoverEl = null;
         this.keyHandler = null;
@@ -510,38 +513,4 @@ export class ChatModelPickerPopover {
         return { wrap: row, sync };
     }
 
-    private positionPopover(popover: HTMLElement, anchorBtn: HTMLElement, containerEl: HTMLElement): void {
-        const br = anchorBtn.getBoundingClientRect();
-        const cr = containerEl.getBoundingClientRect();
-        const pad = 8;
-        popover.setCssProps({ '--tp-pos': 'fixed' });
-
-        const popWidth = Math.min(400, cr.width - pad * 2);
-        popover.setCssProps({
-            '--tp-w': `${popWidth}px`,
-            '--tp-min-w': `${Math.min(320, popWidth)}px`,
-            '--tp-max-w': `${popWidth}px`,
-        });
-
-        const spaceAbove = br.top - cr.top - pad;
-        const spaceBelow = cr.bottom - br.bottom - pad;
-        if (spaceAbove >= spaceBelow) {
-            popover.setCssProps({
-                '--tp-bottom': (window.innerHeight - br.top + 4) + 'px',
-                '--tp-top': '',
-                '--tp-max-h': `${Math.max(spaceAbove, 240)}px`,
-            });
-        } else {
-            popover.setCssProps({
-                '--tp-top': (br.bottom + 4) + 'px',
-                '--tp-bottom': '',
-                '--tp-max-h': `${Math.max(spaceBelow, 240)}px`,
-            });
-        }
-
-        let left = Math.max(br.left, cr.left + pad);
-        if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
-        left = Math.max(left, cr.left + pad);
-        popover.setCssProps({ '--tp-left': `${left}px` });
-    }
 }

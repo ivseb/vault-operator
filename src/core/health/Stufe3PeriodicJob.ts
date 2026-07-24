@@ -17,6 +17,7 @@
  * Coupling). Token-Counter pro Call.
  */
 
+import { STUFE3_STATE_ROW_CLUSTER } from '../knowledge/ClusterMetadataStore';
 import type { ClusterMetadataStore, ClusterMetadataRecord } from '../knowledge/ClusterMetadataStore';
 import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
 
@@ -48,9 +49,26 @@ export type WebUpdatePassFn = (cluster: ClusterMetadataRecord) => Promise<WebUpd
 export type NotificationSink = (findings: UpdateFinding[]) => void;
 export type BudgetExceededSink = (info: { spentUsd: number; budgetUsd: number }) => void;
 
+/**
+ * FEAT-19-03-01: liefert die zu scannenden Cluster in Reihenfolge.
+ *
+ * Ersetzt die feste getHotClusters-Quelle. Im Produktivpfad kombiniert der
+ * Aufrufer getAll + faellige Notizzahlen + selectDueClusters, sodass der
+ * Lauf den GANZEN Vault alterungsgesteuert abdeckt statt einer Handauswahl.
+ * Fehlt die Funktion, faellt der Job auf getHotClusters zurueck (haelt die
+ * Alt-Tests und jeden Aufrufer ohne Umbau am Leben).
+ */
+export type ClusterSelectorFn = () => ClusterMetadataRecord[];
+
 export interface Stufe3JobOptions {
-    /** Default 2.0 USD pro Woche. */
+    /**
+     * Default 2.0 USD pro Woche. Statischer Fallback.
+     * FEAT-19-03-01: `weeklyBudgetGetter` hat Vorrang, wenn gesetzt, damit
+     * eine Settings-Aenderung sofort greift (ADR-163, kein Boot-Snapshot).
+     */
     weeklyBudgetUsd: number;
+    /** FEAT-19-03-01: Live-Budget aus den Settings; ueberschreibt weeklyBudgetUsd. */
+    weeklyBudgetGetter?: () => number;
     /** Default 0.8: Notification ab 80%. */
     notificationThreshold: number;
     /** Wenn dryRun true: Web-Search/LLM-Calls werden simuliert (Zero-Cost). */
@@ -81,7 +99,10 @@ const DEFAULT_TOKENS_PER_USD = 660_000; // ~0.0015 USD per 1k tokens (Haiku-Scha
  * with real clusters; custom_weights JSON-Spalte wird als state-blob
  * verwendet. Vermeidet Schema-Migration v10 -> v11.
  */
-const STATE_ROW_CLUSTER = '__stufe3_job_state__';
+// FIX-19-02-01: Name kommt jetzt aus dem Store, der ihn auch ausfiltert.
+// Zwei Literale waeren zwei Wahrheiten -- driftet eines, taucht die
+// Zustandszeile als erfundener Cluster in den Settings auf.
+const STATE_ROW_CLUSTER = STUFE3_STATE_ROW_CLUSTER;
 
 export interface Stufe3StatePersistence {
     load(): Stufe3JobState | null;
@@ -131,6 +152,11 @@ export class Stufe3PeriodicJob {
         initialState?: Stufe3JobState,
         private readonly budgetExceededSink?: BudgetExceededSink,
         private readonly persistence?: Stufe3StatePersistence,
+        /**
+         * FEAT-19-03-01: vault-weite, alterungspriorisierte Kandidatenquelle.
+         * Fehlt sie, bleibt es beim alten Hot-Cluster-Verhalten.
+         */
+        private readonly selectClusters?: ClusterSelectorFn,
     ) {
         this.state = initialState ?? this.persistence?.load() ?? this.freshState();
     }
@@ -157,17 +183,24 @@ export class Stufe3PeriodicJob {
             state: this.state,
         };
 
-        const hot = this.clusterMetadataStore.getHotClusters();
-        // Sort by lastExternalCheck asc (oldest first), so reife Cluster zuerst
-        hot.sort((a, b) => {
-            const ta = a.lastExternalCheck ? new Date(a.lastExternalCheck).getTime() : 0;
-            const tb = b.lastExternalCheck ? new Date(b.lastExternalCheck).getTime() : 0;
-            return ta - tb;
-        });
+        // FEAT-19-03-01: die Kandidaten kommen aus der injizierten Quelle
+        // (vault-weit, alterungspriorisiert). Ohne sie das alte Verhalten:
+        // nur hot markierte Cluster, oldest-first.
+        let candidates: ClusterMetadataRecord[];
+        if (this.selectClusters) {
+            candidates = this.selectClusters();
+        } else {
+            candidates = this.clusterMetadataStore.getHotClusters();
+            candidates.sort((a, b) => {
+                const ta = a.lastExternalCheck ? new Date(a.lastExternalCheck).getTime() : 0;
+                const tb = b.lastExternalCheck ? new Date(b.lastExternalCheck).getTime() : 0;
+                return ta - tb;
+            });
+        }
 
         const allFindings: UpdateFinding[] = [];
 
-        for (const cluster of hot) {
+        for (const cluster of candidates) {
             if (this.budgetReached()) {
                 result.budgetExceeded = true;
                 break;
@@ -210,18 +243,30 @@ export class Stufe3PeriodicJob {
         const tokensPerUsd = this.options.tokensPerUsd ?? DEFAULT_TOKENS_PER_USD;
         const cost = tokens / tokensPerUsd;
         this.state.spentUsd += cost;
-        const ratio = this.state.spentUsd / this.options.weeklyBudgetUsd;
+        const budget = this.weeklyBudget();
+        const ratio = this.state.spentUsd / budget;
         if (!this.state.notifiedAt80Percent && ratio >= this.options.notificationThreshold) {
             this.state.notifiedAt80Percent = true;
-            this.budgetExceededSink?.({ spentUsd: this.state.spentUsd, budgetUsd: this.options.weeklyBudgetUsd });
+            this.budgetExceededSink?.({ spentUsd: this.state.spentUsd, budgetUsd: budget });
         }
         // AUDIT-014 IMP-19-20-01: persist state nach jeder Spending-Operation
         // damit Plugin-Reload mid-week das Budget korrekt fortfuehrt.
         this.persistence?.save(this.state);
     }
 
+    /**
+     * FEAT-19-03-01: das aktuell geltende Wochenbudget. Live-Getter hat
+     * Vorrang, sonst der statische Options-Wert. Ein nicht-endlicher oder
+     * nicht-positiver Getter-Wert faellt sicher auf den Options-Wert zurueck.
+     */
+    private weeklyBudget(): number {
+        const live = this.options.weeklyBudgetGetter?.();
+        if (typeof live === 'number' && Number.isFinite(live) && live > 0) return live;
+        return this.options.weeklyBudgetUsd;
+    }
+
     private budgetReached(): boolean {
-        return this.state.spentUsd >= this.options.weeklyBudgetUsd;
+        return this.state.spentUsd >= this.weeklyBudget();
     }
 
     private freshState(): Stufe3JobState {

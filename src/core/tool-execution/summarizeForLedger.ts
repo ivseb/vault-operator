@@ -22,8 +22,16 @@ function asText(content: string | ToolResultContentBlock[]): string {
         .join('\n');
 }
 
+/**
+ * FIX-29-05 audit L-2: the `<error>` alternative used to be unanchored, so ANY
+ * content carrying the literal string `<error>` -- a vault note, a fetched
+ * page, a JUnit report the user asked to read -- classified a successful tool
+ * result as failed. The host emits its own wrapper at the very start of the
+ * text (BaseTool.formatError), so anchoring costs nothing and removes the
+ * attacker's influence over classification.
+ */
 function isErrorContent(text: string): boolean {
-    return /<error>|^error[: ]/i.test(text.trim());
+    return /^<error>|^error[: ]/i.test(text.trim());
 }
 
 function pathFromInput(input: Record<string, unknown>): string | undefined {

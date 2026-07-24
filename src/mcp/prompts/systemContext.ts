@@ -13,6 +13,8 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { McpPromptMessage } from '../types';
+import { loadableSkills } from '../../core/context/SkillsManager';
+import { sanitizeDirectoryEntry } from '../../core/tools/BaseTool';
 
 export async function buildPrompts(plugin: ObsidianAgentPlugin): Promise<McpPromptMessage[]> {
     const sections: string[] = [];
@@ -48,10 +50,16 @@ export async function buildPrompts(plugin: ObsidianAgentPlugin): Promise<McpProm
     // Skills overview (workflow names + short descriptions only; no PII).
     if (plugin.skillsManager) {
         try {
-            const skills = await plugin.skillsManager.discoverSkills();
+            // FIX-29-05-03: skills that fail hard validation do not load, so
+            // advertising them to an external MCP client is a dead end.
+            // FIX-29-05-04: name and description are untrusted frontmatter --
+            // sanitise before they enter a prompt, matching the sidebar and
+            // main.ts assembly paths (AUDIT 2026-07-14 Codex M-1).
+            const skills = loadableSkills(await plugin.skillsManager.discoverSkills());
             if (skills.length > 0) {
                 const skillTexts = skills
-                    .map((s: { name: string; description?: string }) => `- ${s.name}: ${s.description ?? ''}`)
+                    .map((s: { name: string; description?: string }) =>
+                        `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description ?? '', 300)}`)
                     .join('\n');
                 sections.push(`## Available Skills\nUse these as workflow guides:\n${skillTexts}`);
             }

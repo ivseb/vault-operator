@@ -81,17 +81,64 @@
     border-bottom: 1px solid var(--background-modifier-border);
     padding-bottom: 8px;
 }
-.vault-health-top-tab {
-    background: transparent;
-    border: none;
-    padding: 6px 12px;
-    cursor: pointer;
+/* FIX-19-02-19: gleicher Tab-Standard wie die Settings (.agent-settings-tab).
+   Vorher erbten die Knoepfe Obsidians Default-Button-Look (graue Pille mit
+   Rahmen und Schatten), weil `.modal button` spezifischer ist als eine
+   einzelne Klasse. Deshalb hier mit `.modal`-Praefix und !important auf den
+   drei Eigenschaften, die der Default setzt. */
+.modal .vault-health-top-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding: 0;
+}
+.modal button.vault-health-top-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-bottom: 2px solid transparent;
     color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 400;
+    cursor: pointer;
+    margin-bottom: -1px;
+    border-radius: 4px 4px 0 0;
+    transition: color 0.1s;
+}
+.modal button.vault-health-top-tab:hover { color: var(--text-normal); }
+.modal button.vault-health-top-tab.is-active {
+    color: var(--text-normal);
+    border-bottom-color: var(--interactive-accent);
     font-weight: 500;
 }
-.vault-health-top-tab.is-active {
+
+/* Severity-Filter: dieselbe Sprache, eine Stufe leiser. */
+.modal .vault-health-filter-row {
+    display: flex;
+    gap: 2px;
+    margin: 12px 0 8px;
+    flex-wrap: wrap;
+}
+.modal button.vault-health-filter-tab {
+    padding: 4px 10px;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+}
+.modal button.vault-health-filter-tab:hover { color: var(--text-normal); }
+.modal button.vault-health-filter-tab.is-active {
     color: var(--text-normal);
-    border-bottom: 2px solid var(--interactive-accent);
+    border-bottom-color: var(--interactive-accent);
+    font-weight: 500;
 }
 .vault-health-knowledge-review-toolbar {
     display: flex;
@@ -104,7 +151,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin: 8px 0 12px 0;
+    margin: 4px 0 8px 0;
 }
 .vault-health-autofix-label {
     display: flex;
@@ -112,29 +159,35 @@
     gap: 6px;
     font-weight: 600;
 }
+/* FIX-19-05-08: gleiche Groesse/Farbe wie eine setting-item-description. */
 .vault-health-autofix-desc {
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: var(--font-ui-smaller);
+    line-height: 1.5;
 }
 .vault-health-autofix-btn {
     align-self: flex-start;
     margin-top: 6px;
 }
 /* IMP-19-01-02: sticky apply-bar at the top of the Findings tab.
-   Stays visible while the user scrolls through long finding lists. */
+   Stays visible while the user scrolls through long finding lists.
+   FIX-19-05-08: der Apply-Knopf behaelt seine natuerliche Breite und steht
+   rechtsbuendig (Settings-Look). FIX-19-09 (Review-Bot Tier 7): die zwei
+   frueheren .vault-health-apply-sticky-Bloecke hier in-place gemergt. */
 .vault-health-apply-sticky {
     position: sticky;
     top: 0;
     z-index: 10;
     margin: 8px 0 12px 0;
-    padding: 6px 0;
+    padding: 8px 0;
     background: var(--background-primary);
     border-bottom: 1px solid var(--background-modifier-border);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
 }
-.vault-health-apply-sticky-btn {
-    width: 100%;
-}
-.resolve-conflict-modal .resolve-conflict-actions,
+.vault-health-apply-sticky-btn { width: auto; }
 .resolve-conflict-modal .resolve-conflict-confirm,
 .batch-resolve-modal .batch-resolve-actions,
 .batch-resolve-modal .batch-resolve-filter-row {
@@ -142,6 +195,36 @@
     gap: 8px;
     margin-top: 12px;
     align-items: center;
+}
+
+/* FIX-19-05-05: Aktionen als vertikale Liste, jede mit erklaerender Caption. */
+.resolve-conflict-modal .resolve-conflict-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+}
+.resolve-conflict-modal .resolve-conflict-action {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.resolve-conflict-modal .resolve-conflict-action-caption {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+/* FIX-19-05-05: "Warum ist diese Notiz hier"-Block. */
+.resolve-conflict-modal .resolve-conflict-why {
+    padding: 0.6em 0.75em;
+    margin: 0.5em 0;
+    border-left: 3px solid var(--interactive-accent, var(--text-accent));
+    background: var(--background-secondary);
+    border-radius: var(--radius-s, 4px);
+    line-height: 1.5;
+}
+.resolve-conflict-modal .resolve-conflict-why p {
+    margin: 0;
 }
 .batch-resolve-modal .batch-resolve-filter-label {
     margin-right: 12px;
@@ -151,6 +234,12 @@
     margin: 8px 0;
     color: var(--text-muted);
     font-size: 13px;
+}
+/* FIX-19-05-07: native Setting-Zeilen im Modal (Scan/Re-Check-Toolbars).
+   Kein oberer Trennstrich (sie stehen am Kopf des Tabs), etwas kompakter. */
+.vault-health-modal .vault-health-inline-setting {
+    border-top: none;
+    padding: 8px 0 12px;
 }
 .vault-health-severity {
     display: inline-block;
@@ -174,44 +263,60 @@
     background: var(--text-faint);
     color: var(--background-primary);
 }
-/* Collapsible sections */
+/* FIX-19-05-07: Sektionen im Settings-Register. Die Section-Kopfzeile liest
+   sich wie eine agent-settings-section-Ueberschrift (Uppercase, muted,
+   Unterlinie), der Rahmen bleibt fuer die Klappbarkeit dezent. */
 .vault-health-section {
-    margin: 8px 0;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
+    margin: 16px 0 8px;
+    border: none;
+    border-radius: 0;
 }
 .vault-health-section-header {
-    padding: 8px 12px;
-    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 0 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
     cursor: pointer;
     user-select: none;
+    border-bottom: 1px solid var(--background-modifier-border);
 }
-.vault-health-section-header:hover {
-    background: var(--background-modifier-hover);
-}
+.vault-health-section-header:hover { color: var(--text-normal); }
 .vault-health-section-content {
-    padding: 4px 12px 12px;
+    padding: 4px 0 8px;
 }
 .vault-health-tag-info {
     color: var(--text-muted);
     font-size: 11px;
     font-style: italic;
 }
-/* Individual finding rows */
+/* Individual finding rows -- FIX-19-05-07: Zeilenrhythmus wie ein
+   setting-item (Trennlinie, vertikaler Abstand), damit sich der Tab wie die
+   Settings liest. Titel + Confidence links, Aktionen rechts. */
 .vault-health-finding-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 0;
+    padding: 8px 0 2px;
     font-size: 13px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+.vault-health-section-content > .vault-health-finding-row:first-child {
+    border-top: none;
 }
 .vault-health-finding-row input[type="checkbox"] {
     flex-shrink: 0;
+    margin: 0;
 }
 .vault-health-note-link {
     color: var(--text-accent);
     cursor: pointer;
     border-bottom: 1px dotted currentColor;
+    font-weight: 500;
+    line-height: 1.4;
 }
 .vault-health-note-link:hover {
     color: var(--text-accent-hover);
@@ -220,39 +325,53 @@
     color: var(--text-muted);
     font-size: 11px;
 }
+/* FIX-19-05-08: die Begruendung als setting-item-description-Register,
+   flush unter der Zeile (kein fester Einzug, da die Review-Zeilen keine
+   Checkbox haben und ein 26px-Versatz dort verrutschte). */
 .vault-health-fix-preview {
-    padding: 2px 0 6px 28px;
-    font-size: 12px;
+    padding: 0 0 8px 0;
+    font-size: var(--font-ui-smaller);
+    line-height: 1.5;
     color: var(--text-muted);
 }
 .vault-health-finding-actions {
     display: inline-flex;
-    gap: 2px;
+    align-items: center;
+    gap: 6px;
     margin-left: auto;
     flex-shrink: 0;
 }
-.vault-health-icon-btn {
-    background: none;
-    border: 1px solid transparent;
-    padding: 4px 6px;
+/* Primaeraktion "Fix with agent": normaler CTA-Knopf im Settings-Format. */
+.vault-health-fix-with-agent-btn {
+    font-size: var(--font-ui-smaller);
+}
+/* Sekundaeres Ausblenden/Discuss-Icon: exakt das .agent-info-btn-Register der
+   Settings -- KEIN Hintergrund, kein Rahmen, auch nicht im Hover, nur die
+   Farbe wechselt. Doppelte Klasse (Spezifitaet 0,2,0) schlaegt Obsidians
+   `.modal button`-Default OHNE !important, genau wie bei .agent-info-btn. */
+.vault-health-icon-btn.vault-health-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
     cursor: pointer;
-    color: var(--text-muted);
-    border-radius: 4px;
-    opacity: 0.6;
-    transition: opacity 0.15s ease, border-color 0.15s ease;
+    color: var(--text-faint);
+    line-height: 0;
+    border-radius: 0;
+    transition: color 0.15s ease;
 }
-.vault-health-finding-row:hover .vault-health-icon-btn {
-    opacity: 1;
+.vault-health-icon-btn.vault-health-icon-btn:hover {
+    color: var(--text-normal);
+    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
 }
-.vault-health-icon-btn-visible {
-    opacity: 0.6;
-}
-.vault-health-icon-btn:hover {
-    opacity: 1;
-    color: var(--interactive-accent);
-    border-color: var(--interactive-accent);
-    background: var(--background-modifier-hover);
-}
+.vault-health-icon-btn svg { width: 16px; height: 16px; }
 .vault-health-reset-btn {
     font-size: 12px;
     color: var(--text-muted);
@@ -1074,6 +1193,18 @@
     height: 9px;
 }
 
+/* IMP-02-02-01: the forced-workflow chip is accented so it reads apart from
+   the neutral active-file context chip. */
+.chat-forced-workflow-chip {
+    background: var(--background-modifier-hover);
+    color: var(--text-accent);
+    cursor: default;
+}
+
+.chat-forced-workflow-chip .context-chip-icon {
+    color: var(--text-accent);
+}
+
 /* Toolbar Buttons -- borderless by default, modern flat look. The send
  * button is the single exception and re-introduces a border below.
  * Class repetition (.toolbar-button.toolbar-button) bumps selector
@@ -1622,9 +1753,9 @@
 /* ── Provider badge ────────────────────────────────────────────────────── */
 .provider-badge {
     display: inline-block;
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
     font-weight: 500;
     color: white;
     white-space: nowrap;
@@ -1693,6 +1824,9 @@
 /* ── Sub-tab navigation ──────────────────────────────────────────────── */
 .agent-settings-subnav {
     display: flex;
+    /* FEAT-30-07: bei Platzmangel bricht die Leiste zwischen Tabs um,
+     * statt rechts aus dem Panel zu laufen. */
+    flex-wrap: wrap;
     gap: 2px;
     padding: 10px 0 0;
     border-bottom: 1px solid var(--background-modifier-border);
@@ -1710,6 +1844,8 @@
     cursor: pointer;
     transition: color 0.1s;
     border-radius: 4px 4px 0 0;
+    /* FEAT-30-07: ein Tab-Label bricht nie innerhalb des Tabs um. */
+    white-space: nowrap;
 }
 .agent-settings-subtab:hover { color: var(--text-normal); }
 
@@ -1984,21 +2120,24 @@
 .mc-actions button { padding: 3px 5px; border-radius: 4px; }
 
 .mc-action-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    padding: 2px;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
     border: none;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 .mc-action-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 .mc-action-del:hover { color: var(--color-red); }
-.mc-action-btn svg { width: 13px; height: 13px; }
+.mc-action-btn svg { width: 14px; height: 14px; }
 
-.model-table-footer { margin-top: 4px; margin-bottom: 24px; display: flex; gap: 6px; align-items: center; }
+.model-table-footer { margin-top: 4px; margin-bottom: 24px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .model-add-btn { font-size: 12px; padding: 4px 10px; }
 .model-import-btn {
     font-size: 12px;
@@ -2449,6 +2588,7 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
+    white-space: pre-wrap;
 }
 
 /* Slider with inline, click-to-edit value display. Track on the left,
@@ -3195,34 +3335,6 @@
     background: var(--background-modifier-hover);
 }
 
-/* Multi-select mode */
-.followup-item-selected {
-    border-color: var(--interactive-accent);
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-.followup-item-selected:hover {
-    opacity: 0.9;
-}
-.followup-confirm-btn {
-    display: block;
-    width: 100%;
-    margin-top: 6px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--interactive-accent);
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    font-size: 13px;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    transition: opacity 0.15s ease;
-}
-.followup-confirm-btn:hover {
-    opacity: 0.85;
-}
-
 /* ── Setup Welcome Buttons ─────────────────────────────────────────────── */
 .setup-welcome-buttons {
     display: flex;
@@ -3715,6 +3827,16 @@
 
 .agent-settings-section:first-child { margin-top: 2px; }
 
+/* Sub-section headings (h4) nest under an uppercase main section, so they
+   read as children: normal case, no underline, tighter top margin. */
+h4.agent-settings-section {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+    margin: 16px 0 6px;
+    border-bottom: none;
+}
+
 .agent-settings-section .agent-info-btn {
     /* Section headings are uppercase muted, so keep the info icon
        in the same muted tone. The 6 px gap from the flex container
@@ -3790,8 +3912,8 @@
     font-style: italic;
 }
 .agent-settings-soul-header button {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     line-height: 1;
     padding: 0;
     border-radius: 4px;
@@ -4178,6 +4300,56 @@
 .agent-settings-content .setting-item-description {
     font-size: 11px;
     margin-top: 1px;
+}
+
+/* FEAT-04-10 design pass: compact text buttons across the whole settings
+ * surface. Settings names render at 13px, so default-height Obsidian
+ * buttons read oversized next to them. Icon-only recipes keep their own
+ * sizing (excluded below). Modals are untouched (outside this container). */
+.agent-settings-content button:not(.clickable-icon):not(.agent-info-btn):not(.agent-info-close):not(.agent-rules-edit-btn):not(.agent-rules-export-btn):not(.agent-rules-delete-btn):not(.agent-skill-action-btn):not(.agent-icon-only-btn):not(.agent-settings-subtab) {
+    font-size: 12px;
+    height: auto;
+    min-height: 0;
+    min-width: 80px;
+    padding: 4px 10px;
+    line-height: 1.3;
+}
+
+/* FEAT-30-07: einklappbarer Plugin-API-Methoden-Katalog im Permissions-Tab */
+.agent-permissions-catalog {
+    margin: 8px 0 16px;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+.agent-permissions-catalog > summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.agent-permissions-catalog[open] > summary {
+    color: var(--text-normal);
+    margin-bottom: 6px;
+}
+
+/* FEAT-30-07: Recipe-Editor (Custom recipes) */
+.agent-recipe-editor-textarea {
+    width: 100%;
+    min-width: 320px;
+    font-family: var(--font-monospace);
+    font-size: 12px;
+}
+.agent-recipe-editor-errors {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--text-error);
+    border-radius: 6px;
+    color: var(--text-error);
+    font-size: 12px;
+}
+.agent-recipe-editor-errors ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
 }
 
 /* Suppress blinking cursor once tools have appeared (response will render on complete) */
@@ -4754,7 +4926,7 @@
 }
 
 .modes-active-badge {
-    font-size: 0.82em;
+    font-size: 11px;
     font-weight: 600;
     color: var(--color-green);
     margin-right: auto;
@@ -5164,20 +5336,34 @@
     display: none;
 }
 
+/* Shares the visual language of the Models/Providers table (.model-table):
+   boxed with a filled header bar, so every list across the settings reads the
+   same (IMP-04-10-01). Columns/cells stay context-specific.
+   The border/radius live on a wrapper div (.agent-table-box): a <table> with
+   border-collapse: collapse ignores border-radius and overflow clipping, so
+   the box must be an outer block element. */
+.agent-table-box {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
 .agent-skill-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: var(--font-ui-small);
-    margin-bottom: 16px;
+    font-size: 12px;
+    margin: 0;
     table-layout: fixed;
 }
 
 .agent-skill-table thead th {
     text-align: left;
-    padding: 4px 8px;
-    font-weight: 600;
+    padding: 5px 8px;
+    font-weight: 500;
     color: var(--text-muted);
-    font-size: var(--font-ui-smaller);
+    font-size: 10px;
+    background: var(--background-secondary);
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -5187,11 +5373,15 @@
 .agent-skill-th-toggle { width: 50px; text-align: center; }
 
 .agent-skill-table tbody tr {
-    border-bottom: 1px solid var(--background-modifier-border-hover);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.agent-skill-table tbody tr:last-child {
+    border-bottom: none;
 }
 
 .agent-skill-table tbody tr:hover {
-    background: var(--background-secondary);
+    background: var(--background-modifier-hover);
 }
 
 .agent-skill-table tbody tr.agent-skill-disabled {
@@ -5210,8 +5400,8 @@
 
 .agent-skill-dot {
     display: inline-block;
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
 }
 
@@ -5253,6 +5443,59 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* FIX-29-05-01: SKILL.md files rejected by frontmatter validation. */
+.agent-skill-rejected-box {
+    margin-top: 16px;
+    padding: 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--text-warning);
+    border-radius: var(--radius-s);
+    background-color: var(--background-secondary);
+}
+
+.agent-skill-rejected-box h4 {
+    margin: 0 0 4px;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+}
+
+.agent-skill-rejected-desc {
+    margin: 0 0 8px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.agent-skill-rejected-list {
+    margin: 0;
+    padding-left: 18px;
+    list-style: disc;
+}
+
+.agent-skill-rejected-list li {
+    margin-bottom: 8px;
+}
+
+.agent-skill-rejected-name {
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
+}
+
+.agent-skill-rejected-reason {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-warning);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.agent-skill-rejected-path {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    font-family: var(--font-monospace);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .agent-skill-source-badge {
@@ -5416,17 +5659,25 @@
     margin-left: 4px;
 }
 
+/* Inside a table toggle cell, center like the Skills toggles. */
+.agent-skill-toggle-cell .agent-rules-toggle.checkbox-container {
+    margin: 0 auto;
+}
+
 .agent-rules-edit-btn,
 .agent-rules-export-btn,
 .agent-rules-delete-btn {
     background: none;
     border: none;
-    padding: 4px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
     cursor: pointer;
     color: var(--text-muted);
     border-radius: 4px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
 }
 .agent-rules-edit-btn:hover,
 .agent-rules-export-btn:hover {
@@ -5454,10 +5705,14 @@
     color: var(--text-muted);
     font-family: var(--font-monospace);
     background: var(--background-modifier-hover);
-    border-radius: 3px;
-    padding: 1px 5px;
+    border-radius: 4px;
+    padding: 1px 6px;
     margin-left: 4px;
+    white-space: nowrap;
 }
+
+/* As the first element of a table sub-line the pill needs no lead-in gap. */
+.agent-skill-desc > .agent-workflow-slug:first-child { margin-left: 0; }
 
 /* ── Autocomplete dropdown (Sprint B3) ──────────────────────────────── */
 .autocomplete-dropdown {
@@ -5897,47 +6152,116 @@
 
 /* ─── MCP Settings Tab ─────────────────────────────────────────── */
 
-.agent-mcp-add-btn { margin-bottom: 12px; }
+.agent-mcp-add-btn { margin: 12px 0; }
 
-.agent-mcp-list { display: flex; flex-direction: column; gap: 4px; }
-
-.agent-mcp-server-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
+/* IMP-14-03-01: relay worker is older than the bundled one. */
+.mcp-worker-outdated {
+    color: var(--text-warning);
+    font-weight: var(--font-semibold);
 }
 
+/* Server list renders as the same table layout as the Skills tab
+ * (FEAT-04-10 design pass): status | name+desc | source | actions. */
 .agent-mcp-status-dot {
+    display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    vertical-align: middle;
     flex-shrink: 0;
 }
-.agent-mcp-status-dot.connected    { background: var(--color-green); }
-.agent-mcp-status-dot.disconnected { background: var(--text-faint); }
-.agent-mcp-status-dot.error        { background: var(--color-red); }
-.agent-mcp-status-dot.connecting   { background: var(--color-yellow); }
+.agent-mcp-status-dot.connected     { background: var(--color-green); }
+.agent-mcp-status-dot.disconnected  { background: var(--text-faint); }
+.agent-mcp-status-dot.error         { background: var(--color-red); }
+.agent-mcp-status-dot.connecting    { background: var(--color-yellow); }
+.agent-mcp-status-dot.awaiting-auth { background: var(--color-yellow); }
 
-.agent-mcp-server-info {
-    flex: 1;
+/* 3 icon buttons (24px) + gaps + cell padding without shrink. */
+.agent-mcp-th-actions,
+.agent-th-actions { width: 104px; }
+.agent-mcp-actions-cell,
+.agent-actions-cell {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    white-space: nowrap;
+}
+.agent-mcp-desc-error { color: var(--color-red); }
+
+/* Registry discovery (FEAT-04-11) */
+.agent-mcp-discover-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-width: 0;
+    margin: 4px 0 8px;
 }
-.agent-mcp-server-name  { font-weight: 600; }
-.agent-mcp-server-type  { color: var(--text-muted); font-size: var(--font-smaller); }
-.agent-mcp-server-tools { color: var(--text-muted); font-size: var(--font-smaller); }
-.agent-mcp-server-error {
-    color: var(--color-red);
+.agent-mcp-discover-input { flex: 1; }
+.agent-mcp-discover-warn {
+    color: var(--text-warning);
     font-size: var(--font-smaller);
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-weight: var(--font-semibold);
+}
+.agent-mcp-th-publisher { width: 120px; }
+/* Discovery rows have a tall 3-line name cell; align the pill and the
+ * Details button to the top so they sit next to the server NAME, not at
+ * the vertical middle where they read as disjoint from the row. */
+.agent-mcp-discover-table td { vertical-align: top; }
+.agent-mcp-discover-table .agent-skill-cmd-cell { padding-top: 4px; }
+.agent-mcp-discover-action {
+    text-align: right;
+    vertical-align: top;
+    padding: 2px 8px 0;
     white-space: nowrap;
 }
+.agent-mcp-discover-more { margin: 8px 0 4px; }
+/* Unverified trust pill: outline, deliberately unassertive. */
+.agent-mcp-trust-none {
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+}
+.agent-mcp-discover-links {
+    display: flex;
+    gap: 16px;
+    margin: 4px 0 8px;
+}
+.agent-mcp-setup-steps {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 8px 0;
+    padding-left: 20px;
+}
+.agent-mcp-setup-steps li { margin: 3px 0; }
+.agent-mcp-setup-get {
+    display: inline-block;
+    margin: 4px 0 12px;
+    text-decoration: none;
+}
+/* Discovery details modal: one consistent type scale. */
+.agent-mcp-detail-desc {
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0 0 12px;
+}
+.agent-mcp-detail-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    font-size: 12px;
+    margin: 0 0 12px;
+}
+.agent-mcp-detail-label { color: var(--text-muted); }
+.agent-mcp-detail-value { color: var(--text-normal); word-break: break-word; }
+.agent-mcp-detail-next {
+    font-size: 12px;
+    color: var(--text-normal);
+    background: var(--background-secondary);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0 0 12px;
+}
+.agent-mcp-link-secondary { color: var(--text-muted); font-size: var(--font-smaller); }
 
 /* MCP Add/Edit modal */
 .agent-mcp-modal-input {
@@ -6009,13 +6333,15 @@
 .agent-prompt-mode-select { width: 100%; }
 .agent-prompt-mode-badge {
     display: inline-block;
-    font-size: var(--font-smaller);
+    font-size: 11px;
+    font-weight: 500;
     color: var(--text-on-accent);
     background: var(--interactive-accent);
-    border-radius: 3px;
-    padding: 1px 5px;
+    border-radius: 4px;
+    padding: 1px 6px;
     margin-left: 4px;
     vertical-align: middle;
+    white-space: nowrap;
 }
 
 /* ── Tool Picker Popover (Copilot style) ───────────────────────────────── */
@@ -6228,6 +6554,15 @@
     padding: 4px 10px 4px 28px;
 }
 
+/* FEAT-04-12: one-line "whose selection is this" hint under the per-agent
+   MCP section of the tool picker. */
+.tp-section-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 4px 10px 6px 28px;
+}
+
 /* EPIC-26 / FEAT-26-05 -- chat-header model picker rows.
    Flat list (no category indentation) + vertical label/desc stack. */
 .chat-model-picker .tp-item-row.chat-model-picker-row {
@@ -6273,30 +6608,11 @@
 
 /* Provider switcher chips (issue #48.5) */
 .chat-model-picker-providers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
     padding: 6px 8px;
     border-bottom: 1px solid var(--background-modifier-border);
 }
-.chat-model-picker-provider-chip {
-    padding: 2px 8px;
-    font-size: 11px;
-    border-radius: 10px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-muted);
-    cursor: pointer;
-}
-.chat-model-picker-provider-chip:hover {
-    color: var(--text-normal);
-    border-color: var(--interactive-accent);
-}
-.chat-model-picker-provider-chip.is-active {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-color: var(--interactive-accent);
-    cursor: default;
+.chat-model-picker-providers .dropdown {
+    width: 100%;
 }
 
 /* Tier badge -- small pill next to the model name */
@@ -6829,6 +7145,80 @@
     text-overflow: ellipsis;
 }
 
+/* FEAT-02-12: workflow "force" pin -- a secondary control on the row, pushed
+   to the right, distinct from the primary click that inserts the workflow. */
+.vfp-row-pin {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 2px;
+    border-radius: 3px;
+    color: var(--text-faint);
+    cursor: pointer;
+}
+
+.vfp-row-pin:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+.vfp-row-pin svg {
+    width: 14px;
+    height: 14px;
+}
+
+.vfp-row-pin-active { color: var(--interactive-accent); }
+
+.vfp-row-pinned { background: color-mix(in srgb, var(--interactive-accent) 8%, transparent); }
+
+/* FEAT-02-12: chat "..." options popover -- toggle rows on top, action rows below. */
+.chat-options-popover { padding: 4px; }
+
+.cop-group { display: flex; flex-direction: column; }
+
+.cop-group-actions {
+    border-top: 1px solid var(--background-modifier-border);
+    margin-top: 4px;
+    padding-top: 4px;
+}
+
+.cop-toggle-row,
+.cop-action-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+/* :not(.cop-toggle-row) keeps this a distinct selector from the shared
+   block above (always true for an action row) so the bare .cop-action-row
+   is not defined twice (review-bot Tier 7 duplicate-selector). */
+.cop-action-row:not(.cop-toggle-row) { cursor: pointer; user-select: none; }
+
+.cop-action-row:hover { background: var(--background-modifier-hover); }
+
+.cop-row-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.cop-row-icon svg { width: 16px; height: 16px; }
+
+.cop-row-label {
+    font-size: 13px;
+    color: var(--text-normal);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cop-row-toggle { flex-shrink: 0; display: flex; align-items: center; }
+
 .vfp-empty {
     padding: 16px 10px;
     font-size: 12px;
@@ -7286,118 +7676,6 @@
 .agent-approval-categories--disabled {
     opacity: 0.4;
     pointer-events: none;
-}
-
-/* ── Context Display Progress Bar ─────────────────────────────────────── */
-.context-display-container {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-}
-
-.context-display-labels {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 4px;
-    font-size: 11px;
-    color: var(--text-muted);
-}
-
-.context-progress-bar-wrapper {
-    position: relative;
-}
-
-.context-progress-bar {
-    display: flex;
-    height: 4px;
-    border-radius: 2px;
-    overflow: hidden;
-    background: var(--background-modifier-border);
-    position: relative;
-}
-
-.context-segment-current {
-    height: 100%;
-    width: var(--ctx-seg-w, 0%);
-    transition: width 0.3s ease-out;
-    background: var(--text-normal);
-}
-
-.context-segment-reserved {
-    height: 100%;
-    width: var(--ctx-seg-w, 0%);
-    transition: width 0.3s ease-out;
-    background: var(--text-muted);
-    opacity: 0.5;
-}
-
-.context-segment-available {
-    height: 100%;
-    width: var(--ctx-seg-w, 0%);
-    transition: width 0.3s ease-out;
-    background: transparent;
-}
-
-/* Color variants */
-.context-green .context-segment-current {
-    background: var(--color-green);
-}
-
-.context-yellow .context-segment-current {
-    background: var(--color-yellow);
-}
-
-.context-red .context-segment-current {
-    background: var(--color-red);
-}
-
-/* Condense Button */
-.context-condense-button {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.2s;
-    color: var(--text-muted);
-    border-radius: 3px;
-}
-
-.context-condense-button:hover {
-    opacity: 1;
-    background: var(--background-modifier-hover);
-}
-
-.context-condense-button-disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
-
-.context-condense-button-disabled:hover {
-    opacity: 0.3;
-    background: transparent;
-}
-
-/* Tooltip */
-.context-tooltip {
-    position: absolute;
-    top: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 8px;
-    font-size: 11px;
-    z-index: 100;
-    white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 /* Condensation Feedback */
@@ -8751,4 +9029,298 @@
 /* FEAT-42-05: clickable language-pack download notice */
 .agent-clickable-notice {
     cursor: pointer;
+}
+
+/* FIX-19-01-12: Orphan-Verknuepfungs-Modal. Ersetzt den geloeschten
+   Move-Repair; eine Zeile pro isolierter Note mit Kandidaten-Dropdown. */
+.vault-health-orphan-link .vault-health-orphan-list {
+    max-height: 50vh;
+    overflow-y: auto;
+    margin: 12px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+.vault-health-orphan-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.vault-health-orphan-row:last-child {
+    border-bottom: none;
+}
+.vault-health-orphan-main {
+    flex: 1;
+    min-width: 0;
+}
+.vault-health-orphan-path {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+.vault-health-orphan-select {
+    width: 100%;
+    margin-top: 4px;
+}
+.vault-health-orphan-nocand {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.vault-health-orphan-link .vault-health-fix-preview {
+    padding-left: 0;
+}
+.vault-health-orphan-togglebar {
+    margin-top: 10px;
+}
+.vault-health-orphan-empty {
+    margin: 16px 0;
+    color: var(--text-muted);
+}
+.vault-health-orphan-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+/* IMP-19-01-03 W3: Plan-Approval (ADR-165) + Outcome-Screen (ADR-166). */
+.vault-health-plan-list {
+    max-height: 45vh;
+    overflow-y: auto;
+    margin: 12px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+.vault-health-plan-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.vault-health-plan-row:last-child { border-bottom: none; }
+.vault-health-plan-action {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+}
+.vault-health-plan-path { overflow-wrap: anywhere; }
+.vault-health-plan-deferred, .vault-health-outcome-timeout {
+    margin: 8px 0;
+    color: var(--text-warning);
+    font-size: 12px;
+}
+.vault-health-plan-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+.vault-health-outcomes {
+    margin: 10px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+.vault-health-outcome-line { font-weight: 600; }
+.vault-health-outcome-group { margin-top: 6px; }
+.vault-health-outcome-head { font-size: 12px; color: var(--text-muted); }
+.vault-health-outcome-path { font-size: 12px; padding-left: 12px; overflow-wrap: anywhere; }
+.vault-health-kr-gates { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+
+/* FIX-19-01-18: ehrlicher Zaehler in der Freigabe-Ansicht. */
+.vault-health-plan-summary {
+    font-weight: 600;
+    margin: 8px 0 2px;
+}
+.vault-health-plan-breakdown {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+.vault-health-plan-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    border-left: 2px solid var(--background-modifier-border);
+    padding-left: 8px;
+    margin-bottom: 8px;
+}
+
+/* FIX-19-02-06: Aufschluesselung in der Findings-Landeansicht. Sagt ohne
+   Zusatzklick, woraus die Gesamtzahl besteht und wie viel der Deckel
+   verschweigt. */
+.vault-health-breakdown {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin: 0.25em 0 0.75em 0;
+    line-height: 1.5;
+}
+
+/* FIX-19-05-04: Re-Check-Zeile (Zeitstempel + Knopf) im Findings-Tab. */
+.vault-health-rescan-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75em;
+    margin: 0.25em 0 0.75em 0;
+}
+
+.vault-health-last-checked {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+/* FIX-19-05-04: Freshness-Scan-Knopf + Hinweis im Knowledge-review-Tab. */
+.vault-health-freshness-toolbar {
+    margin: 0.5em 0 1em 0;
+}
+
+.vault-health-freshness-hint {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin-top: 0.4em;
+    line-height: 1.5;
+}
+
+/* FIX-19-05-03: der Cap-Hinweis als prominente Infobox statt einer leicht
+   zu ueberlesenden Akzent-Zeile. Er erklaert, warum der Button mehr Fixes
+   zeigt als die sichtbaren Paare -- direkt und abgesetzt. */
+.vault-health-breakdown-overflow {
+    margin-top: 0.6em;
+    padding: 0.6em 0.75em;
+    border-radius: var(--radius-s, 4px);
+    border-left: 3px solid var(--interactive-accent, var(--text-accent));
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.5;
+}
+
+/* FIX-19-02-21: ein abgebrochener Nachlauf darf nicht wie Entwarnung aussehen. */
+.vault-health-run-failed {
+    color: var(--text-warning, var(--text-accent));
+}
+
+/* FIX-19-02-22: die Luecke zwischen Befunden und Schreibvorgaengen. */
+.vault-health-plan-nochange {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin: 4px 0 8px;
+}
+
+/* FIX-19-02-25: Plan und Ergebnis am selben Nenner. */
+.vault-health-result-vs-plan {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin: 8px 0 4px;
+}
+
+/* FEAT-19-02-01: Alle abwaehlen, neben dem Anwenden-Knopf. */
+.modal button.vault-health-select-toggle {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    cursor: pointer;
+    padding: 4px 8px;
+    text-decoration: underline;
+}
+.modal button.vault-health-select-toggle:hover { color: var(--text-normal); }
+/* FIX-19-09 (Review-Bot Tier 7): .vault-health-apply-sticky (display/
+   align-items/gap) in den ersten Block oben gemergt -- kein Duplikat mehr. */
+
+/* FEAT-19-05-01: Batch-Repair-Buttons. */
+.modal button.vault-health-batch-btn,
+.modal button.vault-health-next-batch-btn {
+    margin-left: 8px;
+}
+.modal button.vault-health-cancel-btn {
+    margin-top: 8px;
+    color: var(--text-muted);
+}
+
+/* FIX-19-09-03: Relations-Callouts. Der selbstbildende Rueckverweis-Block
+   nutzt den Callout-Typ [!relation-in] (eingehende Verweise). Diese Regeln
+   werden mit dem Plugin ausgeliefert -- der Nutzer muss kein CSS-Snippet
+   installieren. relation/relation-out/relation-rel sind vorbereitet, falls
+   spaeter ausgehende/verwandte Relations dazukommen. Grau + Lucide-Icons. */
+/* Review-Bot Tier 7 (no-duplicate-selector): jeder relation*-Selektor genau
+   EINMAL definiert. --callout-color (Grau) in jeden Block wiederholt, statt
+   einen zusaetzlichen Gruppen-Selektor, der dieselben Selektoren ein zweites
+   Mal auffuehren wuerde. */
+.callout[data-callout="relation"] {
+    --callout-color: 150, 150, 150;
+    --callout-icon: lucide-git-commit-horizontal;
+}
+.callout[data-callout="relation-in"] {
+    --callout-color: 150, 150, 150;
+    --callout-icon: lucide-log-in;
+}
+.callout[data-callout="relation-out"] {
+    --callout-color: 150, 150, 150;
+    --callout-icon: lucide-log-out;
+}
+.callout[data-callout="relation-rel"] {
+    --callout-color: 150, 150, 150;
+    --callout-icon: lucide-waypoints;
+}
+
+/* FIX-19-09-05: vault-operator-Auto-Block-Markerzeilen im Editor ausblenden.
+   Die CM6-Extension (markerHideExtension) setzt diese Klasse gezielt NUR auf
+   reine Markerzeilen (<!-- vault-operator:... -->), nicht auf andere HTML-
+   Kommentare. Die Zeile kollabiert auf 0 Hoehe und wird transparent -- der
+   Cursor kann noch hinein (kein display:none, das die Navigation braechte),
+   aber sichtbar ist nichts mehr. */
+.cm-line.vault-operator-hidden-marker {
+    height: 0;
+    padding: 0;
+    margin: 0;
+    line-height: 0;
+    font-size: 0;
+    color: transparent;
+    overflow: hidden;
+}
+
+/* Read-only monospace inputs in the local MCP connection details: the URL
+   and auth token are meant to be selected and copied, not edited. */
+.agent-mono-input {
+    font-family: var(--font-monospace);
+    font-size: var(--font-smaller);
+}
+
+/* Clickable tool count in the MCP server list (opens the tool list modal). */
+.agent-mcp-toolcount-link {
+    cursor: pointer;
+    color: var(--text-accent);
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+}
+.agent-mcp-toolcount-link:hover {
+    color: var(--text-accent-hover);
+}
+
+/* Scrollable tool list modal: name + short description per tool. */
+.agent-mcp-tool-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+.agent-mcp-tool-row {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.agent-mcp-tool-name {
+    font-family: var(--font-monospace);
+    font-size: var(--font-smaller);
+    color: var(--text-normal);
+}
+.agent-mcp-tool-desc {
+    font-size: var(--font-smaller);
+    color: var(--text-muted);
+    margin-top: 2px;
 }

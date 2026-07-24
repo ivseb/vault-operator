@@ -249,7 +249,9 @@ export class ChatGptOAuthProvider implements ApiHandler {
         // GPT-5.x Codex ids the registry does not carry, then the 400k default
         // for unknown ids. The table also supplies the tools/streaming flags.
         const known = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
-        const contextWindow = getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
+        // ADR-158 stage 1: discovery-reported window wins over registry and table
+        const contextWindow = this.config.contextWindow
+            ?? getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
         return { id: this.config.model, info: { ...known, contextWindow } };
     }
 

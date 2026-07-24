@@ -9,17 +9,28 @@
  * FIX-15: Detailed findings + selective repair
  */
 
-import { Modal, Notice, setIcon, Platform, TFile } from 'obsidian';
+import { Modal, Notice, setIcon, Platform, TFile, getLanguage, Setting } from 'obsidian';
 import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
-import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
+import { VIEW_TYPE_AGENT_SIDEBAR } from '../viewTypes';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
+import { OrphanLinkModal } from './OrphanLinkModal';
 import { KnowledgeReviewReader, type ReviewRow } from '../../core/health/KnowledgeReviewReader';
 import type { VerdictLiteral } from '../../core/health/types';
-import { ResolveConflictModal } from './ResolveConflictModal';
 import { OKF_DEFAULTS } from '../../types/settings';
 import { BatchResolveModal } from './BatchResolveModal';
+import { buildHealthCheckOptions, dismissKeyPathFor, WEAK_CLUSTER_BATCH_LIMIT } from '../../core/knowledge/VaultHealthService';
+import { knowledgeReviewEmptyInfo } from '../../core/health/knowledgeReviewGates';
+import {
+    buildRepairPlan,
+    summarizePlan,
+    capPlanForCheckpoint,
+    computeOutcomes,
+    type RepairPlanEntry,
+    type RepairOutcomeEntry,
+    PAIR_KEY_SEPARATOR,
+} from '../../core/knowledge/vaultHealthRepairPlan';
 
 /**
  * Display-only labels for the verdict literals. Storage and code
@@ -41,6 +52,46 @@ const VERDICT_LABELS: Record<VerdictLiteral, string> = {
  * note-level verifier flags.
  */
 const KNOWLEDGE_REVIEW_CHECKS = new Set<HealthCheckType>(['cluster_freshness']);
+
+/**
+ * FIX-19-05-04: relative Zeitangabe ("2 minutes ago") ueber die native
+ * Intl.RelativeTimeFormat -- folgt der aktiven UI-Sprache ohne eigene
+ * Uebersetzungstabelle. Reine Funktion (now injiziert), damit testbar.
+ */
+/**
+ * FIX-19-05-05: Confidence als Wort statt "0.00". Eine nackte Zahl sagt dem
+ * Nutzer nichts; drei Buckets (uncertain / fairly sure / confident) sind
+ * lesbar. Der interne verifierTier ("mid"/"frontier") gehoert nicht in die
+ * sichtbare UI (interne ID -- Memory-Regel).
+ */
+export function confidenceWord(confidence: number): string {
+    if (confidence < 0.34) return t('modal.vaultHealthRepair.confidenceUncertain');
+    if (confidence < 0.67) return t('modal.vaultHealthRepair.confidenceFairly');
+    return t('modal.vaultHealthRepair.confidenceConfident');
+}
+
+/**
+ * FIX-19-05-05: zielorientierter Chat-Prompt fuer den Review-Fix. Ziel voran,
+ * dann der Kontext, jargonfrei (kein "freshness verifier flagged"). Speist den
+ * "Fix with agent"-Knopf jeder Zeile.
+ */
+export function buildReviewChatPrompt(row: { path: string; verdict: string; summary: string; sources: string[] }): string {
+    const sources = row.sources.length
+        ? `\n\nSources the automatic check looked at:\n${row.sources.map((s) => `- ${s}`).join('\n')}`
+        : '';
+    const note = row.summary ? `\n\nWhat the automatic check noted: ${row.summary}` : '';
+    return t('modal.vaultHealthRepair.reviewChatPrompt', { path: row.path }) + note + sources;
+}
+
+export function formatRelativeTime(then: number, now: number): string {
+    const deltaSec = Math.round((then - now) / 1000); // negativ = Vergangenheit
+    const rtf = new Intl.RelativeTimeFormat(getLanguage(), { numeric: 'auto' });
+    const abs = Math.abs(deltaSec);
+    if (abs < 60) return rtf.format(Math.round(deltaSec), 'second');
+    if (abs < 3600) return rtf.format(Math.round(deltaSec / 60), 'minute');
+    if (abs < 86_400) return rtf.format(Math.round(deltaSec / 3600), 'hour');
+    return rtf.format(Math.round(deltaSec / 86_400), 'day');
+}
 
 /**
  * Map the verifier's `ReviewSeverity` (critical/moderate/info/ok)
@@ -67,33 +118,47 @@ function reviewSeverityToFindingSeverity(
 
 // IMP-19-01-02 + FIX-19-01-04: auto-fix scope.
 // - missing_backlinks, category_mismatch, weak_clusters: deterministic fixes.
-// - orphans: only the `metadata.orphanKind === 'isolated'` finding is
-//   repairable (move to Inbox/Orphans/). `with_context` orphans have
-//   outgoing edges or cluster membership and need a manual "add
-//   incoming backlink" decision; `isRepairableFinding` enforces this
-//   per-finding rather than per-check.
+// - orphans: REMOVED from the auto-fix scope (FIX-19-01-12).
+//   The former repair moved isolated orphans to Inbox/Orphans/. An orphan
+//   is defined as "note without INCOMING links"; relocating the file does
+//   not change a single incoming link, so the note stayed an orphan and the
+//   very next check re-reported it (user-observed: the candidate count never
+//   dropped, while 145 notes had silently been relocated). A no-op that
+//   moves user data is worse than no fix at all. A real repair has to CREATE
+//   an incoming link; that lands as the linking flow (see FEAT-19-32) and
+//   re-enables this entry then.
 // - inconsistent_tags: NO fixInconsistentTags method exists; the
 //   finding is a manual-review hint ("consider unifying"). Removed
 //   from the auto-fix scope until a real implementation lands.
 // - broken_links + god_nodes: manual decisions.
 const REPAIRABLE_CHECKS = new Set<HealthCheckType>([
     'missing_backlinks', 'category_mismatch',
-    'orphans', 'weak_clusters',
+    'weak_clusters',
 ]);
 
 /**
- * FIX-19-01-04: per-finding repairable filter that respects the
- * orphan-kind split. Use this instead of `REPAIRABLE_CHECKS.has(f.check)`
- * whenever the auto-fix selects findings; the legacy check-type set
- * is still useful for "could this category produce repairable
- * findings" decisions.
+ * FIX-19-01-04: per-finding repairable filter. Use this instead of
+ * `REPAIRABLE_CHECKS.has(f.check)` whenever the auto-fix selects findings;
+ * the legacy check-type set is still useful for "could this category
+ * produce repairable findings" decisions.
+ *
+ * FIX-19-01-12: orphans are no longer repairable at all (see above), so the
+ * former orphanKind === 'isolated' split is gone. The guard below keeps the
+ * intent explicit and fails closed if 'orphans' is ever re-added to
+ * REPAIRABLE_CHECKS without a real linking repair behind it.
  */
+/**
+ * FIX-19-02-11: stabile Identitaet eines Befunds ueber Renders hinweg.
+ * Nutzt denselben kanonischen Pfad-Key wie Dismiss und Persistenz, damit
+ * sich nicht ein dritter Begriff von "derselbe Befund" einschleicht.
+ */
+function findingKey(f: HealthFinding): string {
+    return `${f.check}::${dismissKeyPathFor(f)}`;
+}
+
 function isRepairableFinding(f: HealthFinding): boolean {
-    if (!REPAIRABLE_CHECKS.has(f.check)) return false;
-    if (f.check === 'orphans') {
-        return f.metadata?.orphanKind === 'isolated';
-    }
-    return true;
+    if (f.check === 'orphans') return false;
+    return REPAIRABLE_CHECKS.has(f.check);
 }
 
 const CHECK_LABELS: Record<string, string> = {
@@ -115,6 +180,20 @@ export class VaultHealthRepairModal extends Modal {
     private plugin: ObsidianAgentPlugin;
     private findings: HealthFinding[];
     private selectedFindings = new Set<number>();
+
+    /**
+     * FIX-19-02-11: bewusst abgewaehlte Befunde, nach Identitaet statt nach
+     * Listenindex. Ueberlebt jedes Neuzeichnen (Filterwechsel, Dismiss,
+     * Tab-Wechsel); der Index tut das nicht.
+     */
+    private deselectedFindings = new Set<string>();
+
+    /**
+     * FIX-19-02-25: die Zahl, die in der Plan-Freigabe stand. Damit der
+     * Ergebnis-Screen gegen denselben Nenner berichten kann statt gegen
+     * einen vierten.
+     */
+    private lastPlannedChangeCount = 0;
     private onDiscuss?: (prompt: string) => void;
     /** FEAT-19-18: severity filter pill (all/high/medium/low). Default 'all'. */
     private severityFilter: SeverityFilter = 'all';
@@ -133,19 +212,14 @@ export class VaultHealthRepairModal extends Modal {
     }
 
     onOpen(): void {
-        // IMP-19-01-01 AC-06: when the sidebar set the auto-apply
-        // flag, skip the findings render and drive the existing
-        // runRepair() path over the REPAIRABLE subset. The results
-        // screen surfaces with the same Undo/Done shape as a manual
-        // run. Findings tab stays reachable via the Done button.
-        if (this.autoApplyOnOpen) {
-            this.autoApplyOnOpen = false;
-            this.selectAllRepairable();
-            if (this.selectedFindings.size > 0) {
-                void this.runRepair();
-                return;
-            }
-        }
+        // FIX-19-05-02: der Icon-Klick zeigt IMMER die Uebersicht mit beiden
+        // Tabs (Findings + Knowledge review). Der fruehere autoApplyOnOpen-
+        // Bypass sprang direkt in runRepair und uebersprang render() -- bei
+        // vielen reparierbaren Findings sah der Nutzer die Uebersicht nie
+        // und landete ungefragt auf der Plan-Freigabe. Das widersprach
+        // ADR-165 (nichts schreiben, bevor der Nutzer den Plan gesehen hat).
+        // Auto-Apply bleibt als vorangehakter "Apply selected fixes"-Knopf
+        // IN der Uebersicht.
         this.render();
     }
 
@@ -246,10 +320,66 @@ export class VaultHealthRepairModal extends Modal {
             });
         }
 
+        // FIX-19-05-04: manueller Freshness-Scan direkt aus dem Tab. Loest
+        // zugleich die Beobachtbarkeit: der Nutzer kann den Stufe-3-Lauf
+        // selbst ausloesen und sieht am Notice-Ergebnis (ran / nothing due /
+        // budget / external-off), ob und was passiert -- statt einen leeren
+        // Tab ohne erkennbaren Grund.
+        this.renderFreshnessScanToolbar(contentEl);
+
+        // W4: der Tab sagt, DASS die Feeder aus sind und wo man sie
+        // einschaltet, statt einen generischen Empty-State zu zeigen (beide
+        // Quellen sind Opt-in; live war genau das der Fall).
+        //
+        // FIX-19-02-16: Der Hinweis haengt an den VERDICTS, nicht am
+        // Gesamtzaehler. Vorher genuegte ein einziges cluster_freshness-
+        // Finding, damit totalCount > 0 wurde und der Hinweis verschwand --
+        // der Nutzer sah eine gefuellte Liste, in der die Per-Notiz-Urteile
+        // komplett fehlten, und erfuhr nie warum.
+        // FEAT-19-03-01: nur noch EIN Gate. Das "no hot clusters"-Gate ist
+        // weg, weil der Scan den ganzen Vault automatisch abdeckt -- es gibt
+        // nichts mehr manuell anzukreuzen.
+        const gates = knowledgeReviewEmptyInfo({
+            freshness: this.plugin.settings.freshness,
+            stufe3PeriodicJob: this.plugin.settings.vaultIngest?.stufe3PeriodicJob,
+        });
+        if (noteRows.length === 0 && gates.verdictFeederOff) {
+            contentEl.createDiv({
+                cls: 'vault-health-kr-gates',
+                text: t('modal.vaultHealthRepair.knowledgeReviewGatesOff'),
+            });
+        }
+
         if (totalCount === 0) {
             contentEl.createEl('p', {
                 text: t('modal.vaultHealthRepair.knowledgeReviewEmpty'),
             });
+            // FIX-19-02-29: "leer" heisst hier zweierlei, und der Nutzer
+            // konnte die Faelle nicht unterscheiden.
+            //
+            // Cluster-Aktualitaet meldet erst ab einem Score unter 70. Sind
+            // Cluster registriert und liegt trotzdem nichts vor, ist das
+            // eine ANTWORT ("geprueft, nichts veraltet"), keine Leerstelle.
+            // Live gemessen: 141 Cluster, niedrigster Score 76, Durchschnitts-
+            // alter 4 bis 19 Tage gegen Halbwertszeiten von 30 bis 180 Tagen.
+            // Der Vault ist schlicht frisch. Ohne diesen Satz sieht das
+            // genauso aus wie ein kaputter Check.
+            const clusterCount = this.plugin.clusterMetadataStore?.getAll().length ?? 0;
+            if (clusterCount > 0) {
+                contentEl.createDiv({
+                    cls: 'vault-health-kr-gates',
+                    text: t('modal.vaultHealthRepair.knowledgeReviewNothingStale', { count: clusterCount }),
+                });
+            }
+            // FIX-19-02-17: die Klassifikations-Sektion ist wieder raus.
+            //
+            // Sie war als Beleg gedacht ("das Plugin weiss etwas ueber
+            // deinen Vault"), aber sie beantwortete keine Frage, die der
+            // Nutzer hat. "Classified, not yet verified" ist ein
+            // Implementierungsdetail: es benennt einen internen
+            // Verarbeitungsstand, aus dem keine Handlung folgt. In diesen
+            // Tab gehoeren nur Befunde mit einer Empfehlung, was zu tun
+            // ist. Der Zaehler bleibt als Beleg erhalten, siehe unten.
             return;
         }
 
@@ -268,6 +398,18 @@ export class VaultHealthRepairModal extends Modal {
         const visibleNotes = this.severityFilter === 'all'
             ? noteRowsWithSev
             : noteRowsWithSev.filter((n) => n.severity === this.severityFilter);
+
+        // FIX-19-02-16: ein Filter ohne Treffer ist kein Grund fuer eine
+        // komplett leere Flaeche. Die Empty-Bedingung oben prueft die
+        // GESAMTmenge; steht der Filter auf "high" und alles ist medium,
+        // rendert der Tab sonst nichts und sieht kaputt aus.
+        if (visibleCluster.length === 0 && visibleNotes.length === 0) {
+            contentEl.createEl('p', {
+                cls: 'agent-settings-desc',
+                text: t('modal.vaultHealthRepair.noFindingsForFilter'),
+            });
+            return;
+        }
 
         // Cluster freshness section (single bucket, same shape as a
         // Findings section).
@@ -302,6 +444,7 @@ export class VaultHealthRepairModal extends Modal {
             this.renderVerdictSection(contentEl, 'matches', matchesRows);
         }
     }
+
 
     private renderClusterFreshnessSection(
         parent: HTMLElement,
@@ -394,33 +537,29 @@ export class VaultHealthRepairModal extends Modal {
                 void this.app.workspace.openLinkText(row.path, '');
             });
 
+            // FIX-19-05-05: Confidence als Wort, kein interner Tier mehr.
             const meta = noteRow.createSpan({ cls: 'vault-health-path-count' });
-            meta.setText(' ' + t('modal.vaultHealthRepair.verdictMeta', { confidence: row.confidence.toFixed(2), tier: row.verifierTier }));
+            meta.setText(' ' + confidenceWord(row.confidence));
+            meta.setAttr('title', `confidence ${row.confidence.toFixed(2)} · ${row.verifierTier} tier`);
 
             const actions = noteRow.createDiv('vault-health-finding-actions');
 
-            const discussBtn = actions.createEl('button', {
-                cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': t('modal.vaultHealthRepair.discussAria') },
+            // FIX-19-05-06: EINE Primaeraktion pro Zeile -- der Agenten-Flow,
+            // der nachweislich gut funktioniert (recherchiert + schlaegt Edits
+            // vor). Der frueher danebenstehende "Resolve dialog" (check-circle)
+            // duplizierte grossteils genau diesen Flow und ist entfernt.
+            const fixBtn = actions.createEl('button', {
+                cls: 'mod-cta vault-health-fix-with-agent-btn',
+                text: t('modal.vaultHealthRepair.fixWithAgent'),
             });
-            setIcon(discussBtn, 'message-square');
-            discussBtn.addEventListener('click', (ev) => {
+            fixBtn.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 const prompt = this.buildVerdictPrompt(row);
                 this.close();
                 this.onDiscuss?.(prompt);
             });
 
-            const resolveBtn = actions.createEl('button', {
-                cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': t('modal.vaultHealthRepair.resolveAria') },
-            });
-            setIcon(resolveBtn, 'check-circle');
-            resolveBtn.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                new ResolveConflictModal(this.plugin, row, { onChange: () => this.render() }).open();
-            });
-
+            // Sekundaer: ausblenden bis zum naechsten Scan-Aenderung.
             const dismissBtn = actions.createEl('button', {
                 cls: 'vault-health-icon-btn',
                 attr: { 'aria-label': t('modal.vaultHealthRepair.dismissVerdictAria') },
@@ -438,9 +577,8 @@ export class VaultHealthRepairModal extends Modal {
     }
 
     private buildVerdictPrompt(row: ReviewRow): string {
-        const label = VERDICT_LABELS[row.verdict] ?? row.verdict;
-        const sources = row.sources.length ? `\n\nSources:\n${row.sources.map((s) => `- ${s}`).join('\n')}` : '';
-        return `Help me review the note **${row.path}**. The freshness verifier flagged it as **${label}** with confidence ${row.confidence.toFixed(2)}.\n\nSummary: ${row.summary || '(none)'}${sources}`;
+        // FIX-19-05-05: geteilter, zielorientierter Prompt (kein tool-Jargon).
+        return buildReviewChatPrompt(row);
     }
 
     private dismissVerdict(
@@ -518,6 +656,123 @@ export class VaultHealthRepairModal extends Modal {
     // Phase 1: Detailed findings view
     // -----------------------------------------------------------------------
 
+    /**
+     * FIX-19-02-06: sagt in der Landeansicht, woraus die Zahl besteht und
+     * was sie verschweigt.
+     *
+     * Zwei Dinge, die der Nutzer bisher nicht sehen konnte:
+     *  - welche Befundklassen die Gesamtzahl ausmachen und welche davon
+     *    ueberhaupt automatisch reparierbar sind,
+     *  - dass weak_clusters auf 20 gedeckelt ist. Live liegen dort 1217
+     *    offene Paare: repariert man die 20, ruecken die naechsten 20 nach
+     *    und die Anzeige steht scheinbar still. Genau daran ist das
+     *    Vertrauen zerbrochen.
+     */
+    /**
+     * FIX-19-05-04: eine Zeile mit "zuletzt geprueft <relativ>" und einem
+     * Re-Check-Knopf. Der Knopf laeuft ueber refreshAndShowFindings (derselbe
+     * Pfad wie nach einem Repair: runChecks + Block-Regen + Re-Render).
+     */
+    private renderRescanToolbar(container: HTMLElement): void {
+        // FIX-19-05-07: als native Setting (Name + "zuletzt geprueft"-Desc +
+        // Re-Check-Knopf mit Icon), gleiches Register wie die Settings.
+        const lastAt = this.plugin.vaultHealthService?.getLastRunAt() ?? null;
+        const setting = new Setting(container)
+            .setName(t('modal.vaultHealthRepair.rescanName'))
+            .setDesc(lastAt === null
+                ? t('modal.vaultHealthRepair.lastCheckedNever')
+                : t('modal.vaultHealthRepair.lastCheckedAt', { when: formatRelativeTime(lastAt, Date.now()) }));
+        setting.settingEl.addClass('vault-health-inline-setting');
+        setting.addButton((btn) => {
+            btn.setButtonText(t('modal.vaultHealthRepair.rescanBtn')).setIcon('refresh-cw');
+            btn.onClick(() => {
+                btn.setDisabled(true);
+                btn.setButtonText(t('modal.vaultHealthRepair.rescanRunning'));
+                void this.refreshAndShowFindings();
+            });
+        });
+    }
+
+    /**
+     * FIX-19-05-04: Freshness-Scan-Knopf im Knowledge-review-Tab. Laeuft ueber
+     * denselben On-demand-Pfad wie der Settings-Button (runFreshnessCheckNow:
+     * Privacy-Gate, Budget-Cap, "nichts faellig"-Notice). Nach dem Lauf wird
+     * der Tab neu gerendert, damit frisch geschriebene Verdicts erscheinen.
+     */
+    private renderFreshnessScanToolbar(container: HTMLElement): void {
+        // FIX-19-05-07: gleiches Muster wie die Settings (native Setting:
+        // Name + Beschreibung + Primaerknopf mit Icon, vgl. VaultTab
+        // "Run freshness now"). Kein Ad-hoc-div mehr.
+        const setting = new Setting(container)
+            .setName(t('modal.vaultHealthRepair.freshnessScanName'))
+            .setDesc(t('modal.vaultHealthRepair.freshnessScanHint'));
+        setting.settingEl.addClass('vault-health-inline-setting');
+        setting.addButton((btn) => {
+            btn.setButtonText(t('modal.vaultHealthRepair.freshnessScanBtn'))
+                .setIcon('radar')
+                .setCta();
+            btn.onClick(() => {
+                btn.setDisabled(true);
+                btn.setButtonText(t('modal.vaultHealthRepair.freshnessScanRunning'));
+                void (async () => {
+                    try {
+                        await this.plugin.runFreshnessCheckNow();
+                        // Nach dem Lauf koennen neue Verdicts in note_freshness
+                        // stehen -- Tab neu aufbauen, damit sie erscheinen.
+                        this.render();
+                    } catch (e) {
+                        console.warn('[VaultHealthRepair] freshness scan failed', e);
+                        btn.setDisabled(false);
+                        btn.setButtonText(t('modal.vaultHealthRepair.freshnessScanBtn'));
+                    }
+                })();
+            });
+        });
+    }
+
+    private renderFindingsBreakdown(container: HTMLElement, findings: HealthFinding[]): void {
+        if (findings.length === 0) return;
+
+        const byCheck = new Map<string, { total: number; repairable: number }>();
+        for (const f of findings) {
+            const entry = byCheck.get(f.check) ?? { total: 0, repairable: 0 };
+            entry.total++;
+            if (isRepairableFinding(f)) entry.repairable++;
+            byCheck.set(f.check, entry);
+        }
+
+        const box = container.createDiv('vault-health-breakdown');
+        const parts: string[] = [];
+        for (const [check, { total, repairable }] of [...byCheck.entries()].sort((a, b) => b[1].total - a[1].total)) {
+            parts.push(t('modal.vaultHealthRepair.breakdownEntry', {
+                label: CHECK_LABELS[check] ?? check,
+                count: total,
+                repairable,
+            }));
+        }
+        box.createDiv({ text: parts.join('  |  ') });
+
+        // FIX-19-02-20: der Ueberhang-Hinweis gilt nur, solange auch
+        // wirklich Paare in der Liste stehen.
+        //
+        // Nach einem Lauf blieb "Showing the 20 strongest of 1217" stehen,
+        // obwohl die Liste nur noch eine Notiz zeigte -- die Zahl stammte
+        // aus dem letzten Check und bezog sich auf nichts Sichtbares mehr.
+        // Ein Hinweis auf etwas, das man nicht sieht, ist Rauschen.
+        const totals = this.plugin.vaultHealthService?.getCheckTotals();
+        const weak = totals?.weakClusters;
+        const weakShownNow = byCheck.get('weak_clusters')?.total ?? 0;
+        if (weak && weakShownNow > 0 && weak.total > weak.shown) {
+            box.createDiv({
+                cls: 'vault-health-breakdown-overflow',
+                text: t('modal.vaultHealthRepair.breakdownOverflow', {
+                    shown: weak.shown,
+                    total: weak.total,
+                }),
+            });
+        }
+    }
+
     private showFindings(): void {
         const { contentEl } = this;
         contentEl.empty();
@@ -532,6 +787,30 @@ export class VaultHealthRepairModal extends Modal {
         const totalCount = findingsForView.length;
 
         contentEl.createEl('h3', { text: t('modal.vaultHealthRepair.findingsTitle', { count: totalCount }) });
+        // FIX-19-05-08: eine knappe Zeile, was der Check ueberhaupt prueft.
+        contentEl.createEl('p', {
+            cls: 'agent-settings-section-hint',
+            text: t('modal.vaultHealthRepair.findingsIntro'),
+        });
+
+        // FIX-19-05-04: Re-Check-Knopf + "zuletzt geprueft"-Zeitstempel. Der
+        // Nutzer konnte vorher nicht wissen, wie alt die Befunde sind oder wie
+        // er den Check manuell neu startet.
+        this.renderRescanToolbar(contentEl);
+
+        // FIX-19-02-06: Aufschluesselung OHNE Zusatzklick.
+        //
+        // Die gesamte Transparenzarbeit aus W1-W4 lag hinter dem
+        // Reparieren-Button: wer der Zahl nicht traut und deshalb nicht
+        // klickt, sah exakt dieselbe Ansicht wie vor den Wellen (der Diff
+        // gegen den Pre-W1-Stand war byte-identisch). Hier steht jetzt, was
+        // die Zahl ueberhaupt bedeutet -- und wie viel NICHT angezeigt wird.
+        //
+        // Bewusst nur aus bereits vorhandenen Daten (this.findings im
+        // Speicher, plus die im Check ermittelten Totals). Kein
+        // planRepairTargets-Aufruf: der scannt den ganzen Vault und darf
+        // nicht an jedem Render haengen.
+        this.renderFindingsBreakdown(contentEl, findingsForView);
 
         // IMP-19-01-01 AC-01..04: Auto-fix CTA banner for deterministic
         // rule findings. Renders only when at least one repairable
@@ -612,14 +891,33 @@ export class VaultHealthRepairModal extends Modal {
                 // splits orphans by kind so with_context findings get
                 // no checkbox even though the section type is repairable).
                 if (isRepairableFinding(finding)) {
+                    // FIX-19-02-11: die Abwahl muss das Neuzeichnen ueberleben.
+                    //
+                    // Vorher setzte jeder Render checked = true und trug den
+                    // Befund wieder in die Auswahl ein. Ein Klick auf einen
+                    // Severity-Filter genuegte, um alle Abwahlen zu
+                    // verwerfen -- der Nutzer haekelte etwas ab, wechselte
+                    // den Filter und schrieb es beim naechsten Reparieren
+                    // doch. Die Abwahl liegt jetzt in einem eigenen Set,
+                    // das nach Befund-Identitaet schluesselt statt nach
+                    // Listenindex, weil der Index sich beim Neuaufbau
+                    // verschiebt.
+                    const key = findingKey(finding);
+                    const isDeselected = this.deselectedFindings.has(key);
                     const checkbox = row.createEl('input', { type: 'checkbox' });
-                    checkbox.checked = true;
-                    this.selectedFindings.add(globalIdx);
+                    checkbox.checked = !isDeselected;
+                    if (isDeselected) {
+                        this.selectedFindings.delete(globalIdx);
+                    } else {
+                        this.selectedFindings.add(globalIdx);
+                    }
                     checkbox.addEventListener('change', () => {
                         if (checkbox.checked) {
                             this.selectedFindings.add(globalIdx);
+                            this.deselectedFindings.delete(key);
                         } else {
                             this.selectedFindings.delete(globalIdx);
+                            this.deselectedFindings.add(key);
                         }
                         this.updateRepairButton();
                     });
@@ -661,6 +959,30 @@ export class VaultHealthRepairModal extends Modal {
                         this.onDiscuss(prompt);
                     }
                 });
+
+                // FIX-19-01-12: Ersatz fuer den geloeschten Move-Repair.
+                // Oeffnet die Kandidaten-Auswahl, die EINGEHENDE Links auf die
+                // Orphan-Notes schreibt (nur das beendet den Orphan-Status).
+                if (finding.check === 'orphans') {
+                    const linkBtn = actions.createEl('button', {
+                        cls: 'vault-health-icon-btn',
+                        attr: { 'aria-label': t('modal.vaultHealthRepair.orphanSuggestAria') },
+                    });
+                    setIcon(linkBtn, 'link');
+                    linkBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        const service = this.plugin.vaultHealthService;
+                        if (!service) return;
+                        const paths = finding.paths.filter((p) => p.endsWith('.md'));
+                        const proposals = service.proposeOrphanLinks(paths, {
+                            excludePathPrefixes:
+                                this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
+                        });
+                        new OrphanLinkModal(this.app, this.plugin, proposals, {
+                            onLinked: () => { void this.refreshAndShowFindings(); },
+                        }).open();
+                    });
+                }
 
                 // FEAT-19-18: BA-25 Action-Buttons fuer Lint-Findings.
                 if (finding.check === 'source_concentration' && finding.cluster) {
@@ -730,6 +1052,22 @@ export class VaultHealthRepairModal extends Modal {
                 repairBtn.setText(t('modal.vaultHealth.repairing'));
                 void this.runRepair();
             });
+
+            // FEAT-19-05-01: Batch-Start. Nur wenn mehr weak-Paare hinter dem
+            // 20er-Deckel warten, als ein Normal-Lauf zeigt -- sonst waere der
+            // Knopf ohne Nutzen. Ein Klick fixt bis zu 250 statt 20.
+            const weakTotals = this.plugin.vaultHealthService?.getCheckTotals()?.weakClusters;
+            if (weakTotals && weakTotals.total > weakTotals.shown) {
+                const batchBtn = btnRow.createEl('button', {
+                    cls: 'vault-health-batch-btn',
+                    text: t('modal.vaultHealthRepair.batchRepair', { total: weakTotals.total }),
+                });
+                batchBtn.addEventListener('click', () => {
+                    batchBtn.disabled = true;
+                    batchBtn.setText(t('modal.vaultHealth.repairing'));
+                    void this.runBatchRepair();
+                });
+            }
         }
 
         // Show dismissed findings button
@@ -746,6 +1084,16 @@ export class VaultHealthRepairModal extends Modal {
 
         const closeBtn = btnRow.createEl('button', { text: t('modal.vaultHealth.closeBtn') });
         closeBtn.addEventListener('click', () => this.close());
+
+        // FIX-19-02-18: der Knopf entsteht WEIT vor den Checkboxen.
+        //
+        // renderStickyApplyBar laeuft oben in dieser Methode, die
+        // Checkbox-Zeilen kommen erst danach und tragen sich dabei in
+        // selectedFindings ein. Der Knopf las den Set also, solange er noch
+        // leer war, und zeigte "(0)", waehrend sichtbar 70 Haken gesetzt
+        // waren. Genau das hat der Nutzer gemeldet. Ein Nachziehen am Ende
+        // des Renders kostet nichts und haelt beide Zahlen zusammen.
+        this.updateRepairButton();
     }
 
     private updateRepairButton(): void {
@@ -781,6 +1129,33 @@ export class VaultHealthRepairModal extends Modal {
             cls: 'mod-cta vault-health-apply-sticky-btn',
             text: t('modal.vaultHealthRepair.applySelectedFixes', { count: this.selectedFindings.size }),
         });
+
+        // FEAT-19-02-01: Weg zurueck auf null.
+        //
+        // Alle reparierbaren Befunde sind vorangehakt, weil der Sammel-Fall
+        // der haeufige ist. Wer aber nur drei von siebzig will, musste 67
+        // Haken einzeln entfernen. Der Umschalter arbeitet ueber dasselbe
+        // deselectedFindings-Set wie die Einzel-Abwahl, damit es nicht zwei
+        // Wahrheiten darueber gibt, was ausgewaehlt ist.
+        const repairable = this.findings.filter(isRepairableFinding);
+        if (repairable.length > 0) {
+            const allOff = repairable.every((f) => this.deselectedFindings.has(findingKey(f)));
+            const toggleBtn = bar.createEl('button', {
+                cls: 'vault-health-select-toggle',
+                text: allOff
+                    ? t('modal.vaultHealthRepair.selectAll')
+                    : t('modal.vaultHealthRepair.deselectAll'),
+            });
+            toggleBtn.addEventListener('click', () => {
+                if (allOff) {
+                    this.deselectedFindings.clear();
+                } else {
+                    for (const f of repairable) this.deselectedFindings.add(findingKey(f));
+                }
+                this.selectedFindings.clear();
+                this.showFindings();
+            });
+        }
         btn.addEventListener('click', () => {
             if (this.selectedFindings.size === 0) {
                 new Notice(t('notice.vaultHealth.noRepairSelection'));
@@ -792,19 +1167,23 @@ export class VaultHealthRepairModal extends Modal {
         });
     }
 
+    /**
+     * FIX-19-02-18: EIN Handlungsknopf statt zwei.
+     *
+     * Vorher standen "Auto-fix N issue(s)" und "Apply selected fixes (M)"
+     * uebereinander und taten dasselbe -- der erste hakte alles an und lief
+     * los, der zweite lief mit der Auswahl los. Da alle Befunde ohnehin
+     * vorangehakt sind, war der Unterschied fuer den Nutzer nicht sichtbar,
+     * die Zahlen widersprachen sich aber (70 gegen 0).
+     *
+     * Jetzt: ein Knopf, der zeigt, was die aktuelle Auswahl bewirkt, und
+     * eine Zeile darueber, die erklaert was passiert. Beide Zahlen kommen
+     * aus derselben Quelle.
+     */
     private renderAutoFixBanner(parent: HTMLElement, repairableCount: number): void {
         const banner = parent.createDiv('vault-health-autofix-banner');
         const desc = banner.createDiv('vault-health-autofix-desc');
         desc.setText(t('modal.vaultHealthRepair.autoFixDesc', { count: repairableCount }));
-
-        const btn = banner.createEl('button', {
-            text: t('modal.vaultHealthRepair.autoFixBtn', { count: repairableCount }),
-            cls: 'mod-cta vault-health-autofix-btn',
-        });
-        btn.addEventListener('click', () => {
-            this.selectAllRepairable();
-            void this.runRepair();
-        });
     }
 
     /**
@@ -821,17 +1200,6 @@ export class VaultHealthRepairModal extends Modal {
         });
     }
 
-    /**
-     * IMP-19-01-01 AC-06..09: convenience flag the AgentSidebarView
-     * sets before calling `open()`. When true, `onOpen()` skips the
-     * findings render and immediately drives `runRepair()` over the
-     * REPAIRABLE subset; the results screen surfaces as if the user
-     * had clicked the Auto-fix banner manually. `runRepair()` already
-     * handles the "no non-repairable findings left" case by showing
-     * a clean results summary with a Done button.
-     */
-    autoApplyOnOpen = false;
-
     // -----------------------------------------------------------------------
     // Dismiss a finding
     // -----------------------------------------------------------------------
@@ -846,48 +1214,44 @@ export class VaultHealthRepairModal extends Modal {
         originalCount: number,
     ): void {
         // Persist dismissal
-        const path = finding.paths[0] ?? '';
+        // W4: kanonischer Key aus derselben Quelle wie der Service-Filter.
+        const path = dismissKeyPathFor(finding);
         this.plugin.vaultHealthService?.dismissFinding(finding.check, path);
 
-        // Remove from selected
-        this.selectedFindings.delete(globalIdx);
-        this.updateRepairButton();
+        // FIX-19-02-08: neu zeichnen statt am DOM operieren.
+        //
+        // Die Chirurgie zog genau eine Zeile und die Sektions-Ueberschrift
+        // nach. Kopfzeile ("Vault health (247 findings)"), die vier
+        // Severity-Pillen und die Aufschluesselung behielten ihre alten
+        // Zahlen -- der Nutzer blendete fuenf Befunde aus und die
+        // Ueberschrift behauptete weiter 247. Das ist die "UI zeigt falsch
+        // an"-Beschwerde in Reinform.
+        void row; void content; void details; void check; void originalCount; void globalIdx;
 
-        // Remove the row and its fix-preview
-        const nextSibling = row.nextElementSibling;
-        row.remove();
-        if (nextSibling?.classList.contains('vault-health-fix-preview')) {
-            nextSibling.remove();
-        }
-
-        // Update section header count
-        const remaining = content.querySelectorAll('.vault-health-finding-row').length;
-        if (remaining === 0) {
-            details.remove();
-        } else {
-            const headerText = details.querySelector('.vault-health-section-header');
-            if (headerText) {
-                const label = CHECK_LABELS[check] ?? check;
-                const spans = headerText.querySelectorAll('span');
-                if (spans.length >= 2) {
-                    spans[1].setText(' ' + t('modal.vaultHealthRepair.sectionCount', { label, count: remaining }));
-                }
-            }
-        }
-
-        // Update badge
-        const allFindings = this.plugin.vaultHealthService?.getFindings() ?? [];
-        this.updateBadge(allFindings);
+        // Die Auswahl haengt an Listen-INDIZES. Nach dem Entfernen eines
+        // Eintrags zeigen die alten Indizes auf andere Befunde, also wird
+        // die Auswahl verworfen statt still verschoben. Eine geleerte
+        // Auswahl kostet einen Klick, eine falsche kostet Vertrauen.
+        this.selectedFindings.clear();
+        this.findings = this.plugin.vaultHealthService?.getFindings() ?? this.findings;
+        this.showFindings();
     }
 
     /** Re-run health checks and refresh the findings view. */
     private async refreshAndShowFindings(): Promise<void> {
         const healthService = this.plugin.vaultHealthService;
         if (healthService) {
-            await healthService.runChecks();
+            // FEAT-19-05-01: im Batch-Modus mit erhoehtem Deckel neu pruefen,
+            // damit der naechste Batch wieder bis zu 250 Paare sieht.
+            await healthService.runChecks(undefined, buildHealthCheckOptions(
+                this.plugin.settings, this.batchMode ? WEAK_CLUSTER_BATCH_LIMIT : undefined));
             this.findings = healthService.getFindings();
             this.selectedFindings.clear();
             this.updateBadge(this.findings);
+            // FEAT-19-04-01: nach dem Re-Check die Hub-Rueckverweis-Bloecke
+            // gebuendelt aktualisieren (Setting-gated, reines Script, no-op
+            // wenn nichts geaendert). Der Graph ist hier frisch extrahiert.
+            await this.plugin.regenerateIncomingLinksBlocks();
         }
         this.showFindings();
     }
@@ -1027,13 +1391,11 @@ export class VaultHealthRepairModal extends Modal {
                 return t('modal.vaultHealthRepair.fixPreviewCategory', { path: this.formatPath(finding.paths[0]) });
             case 'inconsistent_tags':
                 return t('modal.vaultHealthRepair.fixPreviewTags');
-            case 'orphans': {
-                if (finding.metadata?.orphanKind === 'isolated') {
-                    const target = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
-                    return t('modal.vaultHealthRepair.fixPreviewMoveOrphans', { count: finding.paths.length, folder: target });
-                }
+            // FIX-19-01-12: orphans have no automatic repair any more. Both
+            // kinds need the same manual decision (create an incoming link),
+            // so both render the manual hint instead of a move preview.
+            case 'orphans':
                 return t('modal.vaultHealthRepair.fixPreviewOrphanManual');
-            }
             case 'weak_clusters':
                 if (finding.paths.length >= 2) {
                     return t('modal.vaultHealthRepair.fixPreviewLinkPair', { a: this.formatPath(finding.paths[0]), b: this.formatPath(finding.paths[1]) });
@@ -1067,14 +1429,224 @@ export class VaultHealthRepairModal extends Modal {
     // Phase 2: Run repair (selected findings only)
     // -----------------------------------------------------------------------
 
+    /** FIX-19-01-19: Ergebnis der Index-Bereinigung, die vor dem Plan laeuft. */
+    private pendingEdgesResult: { edgesRemoved: number } | null = null;
+
+    /**
+     * FEAT-19-05-01: Batch-Modus. Prueft mit erhoehtem weak_clusters-Deckel
+     * (250 statt 20) neu, waehlt alle reparierbaren Befunde und schickt sie
+     * durch den GANZ NORMALEN Freigabe-Zyklus (runRepair -> renderPlanApproval
+     * -> doRepair). ADR-165 bleibt buchstabengetreu: der Nutzer sieht die
+     * volle Schreibmenge und gibt sie frei, nur eben 250 auf einmal statt 20.
+     * Der Checkpoint-Cap 500 deckelt weiterhin hart.
+     *
+     * `batchMode` bleibt gesetzt, damit der Re-Check am Ende von doRepair
+     * denselben erhoehten Deckel nutzt und der "Naechster Batch"-Knopf die
+     * echte Restzahl sieht.
+     */
+    private batchMode = false;
+
+    private async runBatchRepair(): Promise<void> {
+        const healthService = this.plugin.vaultHealthService;
+        if (!healthService) return;
+        this.batchMode = true;
+        // Mit erhoehtem Deckel neu pruefen, damit bis zu 250 weak-Paare in
+        // EINEN Plan kommen.
+        await healthService.runChecks(undefined,
+            buildHealthCheckOptions(this.plugin.settings, WEAK_CLUSTER_BATCH_LIMIT));
+        this.findings = healthService.getFindings();
+        this.selectAllRepairable();
+        if (this.selectedFindings.size === 0) {
+            this.batchMode = false;
+            new Notice(t('notice.vaultHealth.noRepairSelection'));
+            return;
+        }
+        await this.runRepair();
+    }
+
     private async runRepair(): Promise<void> {
-        const { contentEl } = this;
         const healthService = this.plugin.vaultHealthService;
         if (!healthService) return;
 
+        // ADR-165: kein Schreiben ohne approvte Plan-Liste. Der Plan kommt
+        // aus der Live-Seite des Praedikats (ADR-164) und macht auch den
+        // frueher stillen Cleanup-Nachlauf sichtbar.
+        const backlinksProperty = this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty;
+        const categoryProperty = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
+        const reciprocal = this.plugin.settings.vaultHealth?.reciprocalProperties ?? [];
+
+        const selectedTypes = new Set<string>();
+        const weakPairs: Array<{ a: string; b: string }> = [];
+        // FIX-19-01-17 + FIX-19-01-19: die Auswahl bindet den Plan, und
+        // zwar PRO CHECK-TYP. Ein flaches Set war typ-blind: eine Notiz,
+        // die als Quelle in einem angehakten missing_backlinks-Finding
+        // vorkam, autorisierte damit auch cleanup- und
+        // category-Schreibvorgaenge an derselben Datei, obwohl deren
+        // eigene Befunde abgewaehlt waren. In einem MOC-Vault ist das der
+        // Normalfall, weil jede Hub-Note mal Ziel und mal Quelle ist.
+        const selectedByCheck = new Map<string, Set<string>>();
+        for (const idx of this.selectedFindings) {
+            const f = this.findings[idx];
+            selectedTypes.add(f.check);
+            let set = selectedByCheck.get(f.check);
+            if (!set) { set = new Set<string>(); selectedByCheck.set(f.check, set); }
+            for (const p of f.paths) set.add(p);
+            if (f.check === 'weak_clusters' && f.paths.length >= 2) {
+                weakPairs.push({ a: f.paths[0], b: f.paths[1] });
+            }
+        }
+
+        // FIX-19-01-19: erst den Graph-Index bereinigen, DANN planen. So
+        // sieht der Plan schon die bereinigte Kantenmenge und verspricht
+        // keine Ziele, die beim Schreiben nicht mehr existieren.
+        this.pendingEdgesResult = (selectedTypes.has('missing_backlinks') || selectedTypes.has('category_mismatch'))
+            ? healthService.cleanupOrphanedEdges()
+            : { edgesRemoved: 0 };
+
+        const entries = buildRepairPlan(
+            {
+                planRepairTargets: (a) => healthService.planRepairTargets(a, backlinksProperty, categoryProperty, reciprocal),
+                // FIX-19-02-15: weak-Paare gegen das Live-Frontmatter pruefen,
+                // statt sie roh aus dem Snapshot zu uebernehmen.
+                planWeakPairTargets: (pairs) => healthService.planWeakPairTargets(pairs, backlinksProperty),
+            },
+            selectedTypes, weakPairs, { includeCleanup: true, selectedByCheck },
+        );
+        if (entries.length === 0) {
+            new Notice(t('notice.vaultHealth.noRepairSelection'));
+            return;
+        }
+        // FIX-19-01-13: geschrieben wird nur, was der Checkpoint abdeckt.
+        const { covered, deferred } = capPlanForCheckpoint(entries, 500);
+        this.renderPlanApproval(covered, deferred);
+    }
+
+    /**
+     * ADR-165: die Plan-Ansicht. Alle Eintraege vorbefuellt (Approve-all
+     * als Default-Weg), jede Zeile einzeln abwaehlbar; erst der Klick auf
+     * Anwenden startet die Ausfuehrung, gebunden an exakt die approvten
+     * Pfade.
+     */
+    private renderPlanApproval(entries: RepairPlanEntry[], deferred: number): void {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl('h3', { text: t('modal.vaultHealthRepair.planTitle') });
+        contentEl.createDiv({
+            cls: 'setting-item-description',
+            text: t('modal.vaultHealthRepair.planIntro'),
+        });
+        if (deferred > 0) {
+            contentEl.createDiv({
+                cls: 'vault-health-plan-deferred',
+                text: t('modal.vaultHealthRepair.planDeferred', { count: deferred }),
+            });
+        }
+
+        // FIX-19-01-18: der ehrliche Zaehler. Vorher stand hier nur die
+        // Zeilenzahl, und der Nutzer kam von einem Button, der Befunde
+        // gezaehlt hatte (24 gegen 204). Die Aufschluesselung benennt beide
+        // Groessen und die Herkunft der Differenz.
+        const summary = summarizePlan(entries, this.selectedFindings.size);
+        contentEl.createDiv({
+            cls: 'vault-health-plan-summary',
+            text: t('modal.vaultHealthRepair.planSummary', {
+                findings: summary.findings,
+                writes: summary.writes,
+                files: summary.files,
+            }),
+        });
+        const parts: string[] = [];
+        if (summary.byAction.fix_backlinks > 0) parts.push(t('modal.vaultHealthRepair.planShareBacklinks', { count: summary.byAction.fix_backlinks }));
+        if (summary.byAction.fix_categories > 0) parts.push(t('modal.vaultHealthRepair.planShareCategories', { count: summary.byAction.fix_categories }));
+        if (summary.byAction.link_weak > 0) parts.push(t('modal.vaultHealthRepair.planShareWeak', { count: summary.byAction.link_weak }));
+        if (summary.byAction.cleanup > 0) parts.push(t('modal.vaultHealthRepair.planShareCleanup', { count: summary.byAction.cleanup }));
+        if (parts.length > 0) {
+            contentEl.createDiv({ cls: 'vault-health-plan-breakdown', text: parts.join(' | ') });
+        }
+
+        // FIX-19-02-22: die Luecke zwischen ausgewaehlten Befunden und
+        // geplanten Aenderungen benennen.
+        //
+        // Der Nutzer sah "70 finding(s) selected" und "Apply 66 change(s)"
+        // und fragte zu Recht, wo die vier geblieben sind. Sie fallen
+        // heraus, weil das Live-Praedikat sagt: an dieser Datei ist nichts
+        // zu tun (schon korrekt, ausgenommen per .agentignore, oder das
+        // Ziel existiert nicht mehr). Das ist genau die Relevanzpruefung,
+        // die der Repair leisten soll -- aber lautlos ist sie nur
+        // verwirrend.
+        const noChange = summary.findings - summary.writes;
+        if (noChange > 0) {
+            contentEl.createDiv({
+                cls: 'vault-health-plan-nochange',
+                text: t('modal.vaultHealthRepair.planNoChangeNeeded', { count: noChange }),
+            });
+        }
+        if (summary.cleanupWithoutFinding > 0) {
+            // Der Anteil, der den Sprung erklaert: kein Befund steht dahinter.
+            contentEl.createDiv({
+                cls: 'vault-health-plan-note',
+                text: t('modal.vaultHealthRepair.planCleanupNote', { count: summary.cleanupWithoutFinding }),
+            });
+        }
+
+        const approved = new Set<number>(entries.map((_, i) => i));
+        const list = contentEl.createDiv({ cls: 'vault-health-plan-list' });
+        const actionLabel = (a: RepairPlanEntry['action']): string => {
+            switch (a) {
+                case 'fix_backlinks': return t('modal.vaultHealthRepair.planActionBacklink');
+                case 'fix_categories': return t('modal.vaultHealthRepair.planActionCategory');
+                case 'cleanup': return t('modal.vaultHealthRepair.planActionCleanup');
+                case 'link_weak': return t('modal.vaultHealthRepair.planActionWeak');
+            }
+        };
+        entries.forEach((e, i) => {
+            const row = list.createDiv({ cls: 'vault-health-plan-row' });
+            const cb = row.createEl('input', { type: 'checkbox' });
+            cb.checked = true;
+            cb.addEventListener('change', () => {
+                if (cb.checked) approved.add(i); else approved.delete(i);
+                applyBtn.setText(t('modal.vaultHealthRepair.planApply', { count: approved.size }));
+                applyBtn.disabled = approved.size === 0;
+            });
+            row.createSpan({ cls: 'vault-health-plan-action', text: actionLabel(e.action) });
+            row.createSpan({ cls: 'vault-health-plan-path', text: e.label });
+        });
+
+        const footer = contentEl.createDiv({ cls: 'vault-health-plan-footer' });
+        const backBtn = footer.createEl('button', { text: t('modal.vaultHealthRepair.planBack') });
+        backBtn.addEventListener('click', () => { void this.refreshAndShowFindings(); });
+        const applyBtn = footer.createEl('button', {
+            cls: 'mod-cta',
+            text: t('modal.vaultHealthRepair.planApply', { count: approved.size }),
+        });
+        applyBtn.addEventListener('click', () => {
+            const chosen = entries.filter((_, i) => approved.has(i));
+            void this.runApprovedRepair(chosen);
+        });
+    }
+
+    private async runApprovedRepair(approvedEntries: RepairPlanEntry[]): Promise<void> {
+        // FIX-19-02-25: der Nenner, gegen den der Ergebnis-Screen berichtet.
+        this.lastPlannedChangeCount = approvedEntries.length;
+        const { contentEl } = this;
         contentEl.empty();
         contentEl.createEl('h3', { text: t('modal.vaultHealth.repairRunning') });
         const progress = contentEl.createEl('p', { cls: 'vault-health-progress' });
+
+        // FEAT-19-05-01: Abbruch. Setzt healthService.cancelled, das die
+        // Fix-Schleifen zwischen den Dateien pruefen (VaultHealthService
+        // :1659/:1859/:1919/:2232). Der laufende Datei-Write wird noch
+        // fertig, danach stoppt die Schleife -- kein halber Write.
+        const cancelBtn = contentEl.createEl('button', {
+            cls: 'vault-health-cancel-btn',
+            text: t('modal.vaultHealthRepair.cancelRepair'),
+        });
+        cancelBtn.addEventListener('click', () => {
+            this.plugin.vaultHealthService?.cancel();
+            this.batchMode = false; // kein Auto-Weiter nach Abbruch
+            cancelBtn.disabled = true;
+            cancelBtn.setText(t('modal.vaultHealthRepair.cancelling'));
+        });
 
         // FIX-19-01-03: suspend the global vault.on('modify')
         // extractFile call for the duration of the repair. Every
@@ -1082,15 +1654,20 @@ export class VaultHealthRepairModal extends Modal {
         // which then reads STALE metadataCache and overwrites the
         // fresh reverse edges we are about to insert. The repair
         // owns its own settle + extractAll sequence at the end.
+        // SEC L-2 (Audit 2026-07-19): Save/Restore statt Hart-Reset. Der
+        // Flag ist ein geteilter Mutex; endet der Sammel-Repair, waehrend
+        // ein Orphan-Link-Lauf noch schreibt, hob das harte false dessen
+        // Schutz auf. OrphanLinkModal machte es seit SEC L-1 richtig.
+        const hadRepairFlag = this.plugin.vaultHealthRepairInProgress;
         this.plugin.vaultHealthRepairInProgress = true;
         try {
-            await this.doRepair(progress);
+            await this.doRepair(progress, approvedEntries);
         } finally {
-            this.plugin.vaultHealthRepairInProgress = false;
+            this.plugin.vaultHealthRepairInProgress = hadRepairFlag;
         }
     }
 
-    private async doRepair(progress: HTMLElement): Promise<void> {
+    private async doRepair(progress: HTMLElement, approvedEntries: RepairPlanEntry[]): Promise<void> {
         const healthService = this.plugin.vaultHealthService;
         if (!healthService) return;
 
@@ -1104,7 +1681,33 @@ export class VaultHealthRepairModal extends Modal {
         // Checkpoint
         progress.setText(t('modal.vaultHealth.creatingCheckpoint'));
         const taskId = `health-repair-${Date.now()}`;
-        const affectedPaths = this.collectAffectedPaths();
+        // ADR-165: Checkpoint == approvte Schreibmenge (FIX-19-01-13:
+        // die Deckelung passierte schon vor der Plan-Ansicht).
+        const approvedByAction = {
+            backlinks: new Set(approvedEntries.filter((e) => e.action === 'fix_backlinks').map((e) => e.path)),
+            cleanup: new Set(approvedEntries.filter((e) => e.action === 'cleanup').map((e) => e.path)),
+            categories: new Set(approvedEntries.filter((e) => e.action === 'fix_categories').map((e) => e.path)),
+        };
+        // SEC M-1: paarweise statt pfadweise. Der Plan traegt den Paar-Key.
+        const approvedWeakPairKeys = new Set(
+            approvedEntries.filter((e) => e.action === 'link_weak' && e.pairKey).map((e) => e.pairKey!),
+        );
+        const approvedWeakPaths = new Set(
+            [...approvedWeakPairKeys].flatMap((k) => k.split(PAIR_KEY_SEPARATOR)).filter(Boolean),
+        );
+
+        // FIX-19-02-14: die ZWEITE Seite jedes weak-Paars gehoert dazu.
+        //
+        // Eine Plan-Zeile traegt nur einen der beiden Pfade (SEC M-1 machte
+        // aus zwei Zeilen eine), geschrieben wird aber in BEIDE Notizen.
+        // affectedPaths las nur e.path, also fehlte die Gegenseite im
+        // Checkpoint (Undo liess genau eine Seite verlinkt stehen), in der
+        // Re-Extraktion, im Drain-Wait und im Ergebnis-Screen. Alle vier
+        // lesen aus dieser einen Variablen, deshalb heilt sie alle vier.
+        const affectedPaths = [...new Set([
+            ...approvedEntries.map((e) => e.path),
+            ...approvedWeakPaths,
+        ])];
 
         let checkpoint: CheckpointInfo | undefined;
         if (this.plugin.checkpointService && affectedPaths.length > 0) {
@@ -1118,23 +1721,28 @@ export class VaultHealthRepairModal extends Modal {
             }
         }
 
-        // Determine which repair types are selected
-        const selectedTypes = new Set<HealthCheckType>();
-        for (const idx of this.selectedFindings) {
-            selectedTypes.add(this.findings[idx].check);
-        }
+        // ADR-165: die Typen kommen aus dem approvten Plan.
+        const selectedTypes = new Set<string>();
+        if (approvedByAction.backlinks.size > 0) selectedTypes.add('missing_backlinks');
+        if (approvedByAction.categories.size > 0) selectedTypes.add('category_mismatch');
+        if (approvedWeakPairKeys.size > 0) selectedTypes.add('weak_clusters');
 
         let edgesResult = { edgesRemoved: 0 };
-        let backlinksResult = { entitiesFixed: 0, linksAdded: 0, basesCreated: 0, entitiesWithExistingBase: 0, yamlErrorPaths: [] as string[] };
+        let backlinksResult = { entitiesFixed: 0, linksAdded: 0, yamlErrorPaths: [] as string[] };
         let categoriesResult = { notesFixed: 0, valuesMovied: 0 };
         let cleanupResult = { notesProcessed: 0, linksRemoved: 0 };
-        let orphansResult = { notesMoved: 0, notesSkipped: 0, notesSkippedWithContext: 0 };
-        let weakLinkResult = { pairsLinked: 0, linksAdded: 0 };
+        let weakLinkResult: { pairsLinked: number; linksAdded: number; failedPairs: Array<{ a: string; b: string }> } =
+            { pairsLinked: 0, linksAdded: 0, failedPairs: [] };
 
-        if (selectedTypes.has('missing_backlinks') || selectedTypes.has('category_mismatch')) {
-            progress.setText(t('modal.vaultHealth.progressOrphanedEdges'));
-            edgesResult = healthService.cleanupOrphanedEdges();
-        }
+        // FIX-19-01-19: cleanupOrphanedEdges lief HIER, also ZWISCHEN
+        // Plan-Bau und Schreiben -- und loeschte dabei Kanten aus genau der
+        // Tabelle, aus der beide Seiten ihre Zielmenge ableiten. Jedes Ziel,
+        // dessen Kante dabei verschwand, stand im Plan, war beim Schreiben
+        // aber nicht mehr in der frisch berechneten Menge. Das ist die
+        // Erklaerung fuer "1 entities iterated, 0 frontmatter links
+        // written" im Log. Der Aufruf ist jetzt in runRepair vorgezogen,
+        // VOR buildRepairPlan; das Ergebnis wird durchgereicht.
+        edgesResult = this.pendingEdgesResult ?? { edgesRemoved: 0 };
 
         // FIX-19-01-01: backlinksProperty came from settings, not
         // hardcoded 'Notizen'. The original hardcoded value caused
@@ -1142,66 +1750,72 @@ export class VaultHealthRepairModal extends Modal {
         // existing edges, so the reverse-edge predicate kept firing.
         const backlinksProperty = this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty;
         const categoryProperty = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
+        const reciprocal = this.plugin.settings.vaultHealth?.reciprocalProperties ?? [];
+        const approvedPairs: Array<{ a: string; b: string }> = [];
 
-        if (selectedTypes.has('missing_backlinks')) {
-            progress.setText(t('modal.vaultHealth.progressBacklinks'));
-            backlinksResult = await healthService.fixMissingBacklinks(
-                backlinksProperty,
-                categoryProperty,
-            );
-        }
+        // SEC M-4/M-6 (Audit 2026-07-19): die Writes gehoeren IN den
+        // write-Callback von applyAndVerify. Vorher liefen sie davor und
+        // der 'changed'-Listener wurde erst danach registriert -- ein
+        // klassischer lost wakeup: die Events waren durch, das pending-Set
+        // leerte sich nie, jeder Repair brannte die vollen 8s (plus 8s
+        // Stufe B, plus 2s Drain) und meldete danach JEDEN erfolgreich
+        // appariierten Pfad als 'failed'. OrphanLinkModal machte es schon
+        // richtig; hier zieht der Sammel-Repair nach.
+        const stageAWritten = [...approvedByAction.backlinks, ...approvedByAction.categories, ...approvedWeakPaths];
+        const timedOutPaths: string[] = [];
 
-        if (selectedTypes.has('category_mismatch')) {
-            progress.setText(t('modal.vaultHealth.progressCategories'));
-            categoriesResult = await healthService.fixCategoryMismatches();
-        }
-
-        if (selectedTypes.has('missing_backlinks')) {
-            progress.setText(t('modal.vaultHealth.progressInvalidLinks'));
-            cleanupResult = await healthService.cleanupInvalidBacklinks(
-                backlinksProperty,
-                categoryProperty,
-            );
-        }
-
-        // IMP-19-01-02: orphans -> move to configured folder.
-        if (selectedTypes.has('orphans')) {
-            progress.setText(t('modal.vaultHealthRepair.progressMovingOrphans'));
-            const targetFolder = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
-            const orphanPaths: string[] = [];
-            for (const idx of this.selectedFindings) {
-                const f = this.findings[idx];
-                if (f.check === 'orphans') {
-                    for (const p of f.paths) {
-                        if (p.endsWith('.md')) orphanPaths.push(p);
-                    }
-                }
-            }
-            orphansResult = await healthService.moveOrphansToFolder(orphanPaths, targetFolder);
-        }
-
-        // IMP-19-01-02: weak_clusters -> mutual frontmatter link.
-        if (selectedTypes.has('weak_clusters')) {
-            progress.setText(t('modal.vaultHealthRepair.progressLinkingClusters'));
-            const pairs: Array<{ a: string; b: string }> = [];
-            for (const idx of this.selectedFindings) {
-                const f = this.findings[idx];
-                if (f.check === 'weak_clusters' && f.paths.length >= 2) {
-                    pairs.push({ a: f.paths[0], b: f.paths[1] });
-                }
-            }
-            weakLinkResult = await healthService.linkWeakClusters(pairs, backlinksProperty);
-        }
-
-        // FIX-19-01-01: wait for Obsidian's metadataCache to settle
-        // after the frontmatter writes. processFrontMatter resolves
-        // after the disk write but BEFORE the metadataCache reparse
-        // (which runs on its own async tick). A synchronous
-        // extractAll() right after would otherwise re-read the
-        // STALE cache and write the OLD edge set back into the DB,
-        // leaving the reverse-edge predicate firing again.
         progress.setText(t('modal.vaultHealthRepair.progressWaitingIndex'));
-        await this.waitForMetadataCacheSettle(affectedPaths);
+        {
+            const res = await healthService.applyAndVerify(stageAWritten, async () => {
+                if (selectedTypes.has('missing_backlinks')) {
+                    progress.setText(t('modal.vaultHealth.progressBacklinks'));
+                    backlinksResult = await healthService.fixMissingBacklinks(
+                        backlinksProperty,
+                        categoryProperty,
+                        reciprocal,
+                        approvedByAction.backlinks,
+                    );
+                }
+
+                if (selectedTypes.has('category_mismatch')) {
+                    progress.setText(t('modal.vaultHealth.progressCategories'));
+                    categoriesResult = await healthService.fixCategoryMismatches(categoryProperty, approvedByAction.categories);
+                }
+
+                // FIX-19-01-12: der Orphan-Move ist ersatzlos weg (ein Move
+                // erzeugt keine eingehende Kante). isRepairableFinding laesst
+                // orphans gar nicht erst in die Auswahl.
+
+                if (selectedTypes.has('weak_clusters')) {
+                    progress.setText(t('modal.vaultHealthRepair.progressLinkingClusters'));
+                    // SEC M-1: paarweise Approval. Frueher stand hier ein
+                    // Pfad-Set; taucht eine Note in zwei Paaren auf (a-b und
+                    // a-c), ueberlebte ihr Pfad das Abwaehlen der einen Zeile
+                    // ueber die andere, und das abgewaehlte Paar wurde doch
+                    // verlinkt. Der Plan traegt den Paar-Key jetzt selbst.
+                    for (const key of approvedWeakPairKeys) {
+                        const [a, b] = key.split('\u0000');
+                        if (a && b) approvedPairs.push({ a, b });
+                    }
+                    weakLinkResult = await healthService.linkWeakClusters(approvedPairs, backlinksProperty);
+                }
+            }, () => [], { reparseTimeoutMs: 8000 });
+            timedOutPaths.push(...res.timedOutPaths);
+        }
+
+        // Stufe B (ADR-166): Cleanup NACH dem Reparse, damit er nie auf dem
+        // stalen Cache entscheidet und frisch geschriebene Links revertiert.
+        if (approvedByAction.cleanup.size > 0) {
+            progress.setText(t('modal.vaultHealth.progressInvalidLinks'));
+            const resB = await healthService.applyAndVerify([...approvedByAction.cleanup], async () => {
+                cleanupResult = await healthService.cleanupInvalidBacklinks(
+                    backlinksProperty,
+                    categoryProperty,
+                    approvedByAction.cleanup,
+                );
+            }, () => [], { reparseTimeoutMs: 8000 });
+            timedOutPaths.push(...resB.timedOutPaths);
+        }
 
         // Re-extract graph data before re-checking (FIX-13)
         progress.setText(t('modal.vaultHealthRepair.progressVerifying'));
@@ -1222,7 +1836,10 @@ export class VaultHealthRepairModal extends Modal {
                 const file = this.app.vault.getAbstractFileByPath(path);
                 if (file instanceof TFile) {
                     try {
-                        extractor.extractFile(file);
+                        // FEAT-19-04-01 W3: extractFile ist async (Block-Kanten-
+                        // Klassifikation). awaiten -- die Kanten muessen vor dem
+                        // verifizierenden runChecks stehen.
+                        await extractor.extractFile(file);
                         perFileSucceeded++;
                     } catch (e) {
                         console.warn('[VaultHealthRepair] extractFile failed for', path, e);
@@ -1230,7 +1847,7 @@ export class VaultHealthRepairModal extends Modal {
                 }
             }
             void perFileSucceeded;
-            extractor.extractAll(this.app.vault);
+            await extractor.extractAll(this.app.vault);
 
             // FIX-19-01-04: drain Obsidian's vault.on('modify') queue
             // before runChecks AND before the flag clears in the
@@ -1243,7 +1860,7 @@ export class VaultHealthRepairModal extends Modal {
             // One more extractAll after the drain catches any edges
             // a late modify-listener call might have clobbered while
             // the queue was unwinding.
-            extractor.extractAll(this.app.vault);
+            await extractor.extractAll(this.app.vault);
             if (this.plugin.ontologyStore) {
                 const categoryMap = new Map<string, string>();
                 for (const file of this.app.vault.getMarkdownFiles()) {
@@ -1263,17 +1880,31 @@ export class VaultHealthRepairModal extends Modal {
             }
         }
 
-        const newFindings = await healthService.runChecks(undefined, {
-            backlinksProperty,
-            silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
-            orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
-            reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
-        });
+        // ADR-166 / Phase 6: das Ergebnis kommt aus dem Verify-Delta des
+        // Praedikats, nicht aus Iterationszaehlern.
+        const verifyOpts = { backlinksProperty, categoryProperty, reciprocalProperties: reciprocal };
+        const stillFiring = [
+            ...healthService.verifyRepairTargets('fix_backlinks', [...approvedByAction.backlinks], verifyOpts),
+            ...healthService.verifyRepairTargets('fix_categories', [...approvedByAction.categories], verifyOpts),
+            ...healthService.verifyRepairTargets('cleanup', [...approvedByAction.cleanup], verifyOpts),
+            ...healthService.verifyWeakClusterPairs(approvedPairs).flatMap((pr) => [pr.a, pr.b]),
+        ];
+        const outcomes = computeOutcomes(affectedPaths, stillFiring, timedOutPaths, backlinksResult.yamlErrorPaths);
+
+        // FEAT-19-05-01: im Batch-Modus mit erhoehtem Deckel, damit
+        // getCheckTotals die echte Restmenge fuer den "Naechster Batch"-Knopf
+        // liefert.
+        const newFindings = await healthService.runChecks(undefined, buildHealthCheckOptions(
+            this.plugin.settings, this.batchMode ? WEAK_CLUSTER_BATCH_LIMIT : undefined));
         // FIX-19-01-06: refresh the modal's internal copy of findings
         // so any subsequent render in the same lifecycle sees the
         // post-repair set (not the constructor-time snapshot).
         this.findings = newFindings;
-        this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, orphansResult, weakLinkResult, newFindings, checkpoint);
+        // FIX-19-01-19: die Auswahl zeigte per INDEX in das alte Array.
+        // Nach dem Austausch (andere Laenge, andere Sortierung) haetten
+        // dieselben Indizes auf fremde Befunde gezeigt.
+        this.selectedFindings.clear();
+        this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, weakLinkResult, newFindings, checkpoint, outcomes, timedOutPaths);
     }
 
     /**
@@ -1315,76 +1946,75 @@ export class VaultHealthRepairModal extends Modal {
         });
     }
 
-    /**
-     * FIX-19-01-01: poll Obsidian's metadataCache until every touched
-     * file shows a frontmatter shape consistent with the post-repair
-     * state, OR up to a hard timeout. Obsidian fires
-     * `metadataCache.on('changed', file)` once it has re-parsed a
-     * mutated file; we listen for that event per-path and resolve
-     * the promise when all paths have either changed or timed out.
-     */
-    private async waitForMetadataCacheSettle(paths: string[]): Promise<void> {
-        if (!paths.length) return;
-        const pending = new Set(paths);
-        const TIMEOUT_MS = 3000;
-
-        await new Promise<void>((resolve) => {
-            const cleanup = () => {
-                this.app.metadataCache.off('changed', onChanged);
-                window.clearTimeout(timer);
-            };
-            const onChanged = (file: TFile) => {
-                if (pending.delete(file.path) && pending.size === 0) {
-                    cleanup();
-                    resolve();
-                }
-            };
-            this.app.metadataCache.on('changed', onChanged);
-            const timer = window.setTimeout(() => {
-                cleanup();
-                resolve();
-            }, TIMEOUT_MS);
-        });
-    }
-
-    // -----------------------------------------------------------------------
-    // Phase 3: Show result + undo
-    // -----------------------------------------------------------------------
-
     private showResult(
         edges: { edgesRemoved: number },
-        backlinks: { entitiesFixed: number; linksAdded: number; basesCreated: number; entitiesWithExistingBase: number; yamlErrorPaths: string[] },
+        backlinks: { entitiesFixed: number; linksAdded: number; yamlErrorPaths: string[] },
         categories: { notesFixed: number; valuesMovied: number },
         cleanup: { notesProcessed: number; linksRemoved: number },
-        orphans: { notesMoved: number; notesSkipped: number; notesSkippedWithContext: number },
-        weakLinks: { pairsLinked: number; linksAdded: number },
+        weakLinks: { pairsLinked: number; linksAdded: number; failedPairs?: Array<{ a: string; b: string }> },
         newFindings: HealthFinding[],
         checkpoint: CheckpointInfo | undefined,
+        outcomes: RepairOutcomeEntry[],
+        timedOutPaths: string[],
     ): void {
         const { contentEl } = this;
         contentEl.empty();
 
         contentEl.createEl('h3', { text: t('modal.vaultHealth.repairDone') });
 
+        // ADR-166 / Phase 6: verifizierter Post-Zustand pro geplantem Ziel.
+        // "fixed" heisst: das Praedikat feuert nach der Extraktion nicht
+        // mehr. Zaehler weiter unten sind nur noch Detail-Info.
+        if (outcomes.length > 0) {
+            const fixed = outcomes.filter((o) => o.outcome === 'fixed').length;
+            const still = outcomes.filter((o) => o.outcome === 'still_firing');
+            const failed = outcomes.filter((o) => o.outcome === 'failed');
+            const yaml = outcomes.filter((o) => o.outcome === 'skipped_yaml');
+
+            const box = contentEl.createDiv({ cls: 'vault-health-outcomes' });
+            box.createDiv({
+                cls: 'vault-health-outcome-line',
+                text: t('modal.vaultHealthRepair.outcomeSummary', {
+                    fixed, total: outcomes.length,
+                }),
+            });
+            const listProblems = (items: RepairOutcomeEntry[], key: string) => {
+                if (items.length === 0) return;
+                const grp = box.createDiv({ cls: 'vault-health-outcome-group' });
+                grp.createDiv({ cls: 'vault-health-outcome-head', text: t(key, { count: items.length }) });
+                for (const o of items.slice(0, 20)) {
+                    grp.createDiv({ cls: 'vault-health-outcome-path', text: o.path });
+                }
+                if (items.length > 20) {
+                    grp.createDiv({ cls: 'vault-health-outcome-path', text: t('modal.vaultHealthRepair.outcomeMore', { count: items.length - 20 }) });
+                }
+            };
+            listProblems(still, 'modal.vaultHealthRepair.outcomeStillFiring');
+            listProblems(failed, 'modal.vaultHealthRepair.outcomeFailed');
+            // FIX-19-01-17: unbestaetigt heisst "Praedikat feuert noch UND
+            // der Cache hat sich nicht gemeldet" -- nicht fehlgeschlagen.
+            listProblems(
+                outcomes.filter((o) => o.outcome === 'unconfirmed'),
+                'modal.vaultHealthRepair.outcomeUnconfirmed',
+            );
+            listProblems(yaml, 'modal.vaultHealthRepair.outcomeYaml');
+        }
+
         const results = contentEl.createEl('ul', { cls: 'vault-health-results' });
 
         if (edges.edgesRemoved > 0) {
             results.createEl('li', { text: t('modal.vaultHealth.resultEdges', { count: edges.edgesRemoved }) });
         }
-        if (backlinks.linksAdded > 0 || backlinks.basesCreated > 0) {
+        if (backlinks.linksAdded > 0) {
             results.createEl('li', {
-                text: t('modal.vaultHealth.resultBacklinks', { entities: backlinks.entitiesFixed, links: backlinks.linksAdded, bases: backlinks.basesCreated }),
+                text: t('modal.vaultHealth.resultBacklinks', { entities: backlinks.entitiesFixed, links: backlinks.linksAdded }),
             });
         }
         // FIX-19-01-06: explicit transparency. The "0 links added" case
-        // typically means the entity already had a Base (no-op) or
-        // its YAML is broken. Show both numbers so the user knows
-        // WHY a finding does not disappear.
-        if (backlinks.entitiesWithExistingBase > 0) {
-            results.createEl('li', {
-                text: t('modal.vaultHealthRepair.resultExistingBase', { count: backlinks.entitiesWithExistingBase }),
-            });
-        }
+        // typically means the entity's YAML is broken. Show the YAML-error
+        // list below so the user knows WHY a finding does not disappear.
+        // FEAT-19-04-01 W2c: der "Base existierte bereits"-Zweig entfaellt --
+        // die .base-Automatik ist abgeschaltet.
         if (backlinks.yamlErrorPaths.length > 0) {
             const li = results.createEl('li');
             li.appendText(t('modal.vaultHealthRepair.resultYamlErrors', { count: backlinks.yamlErrorPaths.length }));
@@ -1411,35 +2041,132 @@ export class VaultHealthRepairModal extends Modal {
         if (cleanup.linksRemoved > 0) {
             results.createEl('li', { text: t('modal.vaultHealth.resultInvalidLinks', { count: cleanup.linksRemoved }) });
         }
-        if (orphans.notesMoved > 0) {
-            results.createEl('li', { text: t('modal.vaultHealthRepair.resultOrphansMoved', { count: orphans.notesMoved }) });
-        }
-        if (orphans.notesSkippedWithContext > 0) {
-            results.createEl('li', {
-                text: t('modal.vaultHealthRepair.resultOrphansKept', { count: orphans.notesSkippedWithContext }),
-            });
-        }
         if (weakLinks.pairsLinked > 0) {
             results.createEl('li', { text: t('modal.vaultHealthRepair.resultWeakLinks', { pairs: weakLinks.pairsLinked, links: weakLinks.linksAdded }) });
         }
+        // FIX-19-02-26: gescheiterte Paare benennen, statt sie als "nichts
+        // passiert" zu verbuchen. Die A-Seite ist zurueckgenommen, die
+        // Notizen sind also unveraendert -- aber der Nutzer soll wissen,
+        // dass hier etwas NICHT erledigt wurde.
+        if ((weakLinks.failedPairs?.length ?? 0) > 0) {
+            results.createEl('li', {
+                cls: 'vault-health-run-failed',
+                text: t('modal.vaultHealthRepair.resultWeakFailed', { count: weakLinks.failedPairs?.length ?? 0 }),
+            });
+        }
 
-        const totalFixes = edges.edgesRemoved + backlinks.linksAdded + backlinks.basesCreated +
-            categories.valuesMovied + cleanup.linksRemoved + orphans.notesMoved + weakLinks.linksAdded;
+        const totalFixes = edges.edgesRemoved + backlinks.linksAdded +
+            categories.valuesMovied + cleanup.linksRemoved + weakLinks.linksAdded;
 
-        if (totalFixes === 0) {
-            contentEl.createEl('p', { text: t('modal.vaultHealth.noRepairsNeeded') });
+        // FIX-19-02-25: Plan und Ergebnis an EINEN Nenner haengen.
+        //
+        // Der Plan sprach von 66 Aenderungen, das Ergebnis von "41
+        // entities" und "8 pairs" -- drei Zahlen ohne erkennbaren Bezug.
+        // Der Nutzer musste raten, ob 41 gut oder schlecht ist. Diese Zeile
+        // sagt, wie viele der GEPLANTEN Aenderungen wirklich geschrieben
+        // haben, und dass der Rest kein Fehlschlag ist: ob eine Datei
+        // wirklich etwas zu tun hat, weiss der Check erst, wenn er sie
+        // aufmacht.
+        const appliedChanges = backlinks.entitiesFixed
+            + categories.notesFixed + cleanup.notesProcessed + weakLinks.pairsLinked;
+        if (this.lastPlannedChangeCount > 0) {
+            contentEl.createEl('p', {
+                cls: 'vault-health-result-vs-plan',
+                text: t('modal.vaultHealthRepair.resultVsPlan', {
+                    planned: this.lastPlannedChangeCount,
+                    applied: appliedChanges,
+                }),
+            });
         }
 
         // Remaining findings
         const remainingRepairable = newFindings.filter(isRepairableFinding).length;
         const totalRemaining = newFindings.length;
-        contentEl.createEl('p', {
-            cls: 'vault-health-remaining',
-            text: t('modal.vaultHealthRepair.remainingSummary', { total: totalRemaining, repairable: remainingRepairable }),
-        });
+
+        if (totalFixes === 0) {
+            // FIX-19-01-14: "All clean" war unabhaengig davon, ob noch etwas
+            // Reparierbares uebrig ist. Der Nutzer las "No repairs needed. All
+            // clean." und direkt darunter "20 repairable" -- die Meldung
+            // widersprach der Zeile unter ihr. Null Fixes heisst nicht sauber,
+            // es heisst nur, dass dieser Durchlauf nichts geaendert hat.
+            const recheckFailed = this.plugin.vaultHealthService?.getLastRunStatus() === 'failed';
+            contentEl.createEl('p', {
+                text: recheckFailed
+                    // FIX-19-02-21: "All clean" nach einem abgestuerzten
+                    // Nachlauf ist die gefaehrlichste Meldung im ganzen
+                    // Ablauf -- sie beendet das Nachsehen.
+                    ? t('modal.vaultHealthRepair.recheckFailed')
+                    : remainingRepairable > 0
+                        ? t('modal.vaultHealthRepair.noChangesButRepairable', { count: remainingRepairable })
+                        : t('modal.vaultHealth.noRepairsNeeded'),
+            });
+        }
+        // FIX-19-02-21: keine Entwarnung ohne gueltigen Nachlauf.
+        //
+        // Bricht der Re-Check ab, liefert er ein leeres Array, und dieselbe
+        // Zeile behauptete daraufhin "Remaining: 0 finding(s)" -- direkt
+        // unter der Liste der Ziele, die den Befund noch melden. Der Nutzer
+        // sah einen Widerspruch und hatte recht damit.
+        if (this.plugin.vaultHealthService?.getLastRunStatus() === 'failed') {
+            contentEl.createEl('p', {
+                cls: 'vault-health-remaining vault-health-run-failed',
+                text: t('modal.vaultHealthRepair.recheckFailed'),
+            });
+        } else {
+            contentEl.createEl('p', {
+                cls: 'vault-health-remaining',
+                text: t('modal.vaultHealthRepair.remainingSummary', { total: totalRemaining, repairable: remainingRepairable }),
+            });
+        }
+
+        // FIX-19-02-31: den Deckel-Nachrueck AUCH hier benennen.
+        //
+        // Live-Log: der Nutzer reparierte 20 von 1067 offenen weak-Paaren,
+        // die Writes waren real (fixed 40/40), aber die Gesamtzahl stand
+        // still, weil der 20er-Deckel sofort 20 nachfuellt. Der
+        // Overflow-Hinweis existierte nur in der Findings-Landeansicht --
+        // also einen Screen zu spaet. Der Ergebnis-Screen ist das ERSTE
+        // nach dem Repair; ohne diese Zeile liest sich die stehende Zahl als
+        // "rueckgaengig gemacht", obwohl daneben "fixed" steht.
+        const weakTotals = this.plugin.vaultHealthService?.getCheckTotals()?.weakClusters;
+        if (weakTotals && weakTotals.total > weakTotals.shown) {
+            contentEl.createEl('p', {
+                cls: 'vault-health-remaining vault-health-outcome-overflow',
+                text: t('modal.vaultHealthRepair.outcomeOverflow', {
+                    linked: weakLinks.pairsLinked,
+                    shown: weakTotals.shown,
+                    total: weakTotals.total,
+                }),
+            });
+        }
 
         // Buttons
         const btnRow = contentEl.createDiv('vault-health-btn-row');
+
+        // FIX-19-01-19: der Ergebnis-Screen war eine Sackgasse (nur Undo
+        // und Done, und Done schliesst das Modal). Die Zusage "die Liste
+        // aktualisiert sich" war damit nicht einloesbar, ohne das Modal
+        // neu zu oeffnen.
+        const backBtn = btnRow.createEl('button', { text: t('modal.vaultHealthRepair.resultBackToFindings') });
+        backBtn.addEventListener('click', () => {
+            this.batchMode = false; // manueller Ausstieg aus dem Batch
+            void this.refreshAndShowFindings();
+        });
+
+        // FEAT-19-05-01: "Naechsten Batch reparieren (N)". Nur wenn noch
+        // weak-Paare hinter dem Deckel warten. Ein Klick pro Batch -- jeder
+        // laeuft durch die volle Plan-Freigabe, jeder ist einzeln undo-bar.
+        if (weakTotals && weakTotals.total > weakTotals.shown) {
+            const nextBtn = btnRow.createEl('button', {
+                cls: 'mod-cta vault-health-next-batch-btn',
+                text: t('modal.vaultHealthRepair.nextBatch', { total: weakTotals.total }),
+            });
+            nextBtn.addEventListener('click', () => {
+                nextBtn.disabled = true;
+                nextBtn.setText(t('modal.vaultHealth.repairing'));
+                void this.runBatchRepair();
+            });
+        }
 
         if (checkpoint && totalFixes > 0) {
             const undoBtn = btnRow.createEl('button', {
@@ -1483,9 +2210,10 @@ export class VaultHealthRepairModal extends Modal {
                 });
             }
 
-            // Re-extract graph after restore
+            // Re-extract graph after restore. FEAT-19-04-01 W3: awaiten --
+            // bootstrapFromEdges und runChecks lesen die Kanten danach.
             if (this.plugin.graphExtractor) {
-                this.plugin.graphExtractor.extractAll(this.app.vault);
+                await this.plugin.graphExtractor.extractAll(this.app.vault);
             }
             if (this.plugin.ontologyStore) {
                 const catProp = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
@@ -1506,7 +2234,7 @@ export class VaultHealthRepairModal extends Modal {
                 );
             }
 
-            const findings = await this.plugin.vaultHealthService?.runChecks() ?? [];
+            const findings = await this.plugin.vaultHealthService?.runChecks(undefined, buildHealthCheckOptions(this.plugin.settings)) ?? [];
             this.updateBadge(findings);
 
             const doneBtn = contentEl.createEl('button', { text: t('modal.vaultHealth.doneBtn'), cls: 'mod-cta' });
@@ -1527,29 +2255,18 @@ export class VaultHealthRepairModal extends Modal {
     // Helpers
     // -----------------------------------------------------------------------
 
-    private collectAffectedPaths(): string[] {
-        const paths = new Set<string>();
-        for (const idx of this.selectedFindings) {
-            const f = this.findings[idx];
-            for (const p of f.paths) {
-                if (p.endsWith('.md')) paths.add(p);
-            }
-        }
-        // FIX-19-01-03: cap raised from 100 to 500. The cap exists
-        // only so the checkpoint snapshot does not balloon on huge
-        // batches; the re-extract path no longer depends on this set
-        // (extractAll always runs after the per-file pass).
-        return [...paths].slice(0, 500);
-    }
-
+    /**
+     * FIX-19-01-19: zwei konkurrierende Badge-Schreiber mit
+     * unterschiedlicher Severity-Regel und unterschiedlicher
+     * Leaf-Abdeckung (hier nur leaves[0], im Push aus main.ts alle).
+     * Wer zuletzt schrieb, gewann -- der Badge zeigte je nach Reihenfolge
+     * etwas anderes als die Liste. Der Push aus main.ts
+     * (onFindingsUpdated) feuert bei jedem runChecks ohnehin und ist
+     * jetzt der einzige Schreiber; diese Methode bleibt als No-op-Huelle
+     * fuer die drei Aufrufstellen.
+     */
     private updateBadge(findings: HealthFinding[]): void {
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-        if (leaves.length > 0) {
-            const view = leaves[0].view as unknown as { updateHealthBadge(count: number, severity: string | null): void };
-            const highCount = findings.filter(f => f.severity === 'high').length;
-            const count = findings.length;
-            view.updateHealthBadge(count, highCount > 0 ? 'high' : (count > 0 ? 'medium' : null));
-        }
+        void findings; // Badge kommt aus onFindingsUpdated (main.ts).
     }
 }
 

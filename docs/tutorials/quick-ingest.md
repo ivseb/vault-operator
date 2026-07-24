@@ -24,7 +24,7 @@ Type `/ingest` (or "ingest this report") and send.
 
 The agent makes one tool call to `ingest_document` and asks for write approval. Approve, and one Markdown note lands in your default output folder (set in **Settings > Vault Operator > Vault > Vault > Default output folder**, default `Inbox/`). The note contains:
 
-- Frontmatter from your ingest template (`settings.vaultIngest.templates.ingestNoteTemplate`): source path, type, ingest date, plus fields like author, year, summary, tags.
+- Frontmatter from the bundled ingest template (the OKF template materialized into your Templates folder): source path, type, ingest date, plus fields like author, year, summary, tags.
 - A two-or-three-sentence overview.
 - A `## Key Take-Aways` section. Each take-away ends with a `↗` link that resolves to the exact page of the source.
 - The full original PDF text, appended automatically.

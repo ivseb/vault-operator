@@ -24,8 +24,13 @@ import type { ToolCallbacks, ToolExecutionContext } from '../tools/types';
 import type { BaseTool } from '../tools/BaseTool';
 
 export interface Stufe3HostMinimal {
-    /** Active API handler with classifyText support; nullable when no provider is configured. */
-    apiHandler: ApiHandler | null;
+    /**
+     * Live getter for the active API handler (nullable when no provider is
+     * configured). FEAT-30-07 review finding: the hooks are wired in
+     * doLoad() BEFORE initApiHandler() runs, so a by-value snapshot froze
+     * `null` forever and preFilter answered 'no' for every cluster.
+     */
+    getApiHandler(): ApiHandler | null;
     /** Returns the web_search tool when registered, otherwise null. */
     getWebSearchTool(): BaseTool | null;
     /** Plugin instance for the ToolExecutionContext shim. */
@@ -65,16 +70,23 @@ export function countIndependentDomains(urls: string[]): number {
 
 export function buildStufe3Hooks(
     host: Stufe3HostMinimal,
-    orchestrator: FreshnessOrchestrator | null,
+    /**
+     * ADR-163 / FEAT-30-07: Factory statt Boot-Instanz. Der Orchestrator
+     * wird pro Aufruf gebaut, damit Freshness- und Web-Settings zum
+     * Aufrufzeitpunkt gelten (die alten Konstruktor-Snapshots wirkten
+     * erst nach Plugin-Reload).
+     */
+    getOrchestrator: () => FreshnessOrchestrator | null,
 ): Stufe3Hooks {
     const preFilter = async (cluster: ClusterMetadataRecord) => {
-        if (!host.apiHandler?.classifyText) return { decision: 'no' as const, tokensUsed: 0 };
+        const apiHandler = host.getApiHandler();
+        if (!apiHandler?.classifyText) return { decision: 'no' as const, tokensUsed: 0 };
         const prompt =
             `Cluster "${cluster.cluster}" wurde zuletzt am ${cluster.lastExternalCheck ?? 'nie'} extern verifiziert. ` +
             `Halbwertszeit: ${cluster.halfLifeDays} Tage. Lohnt sich JETZT eine Web-Suche ` +
             `nach Updates? Antworte ausschliesslich mit "yes", "no" oder "unsure".`;
         try {
-            const reply = (await host.apiHandler.classifyText(prompt)).toLowerCase().trim();
+            const reply = (await apiHandler.classifyText(prompt)).toLowerCase().trim();
             const decision: 'yes' | 'no' | 'unsure' = reply.startsWith('yes') ? 'yes'
                 : reply.startsWith('unsure') ? 'unsure' : 'no';
             return { decision, tokensUsed: prompt.length / 4 + 5 };
@@ -113,7 +125,7 @@ export function buildStufe3Hooks(
         let noteVerdicts: NoteVerdict[] = [];
         let verifierTokens = 0;
         try {
-            const orchestrated = await orchestrator?.runForCluster(cluster.cluster);
+            const orchestrated = await getOrchestrator()?.runForCluster(cluster.cluster);
             noteVerdicts = orchestrated?.verdicts ?? [];
             verifierTokens = orchestrated?.tokensUsed ?? 0;
         } catch (e) {

@@ -40,8 +40,20 @@
  * FEATURE-1403: Remote Transport
  */
 
+/**
+ * IMP-14-03-01: worker version identity. Bump this whenever RELAY_WORKER_CODE
+ * below changes, so a worker already deployed to a user's Cloudflare account
+ * can be recognised as outdated (the settings tab warns, prompting a redeploy).
+ * It is interpolated into the worker as WORKER_VERSION at build time -- this is
+ * the ONLY unescaped ${} in the template; the runtime interpolation at sseFrame
+ * is escaped (\\${...}) on purpose. Deployed pre-IMP-14-03-01 workers carry no
+ * version field and are treated as outdated (isWorkerOutdated).
+ */
+export const RELAY_WORKER_VERSION = '1';
+
 export const RELAY_WORKER_CODE = `
 // Vault Operator Relay Worker -- deployed via Vault Operator Plugin
+const WORKER_VERSION = "${RELAY_WORKER_VERSION}";
 
 // FIX-23-04-11: long-poll park window for /poll. Kept safely below
 // Obsidian requestUrl's implicit timeout; Cloudflare does not bill
@@ -184,7 +196,7 @@ async function handleWorkerFetch(request, env) {
                     lastPollAgeMs: typeof data.lastPollAgeMs === 'number' ? data.lastPollAgeMs : null,
                 };
             } catch (e) { /* DO unavailable -> report disconnected */ }
-            return new Response(JSON.stringify({ status: 'ok', relay: 'obsilo', plugin }), {
+            return new Response(JSON.stringify({ status: 'ok', relay: 'obsilo', plugin, workerVersion: WORKER_VERSION }), {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
@@ -382,7 +394,7 @@ export class RelayDO {
             this.lastPollAt = Date.now();
             if (this.requestQueue.length > 0) {
                 const requests = this.requestQueue.splice(0);
-                return new Response(JSON.stringify({ requests }), {
+                return new Response(JSON.stringify({ requests, workerVersion: WORKER_VERSION }), {
                     headers: { 'Content-Type': 'application/json' },
                 });
             }
@@ -407,7 +419,7 @@ export class RelayDO {
                 };
             });
             this.lastPollAt = Date.now();
-            return new Response(JSON.stringify({ requests }), {
+            return new Response(JSON.stringify({ requests, workerVersion: WORKER_VERSION }), {
                 headers: { 'Content-Type': 'application/json' },
             });
         }

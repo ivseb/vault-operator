@@ -26,8 +26,18 @@ export interface TaskMonitorOptions {
     app: App;
     /** Resolved API handler for the current task. Provides the actual model id. */
     apiHandler: ApiHandler | null;
-    /** Footer element rendered next to the chat input. */
-    footerEl: HTMLElement;
+    /**
+     * Footer element rendered next to the chat input.
+     *
+     * FIX-19-06-01: prefer `getFooterEl`. The view can swap in a fresh message
+     * element mid-task (e.g. after an agent question round), and onUsage fires
+     * once at the very end -- so the monitor must resolve the footer lazily at
+     * write time rather than binding a snapshot here. `footerEl` stays as a
+     * backward-compatible fallback for callers that never reassign it.
+     */
+    footerEl?: HTMLElement;
+    /** Lazily resolves the CURRENT footer element at write time. Wins over footerEl. */
+    getFooterEl?: () => HTMLElement;
     /** Function returning the currently effective model key, used for provider detection. */
     getEffectiveModelKey: () => string;
     /** First 200 chars of the user message, captured at task start. */
@@ -67,6 +77,15 @@ export class TaskMonitor {
     private lastUsageByModel?: UsageByModel;
 
     constructor(private opts: TaskMonitorOptions) {}
+
+    /**
+     * FIX-19-06-01: the footer to write into, resolved at call time. The
+     * getter (if given) reflects any mid-task element swap; otherwise the
+     * static footerEl is used.
+     */
+    private footerEl(): HTMLElement | undefined {
+        return this.opts.getFooterEl ? this.opts.getFooterEl() : this.opts.footerEl;
+    }
 
     /**
      * Live usage update -- compute cost, render footer. Called per turn.
@@ -114,7 +133,11 @@ export class TaskMonitor {
             `usd=${cost.totalUsd.toFixed(4)} eur=${cost.totalEur.toFixed(4)} subscription=${isSubscription}`,
         );
 
-        this.opts.footerEl.setText(formatTelemetryFooter({
+        // FIX-19-06-01: resolve the CURRENT footer, so a mid-task element swap
+        // (question round) does not send the cost line to an orphaned bubble.
+        const footerEl = this.footerEl();
+        if (!footerEl) return;
+        footerEl.setText(formatTelemetryFooter({
             inputTokens,
             outputTokens,
             cacheReadTokens: cR,
@@ -122,13 +145,13 @@ export class TaskMonitor {
             costEur: cost.totalEur,
             isSubscription,
         }));
-        this.opts.footerEl.classList.remove('agent-u-hidden');
+        footerEl.classList.remove('agent-u-hidden');
 
         // FEAT-24-05: visible signal when the task's running cost crosses the
         // warn threshold (the would-be API spend is worth flagging even on
         // subscription providers). 0 disables the warning.
         const warnEur = this.opts.plugin.settings.advancedApi.costWarnThresholdEur ?? 0;
-        this.opts.footerEl.classList.toggle('agent-cost-warn', warnEur > 0 && cost.totalEur >= warnEur);
+        footerEl.classList.toggle('agent-cost-warn', warnEur > 0 && cost.totalEur >= warnEur);
 
         if (this.opts.contextTracker) {
             this.opts.contextTracker.updateUsage(inputTokens, outputTokens);

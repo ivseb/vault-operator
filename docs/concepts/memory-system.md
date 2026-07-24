@@ -13,7 +13,7 @@ The current memory subsystem is **Memory v2**. It replaces the older five-file M
 
 The legacy system had five fixed Markdown files with hard character caps. That structure had three problems.
 
-- **Categories did not match reality.** A note like "Sebastian prefers concise PRs" is part user preference, part workflow pattern, part project context. It went into one bucket and lost the others.
+- **Categories did not match reality.** A note like "Alex prefers concise PRs" is part user preference, part workflow pattern, part project context. It went into one bucket and lost the others.
 - **No temporal dimension.** Facts had no creation date, no last-confirmed timestamp, no use count. Old preferences sat next to current ones with equal weight.
 - **No conflict resolution.** Re-extracting the same fact from a new conversation would either duplicate it or silently overwrite the previous version.
 
@@ -40,7 +40,7 @@ The layers do not map to separate databases or services. They are responsibiliti
 
 ### Layer 1: Facts
 
-Layer 1 stores knowledge atomically. The unit is a **fact**: a single short statement like "Sebastian prefers TypeScript over JavaScript for new projects" or "Default deploy path is the iCloud plugins folder".
+Layer 1 stores knowledge atomically. The unit is a **fact**: a single short statement like "Alex prefers TypeScript over JavaScript for new projects" or "Default deploy path is the iCloud plugins folder".
 
 Each fact in `FactStore` carries metadata that the legacy markdown files never had:
 

@@ -9,9 +9,34 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { McpServerConfig } from '../../types/settings';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { McpServerConfig, McpOAuthSession } from '../../types/settings';
 import { MCP_ALLOW_LOCAL_HEADER, obsidianFetch } from './obsidianFetch';
+import { McpOAuthProvider } from './McpOAuthProvider';
 import { isLocalHostname, isPrivateIpHostname, validateProviderUrl } from '../../api/providers/providerUrlGuard';
+import { assertStdioCommandAllowed, SpawnNotAllowed } from '../security/spawnAllowlist';
+import { Platform } from 'obsidian';
+
+/**
+ * FEAT-04-13 / ADR-168: environment variables a stdio MCP process is allowed to
+ * inherit. Paths and locale only; NO credential-bearing variables. CLI-config
+ * LOCATIONS (not secrets) let az/gcloud/kubectl/gh find their own config, so a
+ * server the user runs against their existing login works without VO handing
+ * over tokens. Extra vars can be set explicitly per-server via config.env.
+ *
+ * NOTE (AUDIT-034 R4, 2026-07-23): this is the set VO explicitly forwards, not
+ * the child's full env. StdioClientTransport spreads its own
+ * getDefaultEnvironment() UNDER our env, adding posix LOGNAME/SHELL/USER (or the
+ * Windows equivalents). None carry credentials, but the effective child env is
+ * this allowlist UNION the SDK defaults UNION config.env. If a strict ceiling is
+ * ever required, pass an SDK option to suppress its default env.
+ */
+const STDIO_ENV_ALLOWLIST: ReadonlySet<string> = new Set([
+    'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TZ',
+    'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+    'COMSPEC', 'SYSTEMROOT', 'WINDIR', 'PATHEXT',
+    'AZURE_CONFIG_DIR', 'CLOUDSDK_CONFIG', 'KUBECONFIG', 'GH_CONFIG_DIR',
+]);
 
 /**
  * AUDIT-034 L-4: McpClient.connect formerly logged the raw transport error,
@@ -24,7 +49,7 @@ import { isLocalHostname, isPrivateIpHostname, validateProviderUrl } from '../..
  */
 export function redactMcpError(
     message: string,
-    config: { url?: string; headers?: Record<string, string> } | undefined,
+    config: { url?: string; headers?: Record<string, string>; env?: Record<string, string> } | undefined,
 ): string {
     if (!message) return message;
     let out = message;
@@ -37,6 +62,19 @@ export function redactMcpError(
                 const bearer = v.replace(/^Bearer\s+/i, '').trim();
                 if (bearer.length >= 8) out = out.split(bearer).join('<redacted>');
             } else if (/(token|secret|api[-_]?key|key)$/i.test(k) && v.length >= 8) {
+                out = out.split(v).join('<redacted>');
+            }
+        }
+    }
+
+    // AUDIT-034 redact-mcp-error-no-env: stdio servers carry credentials in
+    // config.env, not in headers/url. A spawn/transport error can echo the
+    // value handed to the child, so scrub any non-trivial env value. Redacting
+    // every value (not only secret-named ones) is safe: an error rarely echoes a
+    // benign env value verbatim, and over-redaction only affects the error text.
+    if (config?.env) {
+        for (const v of Object.values(config.env)) {
+            if (typeof v === 'string' && v.length >= 8) {
                 out = out.split(v).join('<redacted>');
             }
         }
@@ -92,7 +130,7 @@ export interface McpToolInfo {
     inputSchema?: Record<string, unknown>;
 }
 
-export type McpConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
+export type McpConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error' | 'awaiting-auth';
 
 export interface McpConnection {
     name: string;
@@ -115,19 +153,78 @@ export interface McpClientOptions {
      * "allow local MCP URLs" checkbox in McpTab is checked.
      */
     allowLocalUrls?: boolean;
+    /**
+     * FEAT-04-10: opens an OAuth authorization URL in the user's external
+     * browser. Injected by main.ts (Electron shell.openExternal); required
+     * for OAuth connectors, unused for header-token servers.
+     */
+    openExternal?: (url: string) => void | Promise<void>;
+    /**
+     * FEAT-04-10: persists the OAuth session for a server after the SDK stored
+     * client registration or tokens. The live `config.oauth` is already mutated
+     * in place; this callback triggers the encrypted settings save.
+     */
+    persistOAuth?: (name: string) => void | Promise<void>;
+    /**
+     * FEAT-04-10: fired whenever a connection status changes out-of-band (the
+     * async OAuth redirect completing). The connectors UI subscribes to refresh.
+     */
+    onStatusChange?: () => void;
+    /** Test seam for the OAuth state generator. Defaults to Web Crypto. */
+    randomState?: () => string;
+    /**
+     * FEAT-04-13 / ADR-168: per-device spawn-trust check for stdio servers.
+     * Returns true only when the user has confirmed this stdio server on THIS
+     * device. Injected by main.ts from the DeviceLocalStore. When undefined,
+     * stdio is treated as untrusted (fail-closed) and connect() rejects.
+     */
+    isStdioTrusted?: (name: string) => boolean;
+    /**
+     * FEAT-04-13 / ADR-168: decrypts a stdio env secret right before spawn.
+     * Injected from main.ts (SafeStorageService.decrypt). Passthrough for
+     * unprefixed (plaintext / non-secret) values, so mixed env maps work.
+     */
+    decryptSecret?: (value: string) => string;
 }
 
 export class McpClient {
     private connections = new Map<string, McpConnection>();
     private allowLocalUrls: boolean;
+    // FEAT-04-10 OAuth state.
+    private oauthProviders = new Map<string, McpOAuthProvider>();
+    /** OAuth state parameter -> server name, for the pending redirect flow. */
+    private pendingByState = new Map<string, string>();
+    private oauthOpenExternal?: (url: string) => void | Promise<void>;
+    private persistOAuth?: (name: string) => void | Promise<void>;
+    private onStatusChange?: () => void;
+    private randomState: () => string;
+    private isStdioTrusted?: (name: string) => boolean;
+    private decryptSecret?: (value: string) => string;
 
     constructor(options: McpClientOptions = {}) {
         this.allowLocalUrls = options.allowLocalUrls === true;
+        this.oauthOpenExternal = options.openExternal;
+        this.persistOAuth = options.persistOAuth;
+        this.onStatusChange = options.onStatusChange;
+        this.randomState = options.randomState ?? randomUrlSafeState;
+        this.isStdioTrusted = options.isStdioTrusted;
+        this.decryptSecret = options.decryptSecret;
     }
 
     /** Used by the settings UI when the user toggles the allow-local option. */
     setAllowLocalUrls(allow: boolean): void {
         this.allowLocalUrls = allow === true;
+    }
+
+    /** Wire the OAuth callbacks after construction (main.ts boot ordering). */
+    setOAuthCallbacks(cb: {
+        openExternal?: (url: string) => void | Promise<void>;
+        persistOAuth?: (name: string) => void | Promise<void>;
+        onStatusChange?: () => void;
+    }): void {
+        if (cb.openExternal) this.oauthOpenExternal = cb.openExternal;
+        if (cb.persistOAuth) this.persistOAuth = cb.persistOAuth;
+        if (cb.onStatusChange) this.onStatusChange = cb.onStatusChange;
     }
 
     // ── Connection management ──────────────────────────────────────────────
@@ -138,9 +235,9 @@ export class McpClient {
         );
     }
 
-    async connect(name: string, config: McpServerConfig): Promise<void> {
-        // Skip disabled servers
-        if (config.disabled) {
+    async connect(name: string, config: McpServerConfig, opts?: { ignoreDisabled?: boolean }): Promise<void> {
+        // Skip disabled servers unless an explicit authorize() forces the flow.
+        if (config.disabled && !opts?.ignoreDisabled) {
             this.connections.set(name, { name, config, tools: [], status: 'disconnected' });
             return;
         }
@@ -148,7 +245,20 @@ export class McpClient {
         const conn: McpConnection = { name, config, tools: [], status: 'connecting' };
         this.connections.set(name, conn);
 
+        // FEAT-04-10: assigned inside the try once the URL passes the SSRF
+        // guard; declared here so the catch can clean up the pending-state entry.
+        let authProvider: McpOAuthProvider | undefined;
+
         try {
+            const isStdio = config.type === 'stdio';
+            const client = new Client({ name: 'obsidian-agent', version: '1.0.0' });
+            let transport;
+
+            if (isStdio) {
+                // FEAT-04-13 / ADR-168: URL-less local path. Desktop-only,
+                // spawn gated by per-device trust; no SSRF/OAuth/header logic.
+                transport = await this.buildStdioTransport(name, config);
+            } else {
             if (!config.url) {
                 throw new Error(`MCP server "${name}" has no URL configured`);
             }
@@ -180,7 +290,13 @@ export class McpClient {
                 }
             }
 
-            const client = new Client({ name: 'obsidian-agent', version: '1.0.0' });
+            // FEAT-04-10: OAuth connectors run through the SDK authProvider.
+            // Register the state so the obsidian:// redirect can map back to
+            // this server; cleared on a successful connect (no redirect needed).
+            if (config.authType === 'oauth') {
+                authProvider = this.getOrCreateProvider(name);
+                this.pendingByState.set(authProvider.getState(), name);
+            }
 
             // Merged headers carry the per-request allow-local opt-in so the
             // SSRF guard in obsidianFetch keeps loopback connections working
@@ -192,7 +308,6 @@ export class McpClient {
             }
             const hasExplicitHeaders = Object.keys(baseHeaders).length > 0;
 
-            let transport;
             if (config.type === 'sse') {
                 const sseOptions: Record<string, unknown> = {
                     // Use CORS-free Node.js fetch -- Electron's browser fetch blocks cross-origin SSE
@@ -217,8 +332,13 @@ export class McpClient {
                 if (hasExplicitHeaders) {
                     httpOptions.requestInit = { headers: baseHeaders };
                 }
+                if (authProvider) {
+                    // The transport threads obsidianFetch into all OAuth calls (ADR-154).
+                    httpOptions.authProvider = authProvider;
+                }
                 transport = new StreamableHTTPClientTransport(new URL(config.url), httpOptions);
             }
+            } // end non-stdio (HTTP/SSE) branch
 
             const timeoutMs = (config.timeout ?? 60) * 1000;
             await Promise.race([
@@ -236,15 +356,244 @@ export class McpClient {
                 inputSchema: t.inputSchema,
             }));
             conn.status = 'connected';
+            conn.error = undefined;
+            if (authProvider) this.pendingByState.delete(authProvider.getState());
+        } catch (e) {
+            if (e instanceof UnauthorizedError) {
+                // FEAT-04-10: the SDK opened the browser via the authProvider and
+                // is waiting for the obsidian:// redirect. Not a failure; the
+                // pending-state entry stays so completeOAuth can finish it.
+                conn.status = 'awaiting-auth';
+                conn.error = undefined;
+            } else {
+                conn.status = 'error';
+                // AUDIT-034 L-4: redact bearer tokens, URL credentials, and
+                // token-shaped query params before the message reaches conn.error
+                // (Settings UI) or console.error.
+                const raw = e instanceof Error ? e.message : String(e);
+                const sanitized = redactMcpError(raw, config);
+                conn.error = sanitized;
+                console.error(`[McpClient] Failed to connect to "${name}": ${sanitized}`);
+                if (authProvider) this.pendingByState.delete(authProvider.getState());
+            }
+        }
+        this.notifyStatus();
+    }
+
+    /**
+     * FEAT-04-13 / ADR-168: build the stdio transport after the three guards.
+     * (1) Desktop-only: Node child_process is unavailable in the mobile iframe.
+     * (2) Per-device trust: fail-closed unless the user confirmed THIS server
+     *     on THIS device (isStdioTrusted). A config that traveled in some other
+     *     way never spawns on its own.
+     * (3) Binary allowlist: MVP restricts the command to node/npx
+     *     (ALLOWED_BINARIES). Anything else errors instead of spawning.
+     * The child inherits only STDIO_ENV_ALLOWLIST (plus explicit config.env),
+     * never the full process env.
+     */
+    private async buildStdioTransport(name: string, config: McpServerConfig) {
+        if (!Platform.isDesktopApp) {
+            throw new Error(`stdio MCP server "${name}" is Desktop-only (no Node runtime on mobile).`);
+        }
+        if (!config.command) {
+            throw new Error(`stdio MCP server "${name}" has no command configured.`);
+        }
+        if (!this.isStdioTrusted || !this.isStdioTrusted(name)) {
+            throw new Error(`stdio MCP server "${name}" is not trusted on this device. Confirm it in Settings before it can run.`);
+        }
+        // AUDIT-034 R2/R3: single-source-of-truth guard in spawnAllowlist.
+        // Restricts to node/npx (MVP), rejects a path-qualified command (basename
+        // spoof like /tmp/evil/node) and shell metacharacters. The actual spawn
+        // is the SDK's cross-spawn (shell:false); this is the policy the SDK
+        // spawn itself does not enforce.
+        try {
+            assertStdioCommandAllowed(config.command);
+        } catch (e) {
+            if (e instanceof SpawnNotAllowed) {
+                throw new Error(
+                    `stdio MCP server "${name}" command "${config.command}" is not allowed. `
+                    + `Only node / npx may be spawned as a bare command (FEAT-04-13 MVP).`,
+                );
+            }
+            throw e;
+        }
+
+        // Filtered environment: allowlist from the current process, then the
+        // server's explicit extras on top.
+        const parentEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+        const env: Record<string, string> = {};
+        for (const key of STDIO_ENV_ALLOWLIST) {
+            const v = parentEnv[key];
+            if (typeof v === 'string') env[key] = v;
+        }
+        // PATH enrichment: a GUI-launched Obsidian (Dock/Finder) inherits a
+        // minimal PATH that usually lacks the Node/npx install dir, so `npx`
+        // would not be found. Prepend the common install locations (Homebrew,
+        // /usr/local, nvm), deduped, so the spawn resolves the binary.
+        // Non-macOS/Windows keep their own dirs; missing ones are harmless
+        // noise in PATH.
+        if (process.platform !== 'win32') {
+            const home = parentEnv.HOME ?? '';
+            const extra = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin',
+                ...(home ? [`${home}/.nvm/current/bin`, `${home}/.local/bin`] : [])];
+            const existing = (env.PATH ?? '').split(':').filter(Boolean);
+            env.PATH = [...extra, ...existing].filter((p, i, a) => a.indexOf(p) === i).join(':');
+        }
+        // Force the public npm registry for npx-launched servers. A user's
+        // ~/.npmrc may point npm at a private/corporate mirror that does not
+        // serve public MCP packages (npx then fails with an auth error and the
+        // process dies as "connection closed" before MCP starts). An env-level
+        // npm_config_registry overrides every .npmrc in npm's config chain.
+        // A per-server config.env entry still wins (set below).
+        env.npm_config_registry = 'https://registry.npmjs.org/';
+
+        if (config.env) {
+            // Decrypt secret env right before spawn. The plaintext PAT lives
+            // only in this local `env` object handed to the transport, never
+            // back in config or on disk. Passthrough for plaintext values.
+            for (const [k, v] of Object.entries(config.env)) {
+                env[k] = this.decryptSecret ? this.decryptSecret(v) : v;
+            }
+        }
+
+        const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+        return new StdioClientTransport({
+            command: config.command,
+            args: config.args ?? [],
+            env,
+        });
+    }
+
+    // ── OAuth (FEAT-04-10) ─────────────────────────────────────────────────
+
+    /**
+     * Start (or restart) the browser OAuth flow for an OAuth connector. Ignores
+     * the `disabled` flag so a not-yet-authorized built-in can be authorized.
+     * Regenerates the state so a stale flow cannot be replayed, then connects;
+     * the SDK opens the browser and connect() lands in 'awaiting-auth'.
+     */
+    async authorize(name: string, config: McpServerConfig): Promise<void> {
+        const provider = this.getOrCreateProvider(name);
+        provider.beginAuth();
+        await this.connect(name, config, { ignoreDisabled: true });
+    }
+
+    /**
+     * Handle the obsidian:// OAuth redirect. Validates the state against the
+     * pending flow (CSRF, ADR-155) before exchanging the code. Unknown or
+     * missing state is dropped without any token exchange.
+     */
+    async handleOAuthRedirect(params: Record<string, string>): Promise<void> {
+        const state = params.state;
+        const name = state ? this.pendingByState.get(state) : undefined;
+        if (!name || !state) return; // unknown / mismatched state -> reject silently
+        this.pendingByState.delete(state);
+
+        if (params.error) {
+            const conn = this.connections.get(name);
+            if (conn) {
+                const detail = params.error_description || params.error;
+                conn.status = 'error';
+                conn.error = `Authorization failed: ${redactMcpError(detail, conn.config)}`;
+            }
+            this.notifyStatus();
+            return;
+        }
+        if (!params.code) return;
+        await this.completeOAuth(name, params.code);
+    }
+
+    /**
+     * Finish an OAuth flow: exchange the authorization code for tokens on a
+     * fresh transport that shares the in-memory provider (holding the PKCE
+     * verifier), then reconnect. On first success the connector is enabled so
+     * later boots auto-connect using the stored (refreshable) tokens.
+     */
+    private async completeOAuth(name: string, code: string): Promise<void> {
+        const conn = this.connections.get(name);
+        const provider = this.oauthProviders.get(name);
+        if (!conn || !provider || !conn.config.url) return;
+        conn.status = 'connecting';
+        conn.error = undefined;
+        this.notifyStatus();
+        try {
+            const client = new Client({ name: 'obsidian-agent', version: '1.0.0' });
+            const transport = new StreamableHTTPClientTransport(new URL(conn.config.url), {
+                fetch: obsidianFetch,
+                authProvider: provider,
+            });
+            // Exchanges the code + PKCE verifier for tokens; provider.saveTokens
+            // persists them (encrypted on the next settings save).
+            await transport.finishAuth(code);
+            const timeoutMs = (conn.config.timeout ?? 60) * 1000;
+            await Promise.race([
+                client.connect(transport),
+                new Promise<never>((_, reject) =>
+                    window.setTimeout(() => reject(new Error(`Connection to "${name}" timed out`)), timeoutMs),
+                ),
+            ]);
+            const toolsResult = await client.listTools();
+            conn.client = client;
+            conn.tools = (toolsResult.tools ?? []).map((t) => ({
+                name: t.name,
+                description: t.description,
+                inputSchema: t.inputSchema,
+            }));
+            conn.status = 'connected';
+            conn.error = undefined;
+            // First authorization: enable so connectAll() reconnects on boot.
+            if (conn.config.disabled) {
+                conn.config.disabled = false;
+            }
+            void this.persistOAuth?.(name);
         } catch (e) {
             conn.status = 'error';
-            // AUDIT-034 L-4: redact bearer tokens, URL credentials, and
-            // token-shaped query params before the message reaches conn.error
-            // (Settings UI) or console.error.
             const raw = e instanceof Error ? e.message : String(e);
-            const sanitized = redactMcpError(raw, config);
-            conn.error = sanitized;
-            console.error(`[McpClient] Failed to connect to "${name}": ${sanitized}`);
+            conn.error = redactMcpError(raw, conn.config);
+            console.error(`[McpClient] OAuth completion failed for "${name}": ${conn.error}`);
+        }
+        this.notifyStatus();
+    }
+
+    /** Lazily create (and cache) the OAuth provider for a server. */
+    private getOrCreateProvider(name: string): McpOAuthProvider {
+        let provider = this.oauthProviders.get(name);
+        if (!provider) {
+            provider = new McpOAuthProvider({
+                loadSession: () => this.connections.get(name)?.config.oauth,
+                saveSession: (patch) => {
+                    const cfg = this.connections.get(name)?.config;
+                    if (cfg) cfg.oauth = mergeOAuthSession(cfg.oauth, patch);
+                    void this.persistOAuth?.(name);
+                },
+                openBrowser: (url) => this.openExternal(url),
+                randomState: () => this.randomState(),
+            });
+            this.oauthProviders.set(name, provider);
+        }
+        return provider;
+    }
+
+    private async openExternal(url: string): Promise<void> {
+        // AUDIT 2026-07-17 L-1: the authorization URL is built from
+        // server-controlled discovery metadata (authorization_endpoint). The
+        // SDK's SafeUrlSchema only blocks javascript:/data:/vbscript:, leaving
+        // file:// and custom OS protocol handlers reachable at the
+        // shell.openExternal sink. Enforce https-only before opening the
+        // system browser (CWE-601 / open-redirect to a dangerous scheme).
+        assertHttpsAuthorizationUrl(url);
+        if (this.oauthOpenExternal) {
+            await this.oauthOpenExternal(url);
+            return;
+        }
+        throw new Error('No external-browser opener configured for the OAuth redirect.');
+    }
+
+    private notifyStatus(): void {
+        try {
+            this.onStatusChange?.();
+        } catch {
+            // A settings-tab listener must never break the connection flow.
         }
     }
 
@@ -354,5 +703,47 @@ export class McpClient {
             }
         }
         return results;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OAuth helpers (FEAT-04-10)
+// ---------------------------------------------------------------------------
+
+/** Shallow-merge an OAuth session patch; an explicit `undefined` clears a field. */
+function mergeOAuthSession(
+    existing: McpOAuthSession | undefined,
+    patch: McpOAuthSession,
+): McpOAuthSession {
+    return { ...(existing ?? {}), ...patch };
+}
+
+/**
+ * URL-safe random state via Web Crypto. Uses the renderer/Node global `crypto`
+ * (no `require`, review-bot clean) and base64url encoding.
+ */
+function randomUrlSafeState(): string {
+    const bytes = new Uint8Array(32);
+    globalThis.crypto.getRandomValues(bytes);
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * AUDIT 2026-07-17 L-1: reject any OAuth authorization URL that is not https
+ * before it reaches shell.openExternal. The authorization_endpoint is
+ * server-controlled discovery metadata; https-only closes the file:// and
+ * custom OS-protocol-handler vectors the SDK's SafeUrlSchema leaves open.
+ */
+export function assertHttpsAuthorizationUrl(url: string): void {
+    let scheme: string;
+    try {
+        scheme = new URL(url).protocol;
+    } catch {
+        throw new Error('Refusing to open an invalid authorization URL.');
+    }
+    if (scheme !== 'https:') {
+        throw new Error(`Refusing to open a non-https authorization URL (scheme "${scheme}").`);
     }
 }

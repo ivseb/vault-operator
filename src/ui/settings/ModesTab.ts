@@ -2,6 +2,8 @@ import { App, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { ModeConfig } from '../../types/settings';
 import { BUILT_IN_MODES } from '../../core/modes/builtinModes';
+import { resolveAllowedMcpServers } from '../../core/mcp/mcpActivation';
+import { removeModeScopedConfig, copyModeScopedConfig } from '../../core/modes/modeScopedConfig';
 import { buildSystemPromptForMode } from '../../core/systemPrompt';
 import { GlobalModeStore } from '../../core/modes/GlobalModeStore';
 import { SystemPromptPreviewModal } from './SystemPromptPreviewModal';
@@ -242,10 +244,10 @@ export class ModesTab {
                     : undefined;
                 const skillDirectorySection = await this.plugin.buildSkillDirectoryForMode(slug);
                 const pluginSkillsSection = this.plugin.skillRegistry?.getPluginSkillsPromptSection();
-                // Preview shows the unrestricted MCP catalogue; per-agent
-                // filtering was removed (chat-header pocket knife now toggles
-                // activeMcpServers globally instead).
-                const allowedMcpServers: string[] | undefined = undefined;
+                // FEAT-04-12: the preview mirrors this agent's actual MCP
+                // selection (per-mode overrides), matching what the runtime
+                // catalogue will advertise.
+                const allowedMcpServers: string[] | undefined = resolveAllowedMcpServers(this.plugin.settings, slug);
                 const memoryStub = '[Conversation-dependent: filled with relevant memory facts at runtime.]';
                 const recipesStub = '[Conversation-dependent: filled with matched procedural recipes at runtime.]';
                 const prompt = buildSystemPromptForMode({
@@ -336,11 +338,17 @@ export class ModesTab {
                         this.plugin.settings.customModes = this.plugin.settings.customModes.filter(
                             (m) => m.slug !== slug,
                         );
-                        await this.plugin.saveSettings();
                     }
+                    // FIX-02-02-02: drop the agent's vault-local per-mode config
+                    // (tool overrides, forced workflow, MCP selection, model pin)
+                    // so a later agent reusing the deterministic `{slug}-copy`
+                    // slug cannot silently inherit it.
+                    removeModeScopedConfig(this.plugin.settings, slug);
+                    await this.plugin.saveSettings();
                     if (this.plugin.settings.currentMode === slug) {
                         this.plugin.settings.currentMode = 'agent';
                         await this.plugin.saveSettings();
+                        this.plugin.forcedWorkflowHub.notify();
                     }
                     new Notice(t('settings.modes.deleted', { name: mode.name }));
                     this.rerender();
@@ -357,6 +365,7 @@ export class ModesTab {
             selectedSlug = select.value;
             this.plugin.settings.currentMode = selectedSlug;
             await this.plugin.saveSettings();
+            this.plugin.forcedWorkflowHub.notify();
             renderForm(selectedSlug);
         })(); });
 
@@ -396,8 +405,12 @@ export class ModesTab {
                 source: 'vault',
             };
             this.plugin.settings.customModes.push(dup);
+            // FIX-02-02-02 (inverse gap): the clone should behave like the
+            // original, so its tuned per-mode maps travel along.
+            copyModeScopedConfig(this.plugin.settings, source.slug, newSlug);
             this.plugin.settings.currentMode = newSlug;
             await this.plugin.saveSettings();
+            this.plugin.forcedWorkflowHub.notify();
             new Notice(t('settings.modes.duplicated', { name: dup.name }));
             this.rerender();
         })(); });

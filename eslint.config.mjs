@@ -28,6 +28,8 @@ const VAULT_OPERATOR_BRANDS = [
     // mid-sentence ("install Tavily" -> "install tavily").
     'Tavily', 'Brave', 'Pandoc', 'ImageMagick', 'Dataview', 'Templater',
     'MetaEdit', 'Perplexity', 'Claude Code', 'Claude.ai',
+    // FEAT-04-10/04-11: MCP connector UI copy names these products.
+    'Claude Desktop', 'GitHub', 'Notion',
 ];
 // EPIC-26: not adding provider names like OpenAI / OpenRouter / Ollama /
 // Anthropic to the brand list -- the rule does CASE-INSENSITIVE matching
@@ -70,9 +72,12 @@ const VAULT_OPERATOR_IGNORE_WORDS = [
     'Embeddings',
     'Customize', 'Migrate', 'Connect', 'Disconnect', 'Duplicate', 'New',
     'Note', 'Web', 'Vault', 'Read', 'Edits', 'Sub-agents',
-    'External-commands', 'Remote',
+    'External-commands', 'Remote', 'Redeploy', 'X',
     // Emphasis / language names that the rule otherwise normalises.
     'FIRST', 'German', 'English', 'non-English', 'N', 'Show',
+    // FEAT-04-11: publisher trust-tier labels (glossary terms) + the
+    // "External MCP servers" section label referenced in other strings.
+    'Verified', 'Community', 'Unverified', 'External',
     // Plural acronym forms — we want "APIs" / "PDFs" preserved, not folded
     // to "APIS" / "PDFS" via the acronyms list or to "apis" / "pdfs" via
     // the lowercase pass.
@@ -100,6 +105,10 @@ const VAULT_OPERATOR_IGNORE_REGEX = [
     '^never$',
     '^embedding models?$',
     '^your active LLM provider',
+    // FEAT-04-11: label fragments interpolated mid-sentence (e.g.
+    // "notion.com (verified domain)", "You need an access token ...").
+    '^verified domain$',
+    '^an access token or API key from this provider$',
 ];
 
 export default tseslint.config(

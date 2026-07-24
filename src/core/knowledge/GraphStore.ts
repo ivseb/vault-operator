@@ -17,7 +17,11 @@ import type { KnowledgeDB, SqlJsDatabase } from './KnowledgeDB';
 
 export interface Edge {
     targetPath: string;
-    linkType: 'body' | 'frontmatter';
+    // FEAT-19-04-01 W3: 'backlink-block' = ein [[Wikilink]] im selbstbildenden
+    // Rueckverweis-Block. Zaehlt fuer Reziprozitaet, aber NICHT fuer
+    // getHubTargets/getSourcesFor/checkGodNodes (sonst macht der Block seine
+    // eigenen Quellen zu Hubs).
+    linkType: 'body' | 'frontmatter' | 'backlink-block';
     propertyName: string | null;
     /** Connection reliability: 1.0 for user-authored links, variable for inferred. Default 1.0. */
     confidence?: number;
@@ -31,6 +35,24 @@ export interface GraphNeighbor {
     propertyName: string | null;
     /** Connection reliability: 1.0 for explicit edges, cosine similarity for implicit. */
     confidence: number;
+}
+
+/**
+ * FEAT-19-04-01: eine eingehende Kante ("wer verweist auf mich").
+ */
+export interface IncomingEdge {
+    sourcePath: string;
+    linkType: string;
+    propertyName: string | null;
+}
+
+export interface GetSourcesOptions {
+    /**
+     * link_type-Werte, die NICHT als Quelle zaehlen sollen. Vor allem
+     * 'backlink-block' (vom selbstbildenden Auto-Block erzeugt), damit ein
+     * Hub sich nicht ueber seinen eigenen Rueckverweis-Block selbst zaehlt.
+     */
+    excludeLinkTypes?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +123,64 @@ export class GraphStore {
      * @param hops - Max hop distance (1-3)
      * @param maxResults - Max total neighbors to return
      */
+    /**
+     * FEAT-19-04-01: die Notizen, die auf `targetPath` verweisen.
+     *
+     * Die eingehende Haelfte der Kantenmenge, ohne BFS und ohne Cap. Eine
+     * Quelle erscheint genau einmal, auch wenn sie ueber mehrere Properties
+     * verlinkt (dann gewinnt die erste in stabiler Sortierung). Diese eine
+     * Query speist Auto-Block, Agent-Tool und Anzeige, damit sie nie
+     * auseinanderlaufen.
+     */
+    getSourcesFor(targetPath: string, options?: GetSourcesOptions): IncomingEdge[] {
+        const db = this.getDB();
+        const rows = db.exec(
+            `SELECT source_path, link_type, property_name FROM edges
+             WHERE target_path = ?
+             ORDER BY source_path, link_type, property_name`,
+            [targetPath],
+        );
+        if (!rows.length || !rows[0].values.length) return [];
+
+        const exclude = new Set(options?.excludeLinkTypes ?? []);
+        const seen = new Set<string>();
+        const out: IncomingEdge[] = [];
+        for (const row of rows[0].values) {
+            const linkType = row[1] as string;
+            if (exclude.has(linkType)) continue;
+            const sourcePath = row[0] as string;
+            if (seen.has(sourcePath)) continue; // eine Quelle nur einmal
+            seen.add(sourcePath);
+            out.push({ sourcePath, linkType, propertyName: (row[2] as string | null) ?? null });
+        }
+        return out;
+    }
+
+    /**
+     * FEAT-19-04-01: alle Ziele, auf die mindestens `minIncoming` DISTINKTE
+     * Quellen verweisen -- die Hub-Notizen fuer den Rueckverweis-Block.
+     * Zaehlt Quellen, nicht Kanten (eine Quelle ueber zwei Properties zaehlt
+     * einmal), und kann Block-Kanten ausschliessen, damit der Block nicht
+     * selbst Notizen zu Hubs macht.
+     */
+    getHubTargets(minIncoming: number, options?: GetSourcesOptions): string[] {
+        const db = this.getDB();
+        const exclude = options?.excludeLinkTypes ?? [];
+        const notIn = exclude.length
+            ? ` AND link_type NOT IN (${exclude.map(() => '?').join(',')})`
+            : '';
+        const rows = db.exec(
+            `SELECT target_path FROM edges
+             WHERE 1=1${notIn}
+             GROUP BY target_path
+             HAVING COUNT(DISTINCT source_path) >= ?
+             ORDER BY target_path`,
+            [...exclude, minIncoming],
+        );
+        if (!rows.length || !rows[0].values.length) return [];
+        return rows[0].values.map((r) => r[0] as string);
+    }
+
     getNeighbors(originPath: string, hops = 1, maxResults = 10): GraphNeighbor[] {
         const db = this.getDB();
         const visited = new Set<string>([originPath]);

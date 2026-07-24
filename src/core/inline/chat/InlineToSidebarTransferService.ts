@@ -24,13 +24,10 @@ import type ObsidianAgentPlugin from '../../../main';
 import type { MessageParam } from '../../../api/types';
 import type { UiMessage } from '../../history/ConversationStore';
 
-/**
- * Sidebar view-type constant. Duplicated from AgentSidebarView to keep
- * this service node-test friendly -- a value import would drag the full
- * Obsidian-side view module (Modal subclasses, etc.) into the unit-test
- * environment.
- */
-const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
+// IMP-19-01-03 Testing-Phase: das fruehere bewusste Duplikat entfaellt.
+// viewTypes.ts existiert genau dafuer, die Konstante ohne den schweren
+// View-Import zu liefern; damit ist der Grund des Duplikats weg.
+import { VIEW_TYPE_AGENT_SIDEBAR } from '../../../ui/viewTypes';
 
 /**
  * Structural type for the sidebar handshake. We use a tiny shape instead

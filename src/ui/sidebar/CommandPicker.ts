@@ -1,4 +1,5 @@
 import { setIcon } from 'obsidian';
+import { PopoverDismisser, positionPopover } from './popoverShell';
 
 /**
  * CommandPicker -- searchable single-select popover for skills, prompts,
@@ -25,6 +26,21 @@ export interface CommandPickerItem {
     /** Arbitrary searchable text (e.g. description). */
     searchable?: string;
     onSelect: () => void;
+    /**
+     * Optional secondary "pin" control rendered on the row, separate from the
+     * primary click. Clicking it toggles state WITHOUT selecting the item or
+     * closing the picker. Used to force a workflow (run it on every message)
+     * next to the primary click that inserts it once. `isActive` is read fresh
+     * on every render so the control reflects the current state after a toggle.
+     */
+    pin?: {
+        isActive: () => boolean;
+        /** Tooltip/aria label shown while the pin is inactive. */
+        labelOff: string;
+        /** Tooltip/aria label shown while the pin is active. */
+        labelOn: string;
+        onToggle: () => void;
+    };
 }
 
 export class CommandPicker {
@@ -33,7 +49,7 @@ export class CommandPicker {
     private listEl: HTMLElement | null = null;
     private activeIdx = 0;
     private filtered: CommandPickerItem[] = [];
-    private resizeHandler: (() => void) | null = null;
+    private readonly dismisser = new PopoverDismisser();
 
     constructor(
         private readonly items: CommandPickerItem[],
@@ -42,50 +58,22 @@ export class CommandPicker {
     ) {}
 
     show(anchor: HTMLElement, parentContainerEl?: HTMLElement): void {
+        if (this.dismisser.isOpenFor(anchor)) {
+            this.hide();
+            return;
+        }
         this.hide();
         this.activeIdx = 0;
 
         this.containerEl = activeDocument.body.createDiv('vault-file-picker command-picker');
 
-        const positionPopover = () => {
+        const reposition = () => {
             if (!this.containerEl) return;
-            const br = anchor.getBoundingClientRect();
-            const cr = parentContainerEl
-                ? parentContainerEl.getBoundingClientRect()
-                : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth, width: window.innerWidth };
-            const pad = 8;
-
-            this.containerEl.setCssProps({ '--vfp-pos': 'fixed' });
-
-            const popWidth = Math.min(360, cr.width - pad * 2);
-            this.containerEl.setCssProps({ '--vfp-w': `${popWidth}px` });
-
-            const spaceAbove = br.top - cr.top - pad;
-            const spaceBelow = cr.bottom - br.bottom - pad;
-
-            if (spaceAbove >= spaceBelow) {
-                this.containerEl.setCssProps({
-                    '--vfp-bottom': (window.innerHeight - br.top + 4) + 'px',
-                    '--vfp-top': '',
-                    '--vfp-max-h': `${Math.max(spaceAbove, 200)}px`,
-                });
-            } else {
-                this.containerEl.setCssProps({
-                    '--vfp-top': (br.bottom + 4) + 'px',
-                    '--vfp-bottom': '',
-                    '--vfp-max-h': `${Math.max(spaceBelow, 200)}px`,
-                });
-            }
-
-            let left = Math.max(br.left, cr.left + pad);
-            if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
-            left = Math.max(left, cr.left + pad);
-            this.containerEl.setCssProps({ '--vfp-left': `${left}px` });
+            positionPopover(this.containerEl, anchor, parentContainerEl ?? null, {
+                cssPrefix: '--vfp', maxWidth: 360,
+            });
         };
-        positionPopover();
-
-        this.resizeHandler = positionPopover;
-        window.addEventListener('resize', this.resizeHandler);
+        reposition();
 
         const searchRow = this.containerEl.createDiv('vfp-search-row');
         const searchIconEl = searchRow.createSpan('vfp-search-icon');
@@ -130,23 +118,21 @@ export class CommandPicker {
             }
         });
 
-        const closeOnOutside = (e: MouseEvent) => {
-            if (this.containerEl && !this.containerEl.contains(e.target as Node)) {
-                this.hide();
-                activeDocument.removeEventListener('mousedown', closeOnOutside);
-            }
-        };
-        activeDocument.addEventListener('mousedown', closeOnOutside);
+        // Dismiss lifecycle: outside click, Escape, resize (IMP-02-12-03;
+        // the old inline handler leaked one listener per show()).
+        this.dismisser.attach({
+            el: this.containerEl,
+            anchor,
+            onDismiss: () => this.hide(),
+            reposition,
+        });
 
         this.renderList();
         window.setTimeout(() => this.searchInput?.focus(), 0);
     }
 
     hide(): void {
-        if (this.resizeHandler) {
-            window.removeEventListener('resize', this.resizeHandler);
-            this.resizeHandler = null;
-        }
+        this.dismisser.detach();
         this.containerEl?.remove();
         this.containerEl = null;
         this.searchInput = null;
@@ -190,6 +176,25 @@ export class CommandPicker {
             info.createSpan({ cls: 'vfp-row-path', text: item.sub });
 
             row.createSpan({ cls: 'autocomplete-tag', text: item.tag });
+
+            if (item.pin) {
+                const active = item.pin.isActive();
+                if (active) row.addClass('vfp-row-pinned');
+                const pinBtn = row.createSpan({
+                    cls: `vfp-row-pin${active ? ' vfp-row-pin-active' : ''}`,
+                });
+                setIcon(pinBtn, 'pin');
+                const pinLabel = active ? item.pin.labelOn : item.pin.labelOff;
+                pinBtn.setAttribute('aria-label', pinLabel);
+                pinBtn.setAttribute('title', pinLabel);
+                // Toggle only; do not select the row or close the picker.
+                pinBtn.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    item.pin!.onToggle();
+                    this.renderList();
+                });
+            }
 
             row.addEventListener('mousedown', (e) => {
                 e.preventDefault();

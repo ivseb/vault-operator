@@ -116,16 +116,8 @@ export class InterfaceTab {
                 }),
             );
 
-        new Setting(containerEl)
-            .setName(t('settings.interface.showContextProgress'))
-            .setDesc(t('settings.interface.showContextProgressDesc'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.showContextProgress).onChange(async (value) => {
-                    this.plugin.settings.showContextProgress = value;
-                    await this.plugin.saveSettings();
-                    new Notice(t('settings.interface.restartSidebarNotice'));
-                })
-            );
+        // FEAT-30-07: "Show context progress" entfernt. Das Setting war tot,
+        // die Ziel-Komponente ContextDisplay wurde nie instanziiert.
 
         new Setting(containerEl)
             .setName(t('settings.interface.autoOpenSidebar'))
@@ -139,30 +131,11 @@ export class InterfaceTab {
                     }),
             );
 
-        addSectionHeading(
-            containerEl,
-            t('settings.interface.headingHistory'),
-            { body: t('settings.interface.sectionHistoryInfo') },
-        );
-
-        new Setting(containerEl)
-            .setName(t('settings.interface.historyFolder'))
-            .setDesc(t('settings.interface.historyFolderDesc'))
-            .addText((txt) =>
-                txt.setPlaceholder(t('settings.interface.historyPlaceholder'))
-                    .setValue((this.plugin.settings as unknown as Record<string, unknown>)['chatHistoryFolder'] as string ?? '')
-                    .onChange(async (v) => {
-                        const folder = v.trim();
-                        (this.plugin.settings as unknown as Record<string, unknown>)['chatHistoryFolder'] = folder;
-                        await this.plugin.saveSettings();
-                        if (folder) {
-                            const { ChatHistoryService } = await import('../../core/ChatHistoryService');
-                            this.plugin.chatHistoryService = new ChatHistoryService(this.plugin.app.vault, folder);
-                        } else {
-                            this.plugin.chatHistoryService = null;
-                        }
-                    }),
-            );
+        // FEAT-30-07: Das "History folder"-Textfeld ist entfernt. Der Key
+        // chatHistoryFolder ist seit der FEAT-29-01-Migration deprecated
+        // (die Migration leert ihn und zeigt eine Removal-Notice); das Feld
+        // reaktivierte den Legacy-ChatHistoryService entgegen der Migration.
+        // Ersatz ist enableChatHistory im Memory-Tab.
 
         addSectionHeading(
             containerEl,

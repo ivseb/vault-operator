@@ -97,7 +97,9 @@ export class GitHubCopilotProvider implements ApiHandler {
         // tools/streaming flags. Prevents Claude models from silently dropping
         // to the 128k default and condensing too early.
         const known = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
-        const contextWindow = getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
+        // ADR-158 stage 1: discovery-reported window wins over registry and table
+        const contextWindow = this.config.contextWindow
+            ?? getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
         return { id: this.config.model, info: { ...known, contextWindow } };
     }
 

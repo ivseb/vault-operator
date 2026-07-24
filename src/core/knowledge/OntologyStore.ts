@@ -36,11 +36,46 @@ export interface ClusterInfo {
 // OntologyStore
 // ---------------------------------------------------------------------------
 
+/**
+ * FIX-19-02-01: Gegenstueck in cluster_metadata, das die hier erzeugten
+ * Cluster registriert. Strukturell typisiert statt importiert, damit die
+ * Abhaengigkeit in eine Richtung zeigt.
+ */
+export interface ClusterRegistry {
+    registerFromOntology(): number;
+}
+
 export class OntologyStore {
     private knowledgeDB: KnowledgeDB;
 
-    constructor(knowledgeDB: KnowledgeDB) {
+    /**
+     * FIX-19-02-01: Lazy, weil der ClusterMetadataStore in main.ts erst
+     * NACH dem OntologyStore entsteht.
+     */
+    private clusterRegistry?: () => ClusterRegistry | null;
+
+    constructor(knowledgeDB: KnowledgeDB, clusterRegistry?: () => ClusterRegistry | null) {
         this.knowledgeDB = knowledgeDB;
+        this.clusterRegistry = clusterRegistry;
+    }
+
+    /**
+     * FIX-19-02-01: traegt neu entstandene Cluster in die Registry nach.
+     *
+     * Haengt bewusst IM Store und nicht an den Aufrufern von
+     * bootstrapFromEdges (davon gibt es vier). Der Knowledge Review war
+     * genau deshalb tot: die Cluster standen in der Ontologie, aber nie in
+     * cluster_metadata, und ein Registrierungs-Aufruf pro Aufrufer haette
+     * beim naechsten neuen Aufrufer wieder gefehlt.
+     */
+    private syncClusterRegistry(): void {
+        try {
+            this.clusterRegistry?.()?.registerFromOntology();
+        } catch (e) {
+            // Die Registry ist eine Komfort-Schicht; ihr Fehlschlag darf
+            // den Ontologie-Aufbau nicht mitreissen.
+            console.debug('[OntologyStore] cluster registry sync failed:', e);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -285,6 +320,7 @@ export class OntologyStore {
 
         stmt.free();
         this.knowledgeDB.markDirty();
+        this.syncClusterRegistry();
 
         const hubCount = hubEligible.size;
         console.debug(`[OntologyStore] Bootstrap complete: ${clusters.size} clusters (${hubCount} hubs), ${entries} entries`);

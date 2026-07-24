@@ -18,7 +18,7 @@
  * stays where they were. If the agent edit touched the cursor line,
  * the cursor moves to a sane fallback at line 0.
  *
- * Sebastian's 2026-05-23 repro: with phase 2 the disk char count
+ * the user's 2026-05-23 repro: with phase 2 the disk char count
  * started growing (15348 -> 15984 -> 16049), proving the write
  * persisted -- but the editor view kept the stale buffer because
  * leaf.openFile(sameFile) is a no-op. Phase 3 closes that gap.

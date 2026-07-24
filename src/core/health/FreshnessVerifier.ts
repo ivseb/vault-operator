@@ -36,6 +36,14 @@ export interface RawVerdict {
     summary: string;
     sources: string[];
     tokensUsed: number;
+    /**
+     * FIX-19-05-05: true, wenn dieses Verdict NICHT vom Modell stammt, sondern
+     * ein Fehler-Fallback ist (Parse-Fehler, Truncation, Exception, fehlendes
+     * classifyText). Trennt den echten "keine externe Quelle gefunden"-Fall
+     * vom gescheiterten Lauf -- die UI darf einen Fehler-Lauf nicht als Befund
+     * ausgeben. Fehlt das Feld, gilt der Verdict als echt.
+     */
+    verifierError?: boolean;
 }
 
 /**
@@ -122,6 +130,9 @@ export class FreshnessVerifier {
             verifierTier: tier,
             modelId,
             tokensUsed: raw.tokensUsed + carryTokens,
+            // FIX-19-05-05: Fehler-Flag durchreichen, damit der Orchestrator
+            // gescheiterte Laeufe nicht persistiert.
+            ...(raw.verifierError ? { verifierError: true } : {}),
         };
     }
 }

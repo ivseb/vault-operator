@@ -212,7 +212,6 @@ Configure how the agent remembers across conversations.
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
 | Chat history | Save conversation history for future reference | On | `settings.chatHistoryEnabled` |
-| Chat history folder | Where to store conversation files in the vault | `Vault Operator/Chats` | `settings.chatHistoryFolder` |
 | Memory extraction | Automatically extract key facts from conversations | On | `settings.memoryExtractionEnabled` |
 | Memory threshold | Minimum relevance score for a memory to be saved | 0.7 | `settings.memoryThreshold` |
 
@@ -286,6 +285,17 @@ Connect external tool servers and expose Vault Operator as a server. The Connect
 Vault Operator runs inside Electron (Obsidian's runtime), so only SSE and streamable-http transports are supported. Stdio-based MCP servers do not work. To bridge a stdio-only server (for example Playwright MCP), run it locally with an HTTP wrapper such as `npx @playwright/mcp@latest --port 3001`.
 :::
 
+### Recipes
+
+`Settings > Vault Operator > Customize > Recipes`
+
+Vetted calls to external CLI programs (for example Pandoc export) the agent may run through the `execute_recipe` tool with fixed, validated parameters. The tab also explains how recipes differ from rules (standing instructions in every conversation) and workflows (step-by-step instructions inserted per message with a /command).
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Enable recipes | Master switch for the `execute_recipe` tool; your choice persists across reloads | On | `settings.recipes.enabled` |
+| Per-recipe toggles | Enable or disable each built-in recipe individually | All on | `settings.recipes.recipeToggles` |
+
 ## Vault group
 
 ### Vault
@@ -301,7 +311,6 @@ Vault-level settings, including the agent folder, default output folder, and che
 | Default output folder | Where the agent writes new notes (including `/ingest` source notes) | `Inbox/` | `settings.defaultOutputFolder` (`settings.ts:1950`) |
 | Show health badge | Stethoscope icon in the sidebar changes colour when findings exist | On | `AgentSidebarView.ts:287-298` |
 | Auto-apply rule repairs | Auto-fix deterministic rule findings (missing backlinks, category mismatch, inconsistent tags) when the modal opens | Off | `settings.vaultHealth.autoApplyRuleRepairs` (`settings.ts:1565`) |
-| Orphans target folder | Folder for moved orphan notes | `Inbox/Orphans` | `settings.vaultHealth.orphansTargetFolder` (`settings.ts:1574`) |
 | Silence with-context orphans | Hide orphan findings whose only signal is a property-only edge | On | `settings.vaultHealth.silenceWithContextOrphans` (`settings.ts:1587`) |
 | Enable checkpoints | Create snapshots before file modifications | On | `settings.checkpointsEnabled` |
 | Snapshot timeout (s) | Maximum seconds to wait for a checkpoint snapshot to complete | 30 | `settings.checkpointTimeoutSeconds` (`settings.ts:1820`) |
@@ -313,7 +322,7 @@ The agent folder contains `data/` (skills, logs, telemetry, knowledge.db), `cach
 
 ### Backup
 
-`Settings > Vault Operator > Vault > Backup`
+`Settings > Vault Operator > Advanced > Data & diagnostics`
 
 Export and import your Vault Operator configuration. Useful when moving to a new device, sharing settings with a team, or restoring after a bad change.
 
@@ -347,21 +356,20 @@ Appearance, input behaviour, and first-run setup. Inline editor AI actions live 
 | Task extraction | Detect and extract tasks from agent responses | Off | `settings.taskExtractionEnabled` |
 | Restart setup | Re-runs the first-run wizard. Under the Setup section | n/a | `InterfaceTab.ts:42` |
 
-### Shell
+### Plugin API
 
-`Settings > Vault Operator > Advanced > Shell`
+`Settings > Vault Operator > Advanced > Plugin API`
 
-Plugin API, command allowlist, and CLI recipes.
+The `call_plugin_api` tool surface. The read/write catalog and the auto-promotion consent toggle live next to the auto-approve toggles under Agents > Auto-approve; this tab keeps the existence gate and the revocation list.
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Plugin API | Allow the agent to call JavaScript APIs on other plugins (Dataview, Omnisearch, etc.) | Off | `settings.pluginApiEnabled` |
-| Command allowlist | Which Obsidian commands the agent can execute | Empty | `settings.allowedCommands` |
-| Recipes | Pre-validated CLI tool recipes (for example Pandoc export) | Built-in | `settings.recipes` |
+| Plugin API | Allow the agent to call JavaScript APIs on other plugins (Dataview, Omnisearch, etc.) | On | `settings.pluginApi.enabled` |
+| User safe-marked methods | Runtime-promoted methods that auto-approve as reads; remove entries here to revoke | Empty | `settings.pluginApi.safeMethodOverrides` |
 
-### Log
+### Data & diagnostics: Operation log
 
-`Settings > Vault Operator > Advanced > Log`
+`Settings > Vault Operator > Advanced > Data & diagnostics`
 
 Daily audit trail of every tool call. Each tool invocation is appended to a JSONL log file with timestamp, tool name, arguments, result status, and approval decision.
 
@@ -370,7 +378,7 @@ Daily audit trail of every tool call. Each tool invocation is appended to a JSON
 | Date selector | Pick which day's log to load | Today | `LogTab.ts` |
 | Load | Render the selected day's log as a table | n/a | `LogTab.ts` |
 | Download | Save the raw JSONL log for the selected day | n/a | `LogTab.ts` |
-| Clear all | Delete every log file from disk | n/a | `LogTab.ts` |
+| Clear all | Delete every log file from disk (asks for confirmation) | n/a | `LogTab.ts` |
 
 :::info Where logs live
 Logs are stored at `<vault>/.vault-operator/data/logs/<YYYY-MM-DD>.jsonl` (one file per day). Retention is 30 days. Logs do not contain conversation content, only tool calls.
@@ -380,11 +388,11 @@ Logs are stored at `<vault>/.vault-operator/data/logs/<YYYY-MM-DD>.jsonl` (one f
 When the OperationLogger fails to persist a log entry, the Log tab shows a persistent banner titled "Audit log write failures" at the top of the tab. It reports the count of failed writes since plugin start (operations continued, but the audit trail has a gap) and prints the last error message, truncated to 200 characters. A "Clear notice" button resets the logger's failure state and hides the banner until the next failure. Source: [src/ui/settings/LogTab.ts](src/ui/settings/LogTab.ts#L25).
 :::
 
-### Debug
+### Data & diagnostics: Debug
 
-`Settings > Vault Operator > Advanced > Debug`
+`Settings > Vault Operator > Advanced > Data & diagnostics`
 
-Internal diagnostics.
+Internal diagnostics. Shares the Data & diagnostics tab with backup and the operation log.
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
@@ -406,11 +414,11 @@ One-time downloads stored under `.vault-operator/assets/`. Install only what you
 | Self-development source | One-time download (~5 MB) of the plugin's TypeScript source. Required for the `manage_source` tool, so the agent can answer "how does feature X work?" questions and propose patches. Downloaded from the plugin's GitHub release, verified by SHA256 | Not installed | `OptionalAssetManager` |
 | Office assets | Bundled fonts and theme assets used by `create_pptx`, `create_docx`, `create_xlsx` | Not installed | `OptionalAssetManager` |
 
-### Inline AI
+### Inline chat
 
-`Settings > Vault Operator > Advanced > Inline AI`
+`Settings > Vault Operator > Agents > Inline chat`
 
-Inline editor AI actions run on a marked selection directly in the editor. Open the menu via the inline-AI command (bind a hotkey in Obsidian's hotkey settings, for example Cmd+K). New in v3.0.0. See the [inline chat guide](/guides/inline-chat) for the workflow.
+Chat with the agent directly in the editor. It runs the same agent loop as the sidebar chat and inherits all its settings; only the inline-specific triggers and quick-action behaviour are configured here. Open it via the inline-AI command (bind a hotkey in Obsidian's hotkey settings, for example Cmd+K). See the [inline chat guide](/guides/inline-chat) for the workflow.
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
@@ -418,8 +426,6 @@ Inline editor AI actions run on a marked selection directly in the editor. Open 
 | Auto-open floating menu on selection | When on, the menu pops up automatically after you finish selecting text. When off, only the hotkey or command palette opens it | On | `settings.inlineActions.floatingMenuEnabled`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L52) |
 | Use vault knowledge in lookup | Augment the lookup action with semantic-search hits from your vault | On | `settings.inlineActions.vaultRagInLookup`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L60) |
 | Vault knowledge confidence threshold | Cosine similarity slider, range 0 to 1, step 0.05. Lookup falls back to LLM-only when no vault hit meets this threshold | 0.7 | `settings.inlineActions.vaultRagConfidenceThreshold`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L67) |
-| Show vault source links in lookup tooltip | When on, the lookup preview block lists the wiki-links of the vault notes used | On | `settings.inlineActions.showVaultSourcesInTooltip`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L78) |
-| Skills in floating menu (top N) | Maximum number of inline-eligible skills to list in the floating menu. Set to 0 to hide all skills | 10 | `settings.inlineActions.skillsTopN`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L86) |
 | Refresh settings view | Re-renders this tab. Useful after changing pins to see the updated state | n/a | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L136) |
 
 #### Per-action model pin

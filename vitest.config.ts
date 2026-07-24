@@ -12,6 +12,10 @@ export default defineConfig({
             // to the scripts so the rule for new bundled-skill helpers is
             // visible from one place.
             'bundled-skills/**/__tests__/**/*.test.js',
+            // pro-skills carry the same kind of .js helpers. The glob matches
+            // nothing on the public mirror, where pro-skills/ is stripped, so
+            // this stays green there.
+            'pro-skills/**/__tests__/**/*.test.js',
         ],
         globals: false,
         setupFiles: [path.resolve(__dirname, 'tests/stubs/safeFsSetup.ts')],

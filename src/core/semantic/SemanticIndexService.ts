@@ -27,6 +27,7 @@ import * as path from 'path';
 import * as fs from '../security/safeFs';
 import { sanitizeWithDetails } from '../memory/sanitizeVaultContentForLLM';
 import { Semaphore, mapWithConcurrency } from '../utils/asyncPool';
+import { stripAllAutoBlocks } from '../ingest/MOCMaintainer';
 
 /**
  * Escape a string for safe use inside an XML attribute value.
@@ -40,6 +41,23 @@ function escapeXmlAttr(s: string): string {
         .replace(/'/g, '&apos;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+}
+
+/**
+ * Content fingerprint for change detection (FNV-1a 32-bit + length prefix).
+ * NOT cryptographic: the only requirement is that different note bodies map
+ * to different strings with negligible collision risk, so the indexer can
+ * tell a real edit from an Obsidian-Sync mtime re-stamp. The length prefix
+ * makes same-hash-different-length collisions impossible. Same shape as the
+ * inline EmbeddingCache hash. Exported for tests.
+ */
+export function contentFingerprint(text: string): string {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i += 1) {
+        hash ^= text.charCodeAt(i);
+        hash = (hash * 0x01000193) >>> 0;
+    }
+    return `${text.length}:${hash.toString(16)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +128,7 @@ const DEFAULT_EMBED_BATCH = 16;    // texts per API request
 // index (ISSUE-E). Near-empty stubs embed close to the embedding-space
 // centroid and weakly cosine-match every query, so they surface at rank 1 in
 // the semantic arm and add noise to the keyword arm (same vectors table).
-// 40 chars: known stubs carry at most 10 chars of body ("# COWORK"), while
+// 40 chars: known stubs carry at most 10 chars of body ("# LEDGER"), while
 // the smallest legit retrieval-bench fixture body has 63 chars.
 const MIN_INDEXABLE_BODY_CHARS = 40;
 
@@ -429,6 +447,13 @@ export class SemanticIndexService {
                 `${excluded} excluded (folders + ignore) -> ${total} total`,
             );
 
+            // Wipe-guard note: an unset embedding model can never reach the
+            // deleteAll() branch below, because buildIndex throws at the top
+            // (`!this.embeddingModel`) before any file work. modelKey() only
+            // returns 'none' in that already-rejected state, so the empty-model
+            // -> full-rebuild -> wipe path the RCA feared is structurally
+            // closed. getActiveEmbeddingModel() returns a complete model or
+            // null, never a partial object, so no half-empty key can drift here.
             const modelKey = this.modelKey();
 
             // ----------------------------------------------------------------
@@ -462,6 +487,9 @@ export class SemanticIndexService {
             // 3. Determine which files need (re)indexing
             // ----------------------------------------------------------------
             const pathMtimes = isFullRebuild ? new Map<string, number>() : this.vectorStore.getPathMtimes();
+            // Content hashes for the mtime-tripwire confirmation step in the
+            // loop below (Obsidian Sync re-stamps mtimes without editing).
+            const storedHashes = isFullRebuild ? new Map<string, string>() : this.vectorStore.getPathHashes();
             const toIndex = files.filter((f) => {
                 if (isFullRebuild) return true;
                 const storedMtime = pathMtimes.get(f.path);
@@ -510,26 +538,48 @@ export class SemanticIndexService {
 
                 try {
                     const content = await this.readFileContent(file);
-                    const chunks = this.splitIntoChunks(content, this.chunkSize);
+                    const fileMtime = file.stat?.mtime ?? 0;
 
-                    if (chunks.length > 0) {
-                        // Prepend document title to chunk 0 so embeddings capture the filename.
-                        // Critical for retrieval: "Mark Zimmermann.md" must be findable by name.
-                        const title = file.path.split('/').pop()?.replace(/\.\w+$/, '') ?? '';
-                        const enrichedChunks = title
-                            ? [title + '\n\n' + chunks[0], ...chunks.slice(1)]
-                            : chunks;
+                    // Content-hash gate (behind the mtime tripwire): Obsidian
+                    // Sync re-stamps mtimes on unchanged notes, so a newer mtime
+                    // alone does not mean the body changed. If the hash matches
+                    // what we stored, adopt the new mtime (so the cheap
+                    // pre-filter stops flagging it) and skip the expensive
+                    // re-embed -- crucially preserving the note's Pass-2
+                    // enrichment. Only on a real hash mismatch do we re-embed.
+                    // isFullRebuild has an empty storedHashes map, so the
+                    // fingerprint is always computed and stored, never matched.
+                    const currentHash = contentFingerprint(content);
+                    const unchanged = !isFullRebuild
+                        && currentHash !== ''
+                        && storedHashes.get(file.path) === currentHash;
 
-                        // Pass 1: embed chunks with title prefix (fast, no LLM call).
-                        // Contextual Enrichment runs as Pass 2 in the background after build.
-                        const vectors = await this.embedBatch(enrichedChunks);
-                        this.vectorStore.insertNoteVector(file.path, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
+                    if (unchanged) {
+                        // Sync-only mtime bump: refresh mtime, keep vectors +
+                        // enrichment. No embedding call, no cache invalidation.
+                        this.vectorStore.touchMtime(file.path, fileMtime);
                     } else {
-                        // File shrank to a gated stub (or emptied): drop its old
-                        // vectors. Side effect: gated files never store an mtime,
-                        // so each build re-reads and re-chunks them (cachedRead
-                        // plus one regex, no embedding call). Negligible.
-                        this.vectorStore.deleteByPath(file.path);
+                        const chunks = this.splitIntoChunks(content, this.chunkSize);
+
+                        if (chunks.length > 0) {
+                            // Prepend document title to chunk 0 so embeddings capture the filename.
+                            // Critical for retrieval: "Mark Zimmermann.md" must be findable by name.
+                            const title = file.path.split('/').pop()?.replace(/\.\w+$/, '') ?? '';
+                            const enrichedChunks = title
+                                ? [title + '\n\n' + chunks[0], ...chunks.slice(1)]
+                                : chunks;
+
+                            // Pass 1: embed chunks with title prefix (fast, no LLM call).
+                            // Contextual Enrichment runs as Pass 2 in the background after build.
+                            const vectors = await this.embedBatch(enrichedChunks);
+                            this.vectorStore.insertNoteVector(file.path, enrichedChunks, vectors, fileMtime, 0, currentHash);
+                        } else {
+                            // File shrank to a gated stub (or emptied): drop its old
+                            // vectors. Side effect: gated files never store an mtime,
+                            // so each build re-reads and re-chunks them (cachedRead
+                            // plus one regex, no embedding call). Negligible.
+                            this.vectorStore.deleteByPath(file.path);
+                        }
                     }
 
                     indexed++;
@@ -610,6 +660,19 @@ export class SemanticIndexService {
             this.isBuilding = false;
             this.abortController = null;
         }
+    }
+
+    /**
+     * Reclaim disk space after a rebuild (VACUUM). A force rebuild deletes and
+     * re-inserts every vector; sql.js keeps the freed pages, so the file stays
+     * inflated (the boot-slowness driver). Call this once after a full rebuild,
+     * never during the agent loop -- VACUUM rewrites the whole file and is
+     * expensive. Guarded against running mid-build.
+     */
+    async compact(): Promise<void> {
+        if (this.isBuilding) return;
+        this.knowledgeDB.vacuum();
+        await this.knowledgeDB.save();
     }
 
     /**
@@ -1800,10 +1863,20 @@ export class SemanticIndexService {
         // IDs, tags, and other frontmatter fields are searchable, but discard
         // the --- delimiters which carry no semantic meaning.
         let frontmatterContent = '';
-        const bodyText = text.replace(/^---\n([\s\S]*?)\n---\n?/, (_, fm: string) => {
+        const withoutFrontmatter = text.replace(/^---\n([\s\S]*?)\n---\n?/, (_, fm: string) => {
             frontmatterContent = fm.trim();
             return '';
-        }).trim();
+        });
+
+        // FEAT-19-04-01 W3: auto-generierte Bloecke (Rueckverweis-Block,
+        // MOC-Body) VOR dem Chunking ausschneiden. Sonst landet die Tabelle
+        // aller Linker im Note-Vektor, der Hub driftet zu seinen Nachbarn und
+        // erzeugt beim naechsten Reindex neue weak_clusters -- eine
+        // Rueckkopplung, in der die Ausgabe des Features die Rechnung speist,
+        // die den Befund erzeugt. Der Block bleibt in der Note sichtbar (fuer
+        // Mensch und read_file), ist aber aus dem Embedding draussen. Der
+        // Body-Gate unten misst damit die Prosa-Laenge, nicht die Block-Laenge.
+        const bodyText = stripAllAutoBlocks(withoutFrontmatter).trim();
 
         // Body gate (ISSUE-E): skip notes whose body is shorter than
         // MIN_INDEXABLE_BODY_CHARS. Measured on bodyText only, NOT on the

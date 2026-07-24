@@ -33,6 +33,12 @@ export interface CustomModel {
     /** True for pre-defined models shipped with the plugin */
     isBuiltIn?: boolean;
     maxTokens?: number;
+    /**
+     * Provider-reported context window (tokens) from discovery, if any.
+     * ADR-158 stage 1: wins over the registry chain because the serving
+     * endpoint is the source of truth. Absent = registry/inference/default.
+     */
+    contextWindow?: number;
     temperature?: number;
     /** API version string (required for Azure OpenAI and some enterprise gateways, e.g. "2024-10-21") */
     apiVersion?: string;
@@ -299,6 +305,8 @@ export interface LLMProvider {
     baseUrl?: string;
     model: string;
     maxTokens?: number;
+    /** Provider-reported context window (tokens); see CustomModel.contextWindow (ADR-158). */
+    contextWindow?: number;
     temperature?: number;
     /** API version for Azure OpenAI and compatible enterprise gateways */
     apiVersion?: string;
@@ -340,6 +348,7 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         apiKey: model.apiKey,
         baseUrl: model.baseUrl,
         maxTokens: model.maxTokens,
+        contextWindow: model.contextWindow,
         temperature: model.temperature,
         apiVersion: model.apiVersion,
         // Default-on: undefined acts as true. Explicit false stays false.
@@ -387,33 +396,86 @@ export interface CustomPrompt {
 // MCP Server configuration
 // ---------------------------------------------------------------------------
 
+/**
+ * Persisted OAuth session for an MCP connector (FEAT-04-10, ADR-155).
+ *
+ * Structurally compatible with the MCP SDK's `OAuthClientInformationFull`
+ * and `OAuthTokens` so McpOAuthProvider can hand these straight to the SDK
+ * (and store what the SDK hands back) without importing SDK types into this
+ * widely-imported settings module. The secret-bearing fields
+ * (`client_secret`, `access_token`, `refresh_token`) are encrypted at rest
+ * by the settings encrypt/decrypt passes and redacted from backups.
+ */
+export interface McpOAuthSession {
+    /** Result of dynamic (or static) client registration. Cached so the flow
+     *  does not re-register on every connect (DCR endpoints are rate-limited). */
+    clientInformation?: {
+        client_id: string;
+        client_secret?: string;
+        client_id_issued_at?: number;
+        client_secret_expires_at?: number;
+        redirect_uris?: string[];
+        [k: string]: unknown;
+    };
+    /** OAuth tokens from the authorization-code exchange or a later refresh. */
+    tokens?: {
+        access_token: string;
+        token_type?: string;
+        expires_in?: number;
+        refresh_token?: string;
+        scope?: string;
+        [k: string]: unknown;
+    };
+}
+
 export interface McpServerConfig {
-    /** Transport type. Only HTTP-based transports are supported.
-     * stdio is blocked — it spawns host processes outside the sandbox. */
-    type: 'sse' | 'streamable-http';
+    /** Transport type. `sse` and `streamable-http` are HTTP-based remote
+     *  transports. `stdio` (FEAT-04-13, ADR-168) spawns a local host process
+     *  and is Desktop-only; stdio configs are persisted in the device-local
+     *  store (never synced, never cross-vault) and require a per-device trust
+     *  confirmation before the first spawn. */
+    type: 'sse' | 'streamable-http' | 'stdio';
     url?: string;
+    /** stdio only (ADR-168): the command to spawn (MVP: node / npx only,
+     *  enforced by spawnAllowlist). */
+    command?: string;
+    /** stdio only: arguments passed to `command`. */
+    args?: string[];
+    /** stdio only: extra environment variables merged over the filtered
+     *  spawn env allowlist. Credentials the user opts to pass explicitly. */
+    env?: Record<string, string>;
     headers?: Record<string, string>;
     disabled?: boolean;
     timeout?: number;
     alwaysAllow?: string[];
     /** True for servers shipped with the plugin (cannot be deleted, only disabled) */
     isBuiltIn?: boolean;
+    /** Friendly service name for the settings UI (e.g. "GitHub" instead of the
+     *  reverse-DNS registry key). Set when added from the discovery search. */
+    displayName?: string;
+    /** Curated first-party / official trust marker, carried over from the
+     *  discovery result so the source label survives the add (IMP-04-10-02). */
+    official?: boolean;
     /** AUDIT-034 M-14: opt out of the SSRF guard for this server (allow loopback / RFC 1918). */
     allowLocalUrls?: boolean;
+    /** Authentication scheme (FEAT-04-10, ADR-154). 'oauth' routes the connect
+     *  through the SDK authProvider (browser OAuth 2.1 + PKCE). Default/undefined
+     *  keeps the header/URL token behaviour. */
+    authType?: 'none' | 'oauth';
+    /** OAuth session state for authType 'oauth'. Populated by the flow. */
+    oauth?: McpOAuthSession;
 }
 
-/** Built-in MCP servers shipped with the plugin.
- * Icons8: streamable-http, no auth needed (free PNG icons, 368K+ icons)
+/**
+ * Force-seeded built-in MCP servers. Empty since the hidden-catalog model
+ * (IMP-04-10-02): nothing is force-added to the visible server list anymore.
+ * Curated connectors -- including icons8 (free PNG icons for canvas/diagrams) --
+ * live in MCP_CONNECTOR_CATALOG and are added on demand via the discovery
+ * search, so every server is user-owned and deletable. Existing installs keep
+ * their seeded icons8 (migration preserves touched entries); it is now
+ * deletable like any other connector.
  */
-export const BUILTIN_MCP_SERVERS: Record<string, McpServerConfig> = {
-    'icons8': {
-        type: 'streamable-http',
-        url: 'https://mcp.icons8.com/mcp/',
-        disabled: false,
-        timeout: 60,
-        isBuiltIn: true,
-    },
-};
+export const BUILTIN_MCP_SERVERS: Record<string, McpServerConfig> = {};
 
 // ---------------------------------------------------------------------------
 // Agent Mode configuration
@@ -641,7 +703,7 @@ export interface MemorySettings {
      * BA-26 / FEAT-23-04: Cross-Surface AI Workflow settings.
      * Controls Auto-Sync vs Manual-Sync per provider for MCP-saved
      * conversations. Privacy-sichere Defaults: chatgpt + perplexity
-     * + unknown auf manual (Familien-Account-Use-Case Sebastian).
+     * + unknown auf manual (Familien-Account-Use-Case).
      * Optional: missing block reads as DEFAULT_CROSS_SURFACE_SETTINGS.
      */
     crossSurface?: import('../core/memory/SourceInterface').CrossSurfaceSettings;
@@ -820,11 +882,25 @@ export interface ObsidianAgentSettings {
      */
     modeToolOverrides: Record<string, string[]>;
     /**
-     * MCP server whitelist: which configured MCP servers are active.
-     * Empty array = all configured servers are allowed (when use_mcp_tool is enabled).
-     * Non-empty array = only listed server names are allowed.
+     * @deprecated ADR-161 (FEAT-04-12): replaced by the per-agent
+     * `modeMcpOverrides`. Kept as a GLOBAL key so vaults that have not run
+     * the one-time migration yet can still read it; no consumer writes it.
      */
     activeMcpServers: string[];
+    /**
+     * @deprecated ADR-161 (FEAT-04-12): replaced by an empty per-agent list
+     * in `modeMcpOverrides`. Kept readable for the one-time migration only.
+     */
+    mcpDisabled?: boolean;
+    /**
+     * Per-agent MCP activation (FEAT-04-12, ADR-161), vault-local: maps mode
+     * slug -> explicit server-key list. ABSENT key = all connected servers
+     * active for that agent (future servers auto-included); list = only
+     * those; EMPTY list = none. Single source of truth in
+     * src/core/mcp/mcpActivation.ts. Distinct from the deprecated
+     * `modeMcpServers` on purpose so stale pre-2026-05 data cannot resurrect.
+     */
+    modeMcpOverrides: Record<string, string[]>;
     /**
      * @deprecated Use modeSkillAllowList instead.
      * Permanent per-mode forced skill names: maps mode slug → skill names to always inject.
@@ -997,8 +1073,6 @@ export interface ObsidianAgentSettings {
      * exact time, which changes every call and defeats prompt caching. Default false.
      */
     includeCurrentTimeInContext: boolean;
-    /** Display context window usage progress bar in sidebar (restart sidebar to apply) */
-    showContextProgress: boolean;
 
     // Rules (Sprint 3.2) — per-file enabled/disabled toggles
     // key: vault-relative path, value: true=enabled (default), false=disabled
@@ -1083,6 +1157,10 @@ export interface ObsidianAgentSettings {
     _globalStorageMigrated?: boolean;
     /** Whether sync data has been migrated from plugin-dir to .obsilo-sync/ */
     _syncDirMigrated?: boolean;
+    /** Whether forcedWorkflow has been migrated from global storage to vault-local (FEAT-02-12, ADR-160) */
+    _forcedWorkflowVaultMigrated?: boolean;
+    /** Whether the global MCP activation has been migrated to per-mode modeMcpOverrides (FEAT-04-12, ADR-161) */
+    _mcpPerModeMigrated?: boolean;
     /** Whether data has been migrated from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/ (FEATURE-1508) */
     _parentDirMigrated?: boolean;
     /** Whether the legacy in-vault folders (.obsilo, .obsilo-sync, .obsidian/.obsilo) have been cleaned up. */
@@ -1091,6 +1169,28 @@ export interface ObsidianAgentSettings {
      *  into the cross-vault GlobalFileService root (2026-05-19 fix for iCloud
      *  sync stalls on mobile). */
     _pluginDataDirsMigrated?: boolean;
+
+    /**
+     * FIX-19-01-12: one-shot removal of the `Inbox/Orphans/` entry from
+     * `vaultHealth.orphanExcludePathPrefixes`. That prefix was a default
+     * back when the orphan "auto-fix" moved notes into that folder. The
+     * move never created an incoming link, so the notes stayed orphans
+     * and the exclude prefix then hid exactly the notes the broken fix
+     * had relocated. Both are gone now; this clears the prefix out of
+     * existing data.json files. Only the exact legacy entry is dropped,
+     * so a user who deliberately excludes that folder for their own
+     * reasons keeps it if they re-add it after the migration ran.
+     */
+    _orphanExcludeLegacyCleaned?: boolean;
+
+    /**
+     * W4 (IMP-19-01-03): einmalige Uebersetzung deutscher Verdict-Literale
+     * in freshness.frontierSeverityFilter ('widerspricht' -> 'contradicts'
+     * usw.). Die v12-Migration uebersetzte nur die DB-Seite; ein deutsches
+     * Literal in der data.json haette den Filter nach Aktivierung still
+     * nie matchen lassen (FreshnessVerifier vergleicht englisch).
+     */
+    _freshnessVerdictLiteralsMigrated?: boolean;
 
     /** FEAT-29-01: layout migration progress. Resumable across plugin reloads.
      *  Phase order: pending -> backup-done -> data-vault-done -> cache-vault-done
@@ -1316,33 +1416,10 @@ export interface InlineActionsSettings {
      * Hits below the threshold fall back to LLM-only lookup. Default 0.7.
      */
     vaultRagConfidenceThreshold?: number;
-    /**
-     * FEAT-33-09: Show Vault source links in the Lookup tooltip.
-     * Default true. User-opt-out for sensitive vault forks.
-     */
-    showVaultSourcesInTooltip?: boolean;
-    /**
-     * Cap on how many Skills appear in the floating menu's
-     * skill-actions group. Default 10. Set to 0 to hide skills entirely.
-     */
-    skillsTopN?: number;
-    /**
-     * FEAT-33-08: per-skill inline capability. Key is the skill name
-     * (matches SelfAuthoredSkill.name). Value carries the same shape
-     * as InlineActionCapability. Skills without an entry are silently
-     * excluded from the Floating-Menu.
-     *
-     * This mapping lives in settings (NOT in skill frontmatter) so
-     * (a) the existing skill schema is untouched, and (b) the user
-     * explicitly opts a skill in as an inline action via the Settings
-     * UI rather than the skill author dictating it.
-     */
-    skillCapabilities?: Record<string, {
-        eligible: boolean;
-        output_mode: 'preview-block' | 'inline-diff' | 'side-panel' | 'tooltip';
-        input_format: 'markdown' | 'plain';
-        max_selection_chars?: number;
-    }>;
+    // FEAT-30-07: showVaultSourcesInTooltip, skillsTopN und
+    // skillCapabilities (FEAT-33-08/-33-09-Reste) entfernt. Alle drei
+    // bedienten den toten Legacy-Floating-Menu-Pfad oder wurden nie
+    // ausgewertet.
     /**
      * FEAT-33-12: how the inline chat is rendered in the editor.
      * - 'cm-block-widget' (default): CodeMirror block widget inserted
@@ -1363,26 +1440,40 @@ export interface InlineActionsSettings {
  * Settings fuer den Karpathy-Wiki-Pattern (BA-25): Note-Summary-
  * Generierung, Frontmatter-Pflege, optionaler Auto-Trigger,
  * PDF-Strategie. Alle Toggles default OFF (User-Trust per
- * ADR-95). Standard-Prompt aus BA-25 Anhang B (Sebastians Wortlaut).
+ * ADR-95). Standard-Prompt aus BA-25 Anhang B (des Nutzers Wortlaut).
  */
 export interface VaultIngestSettings {
     /** FEAT-19-08: konfigurierbarer Standard-Prompt fuer Auto-Summary. */
     summaryPrompt: {
-        /** Multi-Line String. Default = Sebastians Standard-Prompt-Wortlaut. */
+        /** Multi-Line String. Default = des Nutzers Standard-Prompt-Wortlaut. */
         template: string;
-        /** Optional: anderes Modell als der Default-LLM (zB Haiku statt Sonnet). */
-        modelOverride?: string;
+        // FEAT-30-07: `modelOverride` entfernt. War nie implementiert
+        // (kein UI, kein Read); Summary-Modell ist das Memory-Model.
     };
     /** FEAT-19-09: Auto-Generierung beim Indexing. */
     autoSummary: {
+        /**
+         * Erzeugt beim Indexing (Note create/modify) eine Ein-Satz-Summary
+         * per LLM. Sie landet in der knowledge.db (note_summaries) und
+         * speist den Top-Hub-Block -- NICHT im Note-Frontmatter. Der
+         * Frontmatter-Write passiert ausschliesslich im manuellen
+         * Backfill-Job, gated ueber writeFrontmatter.
+         */
         enabled: boolean;
         /**
-         * Wenn true und Frontmatter "Zusammenfassung" fehlt: System
-         * darf Property in der Vault-Note ergaenzen (FEAT-19-10,
-         * ADR-95). Default false. Bei Aktivierung steht ein einmaliger
-         * Backfill-Job an.
+         * Consent-Gate (ADR-95, FIX-30-07-01) fuer den manuellen
+         * Backfill-Job: nur bei true schreibt er die Summary als
+         * Frontmatter-Property in die Note. Default false.
          */
         writeFrontmatter: boolean;
+        /**
+         * Ziel-Property fuer den Backfill-Write. Default ist das
+         * OKF-Feld `description` (1 Satz, max 25 Woerter -- exakt das,
+         * was der Summary-Generator liefert). Frueher war hier
+         * `Zusammenfassung` hart verdrahtet, was nicht zum OKF-Template
+         * der Ingest-Skills passte. Leer = Default.
+         */
+        frontmatterProperty: string;
     };
     /** FEAT-19-27 (PLAN-12, Schema additiv vorbereitet). */
     autoTrigger: {
@@ -1405,6 +1496,26 @@ export interface VaultIngestSettings {
         enabled: boolean;
         /** User hat Privacy-Hint gelesen und bestaetigt. Toggle deaktiviert wenn false. */
         privacyAcknowledged: boolean;
+    };
+    /**
+     * FEAT-19-04-01: selbstbildender Rueckverweis-Block in Hub-Notes.
+     *
+     * Ersetzt den .base-Mechanismus: ein Auto-Block (id=incoming-links) im
+     * Notiz-Body listet als echte [[Wikilinks]], welche Notizen auf die Hub
+     * verweisen. "Hub" ist rein datengetrieben: eine Notiz mit mindestens
+     * `threshold` eingehenden Links. Sichtbar, portabel, agent-lesbar.
+     */
+    incomingLinksBlock: {
+        /** Default false: opt-in, weil es Notiz-Bodies materialisiert. */
+        enabled: boolean;
+        /**
+         * Ab wie vielen eingehenden Links gilt eine Notiz als Hub und bekommt
+         * einen Rueckverweis-Block. Default INCOMING_LINKS_DEFAULT_THRESHOLD (10).
+         * ACHTUNG: strukturelle Hub-Typen (person/topic/concept/project/
+         * organisation + DE-Synonyme) ignorieren diesen Wert und bekommen
+         * hartkodiert Threshold 1 (siehe hubTypeThreshold.ts, FIX-19-09-01).
+         */
+        threshold: number;
     };
     /**
      * FEAT-19-19: Stufe-2 Activity-Trigger.
@@ -1442,27 +1553,13 @@ export interface VaultIngestSettings {
         lastRunIso: string;
     };
     /**
-     * FEAT-19-31 / IMP-19-31-01: vom User konfigurierbare Frontmatter-
-     * Templates pro Ingest-Skill. Skill liest das angegebene File aus
-     * dem Vault und nutzt das Frontmatter als Basis fuer die generierte
-     * Quellen-Note. Bei leerem Pfad faellt der Skill auf die mit dem
-     * Plugin gebuendelten Defaults zurueck (siehe
-     * `bundled-templates/notes/`).
+     * FEAT-30-07: Die vier per-Skill-Template-Pfade (ingestNoteTemplate,
+     * ingestDeepNoteTemplate, meetingSummaryTemplate, quellenNotizTemplate)
+     * sind entfernt. Kein Code-Pfad hat die Werte je gelesen; die
+     * Ingest-Skills lesen das OKF Template hardcoded (IMP-19-31-04 dokumentiert
+     * die fehlende Settings-Interpolation in Skill-Subtasks).
      */
     templates: {
-        /** Vault-relativer Pfad. Default leer -> bundled `quelle-template.md`. Genutzt von /ingest. */
-        ingestNoteTemplate: string;
-        /** Vault-relativer Pfad. Default leer -> bundled `quelle-template.md`. Genutzt von /ingest-deep. */
-        ingestDeepNoteTemplate: string;
-        /** Vault-relativer Pfad. Default leer -> bundled `meeting-notiz-template.md`. Genutzt von /meeting-summary. */
-        meetingSummaryTemplate: string;
-        /**
-         * FEAT-29-14: Sense-Making-Note- / Zettel-Template fuer die
-         * sekundaeren Output-Notes von /ingest und /ingest-deep
-         * (Default-Kategorie "Quellen-Notiz"). Vault-relativer Pfad,
-         * default leer -> bundled `Notiz Template.md`.
-         */
-        quellenNotizTemplate: string;
         /**
          * FEAT-29-14: Sprache des materialisierten Template-Sets.
          * Wird im FirstRunWizardModal abgefragt und steuert welche
@@ -1475,7 +1572,7 @@ export interface VaultIngestSettings {
 }
 
 /**
- * BA-25 Anhang B: Sebastians vorgegebener Standard-Prompt-Wortlaut.
+ * BA-25 Anhang B: des Nutzers vorgegebener Standard-Prompt-Wortlaut.
  * Bleibt 1:1 als Default in Settings hinterlegt, vom User editierbar.
  */
 export const DEFAULT_SUMMARY_PROMPT_TEMPLATE = `Write a single one-sentence summary of the active note.
@@ -1489,18 +1586,22 @@ Suggest 2-3 entries for "Themen" (topics) and 2-3 entries for "Konzepte" (concep
 
 /**
  * AUDIT-024 L-2: single source of truth for the ingest-templates sub-shape.
- * VaultTab onChange handlers reuse this via spread to keep the migration
- * fallback consistent when a new template-field is added.
+ * FEAT-30-07: nur noch templatesLanguage; die vier toten Pfad-Felder sind weg.
  */
 export function DEFAULT_INGEST_TEMPLATES(): VaultIngestSettings['templates'] {
     return {
-        ingestNoteTemplate: '',
-        ingestDeepNoteTemplate: '',
-        meetingSummaryTemplate: '',
-        quellenNotizTemplate: '',
         templatesLanguage: '',
     };
 }
+
+/**
+ * FIX-19-09-01: eine Wahrheit fuer den Default-Threshold des Rueckverweis-Blocks.
+ * Frueher standen drei widerspruechliche Zahlen im Code (Interface-Kommentar 3,
+ * Default 10, Fallback `?? 5` in main.ts). 10 haelt den ersten Lauf auf die
+ * klarsten Hubs begrenzt; in den Settings absenkbar (Slider min 2). Strukturelle
+ * Hub-Typen ignorieren diesen Wert (hartkodiert 1, siehe hubTypeThreshold.ts).
+ */
+export const INCOMING_LINKS_DEFAULT_THRESHOLD = 10;
 
 export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
     summaryPrompt: {
@@ -1509,13 +1610,16 @@ export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
     autoSummary: {
         enabled: false,
         writeFrontmatter: false,
+        frontmatterProperty: 'description',
     },
     autoTrigger: {
         enabled: false,
         // 2026-05-18: english defaults for new installs. Existing
         // installs keep whatever the user persisted; the saved
         // settings overwrite these defaults on load.
-        propertyName: 'category',
+        // OKF-Template: Source-Notes tragen `type: - source`.
+        // Frueher 'category'/'source', was im OKF-Schema nichts matchte.
+        propertyName: 'type',
         propertyValue: 'source',
         notification: false,
     },
@@ -1523,6 +1627,14 @@ export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
     topHubBlock: {
         enabled: false,
         privacyAcknowledged: false,
+    },
+    incomingLinksBlock: {
+        // FEAT-19-04-01: Default AN (USER-Wahl). Beim ersten Lauf bekommen alle
+        // Hubs >= threshold ihren Rueckverweis-Block; strukturelle Hub-Typen
+        // schon ab dem ersten Backlink (hartkodiert 1). Der Settings-Threshold
+        // begrenzt den Rest auf die klarsten Hubs; in den Settings absenkbar.
+        enabled: true,
+        threshold: INCOMING_LINKS_DEFAULT_THRESHOLD,
     },
     templates: DEFAULT_INGEST_TEMPLATES(),
     stufe2Hint: {
@@ -1582,10 +1694,8 @@ export interface PluginApiSettings {
 
 /**
  * FEAT-29-12 Backup/Export-Tool settings.
- *   exportSecretsAllowed -- opt-in: when true, manual exports may include
- *     API keys. Default false. Auto-daily backups ALWAYS strip secrets
- *     regardless of this flag (a backup that the user did not explicitly
- *     trigger must not carry credentials).
+ *   (FEAT-30-07: exportSecretsAllowed entfernt. Der Key war tot; der
+ *     manuelle Export strippt Secrets hardcoded und Auto-Backups sowieso.)
  *   autoDailyEnabled -- when true, the plugin runs one selective backup
  *     per 24h on plugin boot.
  *   autoDailyTargetPath -- vault-relative folder for auto-daily ZIPs.
@@ -1597,7 +1707,6 @@ export interface PluginApiSettings {
  *     auto-daily backup. Used to gate the 24h interval.
  */
 export interface BackupSettings {
-    exportSecretsAllowed: boolean;
     autoDailyEnabled: boolean;
     autoDailyTargetPath: string;
     retentionCount: number;
@@ -1626,6 +1735,19 @@ export interface FreshnessSettings {
     frontierConfidenceThreshold: number;
     frontierSeverityFilter: ('matches' | 'extends' | 'contradicts' | 'outdated' | 'no_external_source')[];
     excludePaths: string[];
+    /**
+     * FEAT-19-03-01: der Scan deckt den GANZEN Vault alterungsgesteuert ab
+     * (keine manuelle Hot-Auswahl mehr). Diese Cluster werden NIE extern
+     * geprueft -- das Opt-out anstelle des frueheren Opt-in.
+     */
+    excludeClusters: string[];
+    /**
+     * FEAT-19-03-01: Wochenbudget in USD, editierbar. Deckelt den
+     * vault-weiten Lauf; hoeher = der Kaltstart-Rueckstand (nie geprueft)
+     * ist schneller aufgeholt. Wird per Live-Getter gelesen (ADR-163),
+     * damit eine Aenderung sofort greift.
+     */
+    weeklyBudgetUsd: number;
 }
 
 export const DEFAULT_FRESHNESS_SETTINGS: FreshnessSettings = {
@@ -1635,6 +1757,8 @@ export const DEFAULT_FRESHNESS_SETTINGS: FreshnessSettings = {
     frontierConfidenceThreshold: 0.7,
     frontierSeverityFilter: ['contradicts', 'outdated'],
     excludePaths: ['Private/', 'Personal/', 'Medical/', 'Clients/'],
+    excludeClusters: [],
+    weeklyBudgetUsd: 2.0,
 };
 
 // ---------------------------------------------------------------------------
@@ -1650,16 +1774,6 @@ export interface VaultHealthSettings {
      * a real decision still surface in the modal as before. Default
      * off so existing users see no behaviour change until they opt in.
      */
-    autoApplyRuleRepairs: boolean;
-
-    /**
-     * IMP-19-01-02: target folder for orphan-note auto-fix. When the
-     * user selects an `orphans` finding and applies repairs, the note
-     * is moved here via `app.fileManager.renameFile()`. Folder is
-     * auto-created. Default keeps the existing flat-vault convention
-     * (Inbox/Orphans/).
-     */
-    orphansTargetFolder: string;
 
     /**
      * FIX-19-01-05: silently drop the `with_context` orphan branch
@@ -1702,10 +1816,8 @@ export interface VaultHealthSettings {
 }
 
 export const DEFAULT_VAULT_HEALTH_SETTINGS: VaultHealthSettings = {
-    autoApplyRuleRepairs: false,
-    orphansTargetFolder: 'Inbox/Orphans',
     silenceWithContextOrphans: true,
-    orphanExcludePathPrefixes: ['TaskNotes/', 'Inbox/Orphans/'],
+    orphanExcludePathPrefixes: ['TaskNotes/'],
     reciprocalProperties: [['Notizen', 'Quellen']],
 };
 
@@ -1718,12 +1830,17 @@ export const DEFAULT_VAULT_HEALTH_SETTINGS: VaultHealthSettings = {
 // ---------------------------------------------------------------------------
 
 export interface RecipeSettings {
-    /** Master toggle — default false (opt-in) */
+    /** Master toggle, default true. User-Abwahl persistiert (FIX-30-07-02: kein Boot-Force-Enable mehr). */
     enabled: boolean;
     /** Per-recipe toggle: maps recipe id → boolean. Missing = enabled by default. */
     recipeToggles: Record<string, boolean>;
     /** User-defined custom recipes (validated on load) */
-    customRecipes: import('../core/tools/agent/recipeRegistry').Recipe[];
+    /**
+     * FEAT-30-07: persistierte Form (pattern als String, JSON-sicher).
+     * Laufzeitform via materializeCustomRecipes; Validierung load-time
+     * (validateStoredRecipe) und beim Speichern im Recipe-Editor.
+     */
+    customRecipes: import('../core/tools/agent/recipeRegistry').StoredRecipe[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1840,6 +1957,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     modeSkillAllowList: {},
     forcedWorkflow: {},
     modeMcpServers: {},
+    modeMcpOverrides: {},
 
     autoApproval: {
         // FIX-44-34: read/showMenuInChat/mode/question/todo removed -- they had
@@ -1945,7 +2063,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         v2MigrationReport: null,
         // BA-26 / FEAT-23-04: privacy-sichere Defaults fuer Cross-Surface MCP.
         // chatgpt + perplexity stehen auf manual, weil sie haeufig in
-        // Familien-Accounts genutzt werden (Sebastian-Use-Case).
+        // Familien-Accounts genutzt werden (user use case).
         crossSurface: {
             defaultSyncMode: 'auto',
             perProvider: {
@@ -1958,7 +2076,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
             },
             // FIX-23-01-01: Living-Document-Default. true = Auto-Continuation.
             livingDocumentByDefault: true,
-            // AUDIT-015 M-3: Cross-Source-ACL. Default OFF -- Sebastian
+            // AUDIT-015 M-3: Cross-Source-ACL. Default OFF -- der Nutzer
             // kann das ON setzen wenn ChatGPT/Perplexity strikt von
             // claude-ai/claude-code getrennt sein muessen.
             strictSourceIsolation: false,
@@ -1975,7 +2093,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     lastChatModelByProvider: {},
     persistChatModel: true,
     includeCurrentTimeInContext: false, // ADR-62 amendment: date is always present; time-of-day is opt-in (defeats caching)
-    showContextProgress: false,
     rulesToggles: {},
     workflowToggles: {},
     manualSkillToggles: {},
@@ -1987,7 +2104,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     },
     skillVersioning: { retentionCount: 20 },
     backup: {
-        exportSecretsAllowed: false,
         autoDailyEnabled: false,
         autoDailyTargetPath: '.vault-operator/cache/backups',
         retentionCount: 7,

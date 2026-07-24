@@ -178,6 +178,10 @@ export const TOOL_EFFECTS: Record<string, ToolEffectSpec> = {
     // Forces memory extraction into long-term storage.
     mark_for_memory: 'self-modify',
     manage_source: 'self-modify',
+    // Rewrites a skill's instructions. A trusted skill overrides tool selection
+    // and guidelines, so editing one changes future agent behaviour -- the same
+    // class of effect as update_soul. Always asks; never auto-approvable.
+    write_skill: 'self-modify',
 
     // --- Network egress ------------------------------------------------------
     web_fetch: 'web',
@@ -192,6 +196,8 @@ export const TOOL_EFFECTS: Record<string, ToolEffectSpec> = {
 
     // --- Subtasks ------------------------------------------------------------
     new_task: 'subtask',
+    // FEAT-24-10 / ADR-159: read-only delegation, same effect class as new_task.
+    investigate: 'subtask',
     run_in_background: 'subtask',
 
     // --- Skills / plugin commands --------------------------------------------

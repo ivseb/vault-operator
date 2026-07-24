@@ -27,6 +27,7 @@ import { PROGRESSIVE_DISCLOSURE_META_TOOLS } from './tools/toolEffects';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults, shouldDeferMicrocompact } from './context/MicroCompactor';
+import { computeAggregateBudgetChars, shrinkLargestHistoryToolResult } from './agent/toolResultBudget';
 import { FileDossier } from './context/FileDossier';
 import { MessageLog } from './history/MessageLog';
 import { InflightStore } from './agent/InflightStore';
@@ -44,7 +45,7 @@ import { FastPathInterceptor } from './agent/interceptors/FastPathInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay, parseOutputCapLimit } from '../api/retry';
-import { resolveOutputBudget, getModelContextWindow as registryContextWindow } from '../types/model-registry';
+import { resolveOutputBudget, getModelContextWindow as registryContextWindow, computeReadBudgetChars } from '../types/model-registry';
 import { learnOutputCap, learnEffortToolsUnsupported } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -140,7 +141,7 @@ export interface AgentTaskCallbacks {
     /** Called when attempt_completion fires — triggers todo auto-complete */
     onAttemptCompletion?: () => void;
     /** Called when ask_followup_question is invoked — pauses loop until resolved */
-    onQuestion?: (question: string, options: string[] | undefined, resolve: (answer: string) => void, allowMultiple?: boolean) => void;
+    onQuestion?: (question: string, options: string[] | undefined, resolve: (answer: string) => void) => void;
     /** Called when a write tool needs user approval — pauses loop until user decides */
     onApprovalRequired?: (
         toolName: string,
@@ -522,6 +523,40 @@ export class AgentTask {
      * FEAT-24-02: at a turn boundary, prune old tool_result contents to skeletons.
      * Idempotent and cheap (no LLM call). Logs when it actually freed something.
      */
+    /**
+     * FIX-24-03-05 / ADR-157 defence line 2: make sure the projected
+     * request fits the model window BEFORE it is sent. Ladder: (1)
+     * microcompact skeleton-prune, (2) full condense, (3) shrink the
+     * largest history tool_result in place (offset hint for vault
+     * reads). Tail-protection constants are untouched -- stage 3 targets
+     * one block surgically instead of loosening the global guards. The
+     * emergency path after a provider 400 stays as the final net.
+     */
+    private async ensureRequestFitsWindow(
+        history: MessageParam[],
+        overheadChars: number,
+        condense: () => Promise<boolean>,
+    ): Promise<void> {
+        const window = this.getModelContextWindow();
+        if (window <= 0) return;
+        const overheadTokens = this.tokenEstimator.tokensForChars(overheadChars);
+        const projected = () => this.estimateTokens(history) + overheadTokens;
+        if (projected() < window) return;
+
+        console.debug(
+            `[AgentTask] pre-request gate: projected ${projected()} tokens >= window ${window} -- compacting proactively`,
+        );
+        this.microcompact(history);
+        if (projected() < window) return;
+        await condense();
+        // Stage 3: shrink the largest results until it fits or nothing
+        // shrinkable is left (each call frees >0 or returns 0 -- bounded).
+        while (projected() >= window) {
+            const excessChars = (projected() - window + 1_000) * 4;
+            if (shrinkLargestHistoryToolResult(history, excessChars) === 0) break;
+        }
+    }
+
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
         // FIX-COMPACT-09 (extended 2026-07-05): a prune rewrites history before
@@ -819,9 +854,9 @@ export class AgentTask {
 
         // Wire up context extensions for agent-control tools
         const askQuestion = this.taskCallbacks.onQuestion
-            ? (question: string, options?: string[], allowMultiple?: boolean): Promise<string> => {
+            ? (question: string, options?: string[]): Promise<string> => {
                 return new Promise<string>((resolve) => {
-                    this.taskCallbacks.onQuestion!(question, options, resolve, allowMultiple);
+                    this.taskCallbacks.onQuestion!(question, options, resolve);
                 });
             }
             : undefined;
@@ -1306,11 +1341,30 @@ export class AgentTask {
                 // history). Now we build the anchored version inside
                 // safeHistory below and never touch the live history.
 
+                // FIX-24-03-05 / ADR-157 defence line 2: pre-request budget
+                // gate. Happy path is pure arithmetic (estimator only); the
+                // compaction ladder runs ONLY when the projection would
+                // exceed the window -- the case that today ends in a
+                // provider 400 plus emergency retry.
+                const toolsJsonChars = JSON.stringify(tools).length;
+                await this.ensureRequestFitsWindow(
+                    history,
+                    systemPrompt.length + toolsJsonChars,
+                    () => this.condenseHistory(
+                        history, systemPrompt, abortSignal, repetitionDetector.getLedger(),
+                    ),
+                );
+
                 // Stream the LLM response (pass abort signal for cancellation)
                 // BUG-017: drop orphan tool_use / tool_result blocks before send.
                 // Anthropic returns 400 if any tool_use has no matching tool_result
                 // and Claude-via-Copilot inherits the same constraint.
-                let safeHistory = sanitizeAndLog(history, 'main-loop');
+                // Defence line 3 (reload poisoning): cap any single persisted
+                // result at the read-budget ceiling for the ACTIVE model.
+                let safeHistory = sanitizeAndLog(
+                    history, 'main-loop',
+                    computeReadBudgetChars(this.getModelContextWindow()) + 4_000,
+                );
                 // FIX-PERF-22: append the todo anchor to the LAST user
                 // message of the sanitized history only. The live history
                 // stays unmutated, so a mid-stream throw no longer leaves
@@ -1326,7 +1380,7 @@ export class AgentTask {
                 // against the provider-reported real prompt size.
                 const requestChars = systemPrompt.length
                     + TokenEstimator.sumChars(safeHistory)
-                    + JSON.stringify(tools).length;
+                    + toolsJsonChars;
                 // ADR-148: one-shot count_tokens seed before the FIRST request
                 // of a large task, where the estimator is still uncalibrated
                 // and a mis-estimate hurts most (output budget, condense gate).
@@ -1541,6 +1595,12 @@ export class AgentTask {
                     qualityGateFor: (toolName) => TOOL_METADATA[toolName]?.qualityGateChecklist,
                     consecutiveMistakeLimit: this.consecutiveMistakeLimit,
                     parallelSafe: PARALLEL_SAFE,
+                    // FIX-24-03-05 defence line 1: aggregate budget for this
+                    // turn's results, live window + live history estimate.
+                    getResultBudgetChars: () => computeAggregateBudgetChars(
+                        this.getModelContextWindow(),
+                        this.estimateTokens(history),
+                    ),
                     saveInflightSnapshot: this.inflightStore
                         ? () => {
                             void this.inflightStore?.saveSnapshot({
@@ -1555,6 +1615,18 @@ export class AgentTask {
                         : undefined,
                 }, { interceptors: loopInterceptors, activeMode });
 
+                // Issue 3 Wave A: bail before the post-batch condense trigger
+                // when Stop already landed. maybeCondenseAfterToolBatch can
+                // fire a condensing LLM call, which would keep a stopped run
+                // visibly working after the user pressed Stop. The loop-top
+                // check at iteration start also breaks, but that is AFTER this
+                // await -- so guard here too. History is already consistent
+                // (the engine pushed the tool_results above), so breaking now
+                // is clean.
+                if (abortSignal?.aborted) {
+                    console.debug('[AgentTask] Abort detected after tool batch -- skipping condense and breaking');
+                    break;
+                }
                 // IMP-41-02-01 stage 3b: post-batch condense trigger
                 // (microcompact, threshold condense with retries, else the
                 // gentler rolling summary) runs in the engine — only after
@@ -1598,7 +1670,10 @@ export class AgentTask {
                     });
                     try {
                         // BUG-017: same orphan-cleanup as the main loop.
-                        const safeHistoryHardLimit = sanitizeAndLog(history, 'hard-limit-recovery');
+                        const safeHistoryHardLimit = sanitizeAndLog(
+                            history, 'hard-limit-recovery',
+                            computeReadBudgetChars(this.getModelContextWindow()) + 4_000,
+                        );
                         logInputBreakdown('hard-limit-recovery', cachedSystemPrompt, safeHistoryHardLimit, []);
                         for await (const chunk of this.api.createMessage(cachedSystemPrompt, safeHistoryHardLimit, [], abortSignal)) {
                             if (chunk.type === 'text') {
@@ -1657,8 +1732,14 @@ export class AgentTask {
             // exits also produce an episode (telemetry-complete). The
             // ADR-018 contract (toolSequence + toolLedger) is preserved.
 
-            // ADR-063: Clean up externalized temp files after task completion
-            await pipeline.cleanupExternalized();
+            // ADR-063: Clean up externalized temp files after task completion.
+            // Issue 3 Wave A: fire-and-forget instead of awaited. Cleanup does
+            // retry-heavy FS ops that stall on iCloud during sync windows;
+            // awaiting it here gated onComplete() (and thus the UI unlock after
+            // Stop) on that stall. ResultExternalizer.cleanupOrphaned sweeps
+            // anything left behind on the next plugin start, so backgrounding
+            // it loses nothing.
+            void pipeline.cleanupExternalized();
 
             // ADR-090 Lever 10: emit telemetry before completing
             this.taskCallbacks.onTaskTelemetry?.({

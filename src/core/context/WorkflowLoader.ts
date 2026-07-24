@@ -62,6 +62,36 @@ export class WorkflowLoader {
     }
 
     /**
+     * Resolve a workflow slug to its explicit-instructions block, or null when
+     * the workflow cannot be applied: no matching file, toggled off, empty
+     * slug, or unreadable. The null result is what lets a caller tell "applied"
+     * apart from "not applicable" -- processSlashCommand cannot, because it
+     * returns the input text unchanged on every miss, which is how the forced
+     * workflow path used to send plain text without any warning (FIX-02-02-01,
+     * defect a).
+     */
+    async loadInstructions(
+        slug: string,
+        toggles: Record<string, boolean>,
+    ): Promise<string | null> {
+        if (!slug) return null;
+
+        const workflows = await this.discoverWorkflows();
+        const match = workflows.find((w) => w.slug === slug);
+        if (!match) return null; // no match
+
+        // Check toggle (enabled by default)
+        if (toggles[match.path] === false) return null;
+
+        try {
+            const content = await this.fs.read(match.path);
+            return `<explicit_instructions type="${slug}">\n${content.trim()}\n</explicit_instructions>`;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * If `text` starts with /slug (optionally followed by a space + rest-of-message),
      * load the matching workflow and prepend it as instructions.
      * Returns the transformed message, or the original text if no match.
@@ -77,22 +107,10 @@ export class WorkflowLoader {
         const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
         const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
 
-        if (!slug) return text;
+        const instructions = await this.loadInstructions(slug, toggles);
+        if (instructions === null) return text; // pass through as-is
 
-        const workflows = await this.discoverWorkflows();
-        const match = workflows.find((w) => w.slug === slug);
-        if (!match) return text; // no match — pass through as-is
-
-        // Check toggle (enabled by default)
-        if (toggles[match.path] === false) return text;
-
-        try {
-            const content = await this.fs.read(match.path);
-            const instructions = `<explicit_instructions type="${slug}">\n${content.trim()}\n</explicit_instructions>`;
-            return rest ? `${instructions}\n\n${rest}` : instructions;
-        } catch {
-            return text;
-        }
+        return rest ? `${instructions}\n\n${rest}` : instructions;
     }
 
     /**

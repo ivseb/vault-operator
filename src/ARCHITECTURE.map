@@ -80,6 +80,8 @@ safe-storage              | src/core/security/SafeStorageService.ts             
 # UI
 sidebar                   | src/ui/AgentSidebarView.ts                            | -                | new sidebar action: extend command map and renderer
 modals                    | src/ui/modals/                                        | -                | new modal: extend modal registry; FirstRunWizard, MemoryV2Upgrade, MemoryViewer, PluginPatch, Prompt, SoakReport, VaultHealthRepair
+vault-health repair plan   | src/core/knowledge/vaultHealthRepairPlan.ts           | ADR-165, ADR-166 | pure plan/cap/outcome logic; extend here, the modal stays thin
+view-type constants | src/ui/viewTypes.ts | - | Neue View-Types hier ergaenzen; nie aus View-Klassen importieren (zieht Obsidian-Laufzeitklassen in Test-Graphen, IMP-19-01-03)
 diff-review               | src/ui/edit-review/EditReviewPanel.ts                             | -                | new diff layout: extend renderer plus toolbar
 model-config              | src/ui/settings/ModelConfigModal.ts                   | -                | new model preset: extend MODEL_REGISTRY plus defaults
 mcp-tab                   | src/ui/settings/McpTab.ts                             | ADR-05          | new MCP entry: extend tab renderer
@@ -88,12 +90,17 @@ modes-tab                 | src/ui/settings/ModesTab.ts                         
 embeddings-tab            | src/ui/settings/EmbeddingsTab.ts                      | ADR-79          | new embedding source UI: extend renderer
 backup-tab                | src/ui/settings/BackupTab.ts                          | ADR-79          | new backup target: extend BackupService and renderer
 tool-picker               | src/ui/sidebar/ToolPickerPopover.ts                   | ADR-16          | new tool category: extend popover groups
+popover-shell             | src/ui/sidebar/popoverShell.ts                        | ADR-160         | new popover: positionPopover + PopoverDismisser, never hand-roll dismiss listeners
+ui-refresh-hub            | src/core/events/RefreshHub.ts                         | ADR-160         | cross-surface chip refresh: notify() at write sites, subscribe() while mounted
 onboarding                | src/ui/sidebar/OnboardingFlow.ts                      | -                | new onboarding step: extend step list
 
 # MCP
 mcp-bridge                | src/mcp/McpBridge.ts                                  | ADR-05, ADR-81 | new transport: implement McpTransport interface
 mcp-tools                 | src/mcp/tools/index.ts                                | ADR-73          | new tool integration: extend tool registry mapping
 relay-client              | src/mcp/RelayClient.ts                                | ADR-55          | extend relay protocol or auth path
+mcp-oauth                 | src/core/mcp/McpOAuthProvider.ts                      | ADR-154, ADR-155, ADR-156 | new OAuth connector: add a catalog entry with its authClass; engine unchanged
+mcp-connector-catalog     | src/core/mcp/connectorCatalog.ts                      | ADR-156         | new connector: add a catalog entry (name, url, transport, authClass, scopes)
+mcp-registry-discovery    | src/core/mcp/registryDiscovery.ts                     | ADR-156         | registry search client (official MCP registry /v0.1): adjust filters/mapping here
 
 # SANDBOX
 sandbox                   | src/core/sandbox/SandboxBridge.ts                     | -                | new sandbox executor: implement SandboxExecutor interface
@@ -179,7 +186,6 @@ inline-diff-state         | src/core/inline/diff/InlineDiffStateField.ts        
 inline-lookup-rag         | src/core/inline/lookup/VaultRagPipeline.ts            | ADR-142         | new RAG variant: extend confidence filter or augmenter, reuse VectorStore.findNoteVectors
 inline-chat-block         | src/core/inline/chat/InlineChatBlockRenderer.ts       | ADR-143         | new fence version: bump tag vault-operator-chat-vN, add migration in InlineChatBlockParser
 inline-settings-snapshot  | src/core/inline/settings/InlineActionSettingsSnapshot.ts | ADR-140      | new snapshot field: add to settings cache invalidation, propagate through Per-Action-Pin
-inline-skill-filter       | src/core/inline/skills/InlineSkillFilter.ts           | ADR-141         | new capability field: extend inlineActionCapability schema in skill-manifest
 inline-telemetry          | src/core/inline/telemetry/InlineActionTelemetry.ts    | ADR-144         | new event type: add to OperationLogger event-type enum, sanitize before persist
 agent-task-runner         | src/core/agent/AgentTaskRunner.ts                     | ADR-138         | new caller site: provide ToolCallbacks, AgentTaskRunConfig, call runner instead of new AgentTask
 
@@ -246,6 +252,9 @@ ADR-51 | knowledge-db           | Stufen-Retrieval-Pipeline
 ADR-52 | knowledge-db           | Local Reranker Integration
 ADR-53 | mcp                    | MCP Server Prozess-Architektur
 ADR-54 | mcp                    | MCP Tool-Mapping und System-Prompt-Uebertragung
+ADR-154 | mcp-oauth             | OAuth 2.1 for outbound MCP connectors via the bundled SDK authProvider
+ADR-155 | mcp-oauth             | OAuth redirect capture and token-at-rest for MCP connectors
+ADR-156 | mcp-oauth             | MCP connector catalog with auth classes
 ADR-55 | mcp                    | Remote MCP Relay via Cloudflare Workers plus Durable Objects
 ADR-56 | website                | Static Site Generator fuer Website-Dokumentation
 ADR-57 | website                | Informationsarchitektur und Seitenstruktur
@@ -335,7 +344,6 @@ ADR-105 | freshness-orchestrator | src/core/health/FreshnessOrchestrator.ts -- P
 ADR-105 | freshness-note-selector| src/core/health/NoteSelector.ts -- liest note_freshness.freshness_class als Scheduling-Heuristik, dismissed_freshness als User-Override-Filter (IMP-20-06-01 Amendment)
 ADR-106 | knowledge-review-tab   | src/ui/modals/VaultHealthRepairModal.ts -- Knowledge-review Tab: per-note Verdicts (Severity-Mapping) PLUS cluster_freshness Findings (aus Findings-Tab gefiltert) (IMP-20-06-01 W3-T1, Rename 2026-06-19)
 ADR-106 | knowledge-review-reader| src/core/health/KnowledgeReviewReader.ts -- Read-Side fuer note_freshness + history mit Severity-Mapping outdated/contradicts-high->critical (IMP-20-06-01 W3-T1, Rename 2026-06-19)
-ADR-106 | resolve-conflict-modal | src/ui/modals/ResolveConflictModal.ts -- Single-Note MarkVerified/OpenInChat/Edit/Delete (IMP-20-06-01 W3-T2)
 ADR-106 | batch-resolve-modal    | src/ui/modals/BatchResolveModal.ts -- Bulk-Apply mit Severity+Confidence-Filter, Abort (IMP-20-06-01 W3-T3)
 ADR-95  | freshness-frontmatter-allowlist | src/core/health/FreshnessFrontmatterPatcher.ts -- single-key 'freshness' allowlist filter ueber FrontmatterWriter (IMP-20-06-01 W4-T1)
 ADR-135 | zdr-capability         | src/core/health/ZdrCapabilityResolver.ts -- liest ProviderConfig.zdrCapable, Frontier-Eskalation nur unter ZDR+enabled+flagship-tier (IMP-20-06-01 W4-T2)
@@ -355,3 +363,11 @@ ADR-144 | inline-action-telemetry | OperationLogger-Erweiterung um 4 Event-Typen
 inline-selection-watcher  | src/core/inline/SelectionWatcher.ts                    | ADR-138 ADR-141 | new trigger: extend mouseup/keyup hooks oder Floating-Menu-Open-Logic
 inline-codemirror-diff    | src/core/inline/diff/CodeMirrorDiffAdapter.ts          | ADR-139         | new diff-visualisation: extend StateField/Effect + Decoration.mark/widget
 inline-actions-tab        | src/ui/settings/InlineActionsTab.ts                    | ADR-138 ADR-140 | new inline-action: add row im knownActions-Array + Setting
+
+# Issue-61 context-overflow wave (added 2026-07-17, concept rows added with /coding)
+context-overflow-guardrail | src/core/agent/toolResultBudget.ts                | ADR-157         | new truncation strategy: extend READ_OFFSET_TOOLS / truncateResultString; budget knobs: AGGREGATE_RESERVE_* constants
+context-window-resolution  | src/core/routing/tierResolution.ts               | ADR-158, ADR-148 | stage 1 lives in providerConfigToCustomModel (MIN_PLAUSIBLE_CONTEXT_WINDOW clamp); providers fall back via config.contextWindow ?? registry
+investigate-delegation-tool| src/core/tools/agent/InvestigateTool.ts          | ADR-159, ADR-113 | adjust profile in src/core/agent/subagent-profiles.ts (INVESTIGATE_PROFILE); registration via TOOL_METADATA group 'agent'
+ADR-157 | agent-loop            | Kontext-Overflow-Guardrail -- Aggregat-Budget im Tool-Batch, Pre-Request-Gate, Wire-Sanitisierung
+ADR-158 | model-metadata        | Kontextfenster-Aufloesungskette -- provider-gemeldet (Discovery) vor Registry vor Claude-Inferenz vor Default
+ADR-159 | agent-loop            | investigate-Delegations-Tool -- Profil-Registry, Quellenanker-Kontrakt, mid-Tier-Routing, Kosten-Rollup

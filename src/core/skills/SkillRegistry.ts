@@ -12,6 +12,27 @@
 import type { VaultDNAScanner } from './VaultDNAScanner';
 import type { PluginSkillMeta } from './types';
 import { getAllowedMethodsForPlugin } from '../tools/agent/pluginApiAllowlist';
+// FIX-29-05-06: plugin manifest.json name/description reach the system prompt.
+// A DISABLED plugin is the non-degenerate case: its manifest is in the prompt
+// without the author ever having executed code.
+import { sanitizeDirectoryEntry } from '../tools/BaseTool';
+
+/**
+ * AUDIT FIX-29-05 L-4: Obsidian's manifest loader only checks that `id` is
+ * truthy, so a manifest id can carry newlines and arbitrary text into the
+ * trusted PLUGIN SKILLS prompt block.
+ *
+ * Constrained HERE, at the sink, and deliberately NOT at the source: `id` is an
+ * identity used for real lookups (getAllowedMethodsForPlugin, the plugin-skill
+ * folder path, manifest resolution in EnablePluginTool). Rewriting it where the
+ * data is produced would silently break those mappings for any plugin whose id
+ * needed rewriting -- the same sanitize-at-the-sink rule the rest of this wave
+ * follows. A real plugin id already matches this charset, so this is a no-op
+ * for every legitimate plugin.
+ */
+function safePromptId(id: string): string {
+    return id.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 60) || 'unknown-plugin';
+}
 
 export class SkillRegistry {
     private scanner: VaultDNAScanner;
@@ -119,7 +140,7 @@ export class SkillRegistry {
             for (const skill of active) {
                 const cmdList = skill.commands.map((c) => `${c.id}`).join(', ');
                 const type = skill.source === 'core' ? 'Core' : 'Community';
-                lines.push(`- ${skill.name} [${type}] -- ${skill.description}`);
+                lines.push(`- ${sanitizeDirectoryEntry(skill.name, 80)} [${type}] -- ${sanitizeDirectoryEntry(skill.description, 300)}`);
                 if (cmdList) {
                     lines.push(`  Commands: ${cmdList}`);
                 }
@@ -130,7 +151,7 @@ export class SkillRegistry {
                 const apiMethods = getAllowedMethodsForPlugin(skill.id);
                 if (apiMethods.length > 0) {
                     const methodList = apiMethods.map((m) => m.method).join(', ');
-                    lines.push(`  API (call_plugin_api "${skill.id}" "<method>", args): ${methodList}`);
+                    lines.push(`  API (call_plugin_api "${safePromptId(skill.id)}" "<method>", args): ${methodList}`);
                 }
                 if (skill.needsSetup) {
                     lines.push('  [NEEDS SETUP -- read .skill.md for details]');
@@ -168,8 +189,8 @@ export class SkillRegistry {
         if (others.length > 0) {
             lines.push('OTHER ENABLED PLUGINS (no agentifiable commands found at scan time, but installed and enabled):');
             for (const p of others) {
-                const desc = p.description ? ` -- ${p.description}` : '';
-                lines.push(`- ${p.name} (${p.id})${desc}`);
+                const desc = p.description ? ` -- ${sanitizeDirectoryEntry(p.description, 300)}` : '';
+                lines.push(`- ${sanitizeDirectoryEntry(p.name, 80)} (${safePromptId(p.id)})${desc}`);
             }
             lines.push('');
             lines.push('IMPORTANT: NEVER tell the user "this plugin does not exist" or "I cannot create that format" when one of these plugins is listed above. Instead:');
@@ -183,7 +204,7 @@ export class SkillRegistry {
         if (disabled.length > 0) {
             lines.push('DISABLED PLUGINS (installed but not active):');
             for (const skill of disabled) {
-                lines.push(`- ${skill.name} (${skill.id}) -- ${skill.description}`);
+                lines.push(`- ${sanitizeDirectoryEntry(skill.name, 80)} (${safePromptId(skill.id)}) -- ${sanitizeDirectoryEntry(skill.description, 300)}`);
             }
             lines.push('');
             lines.push('When a disabled plugin matches the user\'s request:');

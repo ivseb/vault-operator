@@ -1,11 +1,12 @@
-import { Notice, setIcon } from 'obsidian';
+import { Notice, setIcon, type App } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { OperationLogger, LogEntry } from '../../core/governance/OperationLogger';
 import { t } from '../../i18n';
+import { confirmModal } from '../modals/PromptModal';
 
 
 export class LogTab {
-    constructor(private plugin: ObsidianAgentPlugin, private _app: unknown, private rerender: () => void) {}
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     private buildIntroSection(containerEl: HTMLElement): void {
         const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
@@ -128,6 +129,14 @@ export class LogTab {
 
         clearLogBtn.addEventListener('click', () => { void (async () => {
             if (!logger) return;
+            // FEAT-30-07: destruktive Aktion braucht Confirm (Konvention).
+            const ok = await confirmModal(this.app, {
+                title: t('settings.log.clearConfirmTitle'),
+                message: t('settings.log.clearConfirmMessage'),
+                confirmLabel: t('settings.log.clearAll'),
+                cancelLabel: t('settings.log.clearConfirmCancel'),
+            });
+            if (!ok) return;
             await logger.clearLogs();
             logTableWrap.empty();
             dateSelect.empty();

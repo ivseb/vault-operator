@@ -11,9 +11,11 @@ This skill guides the agent through creating a Vault Operator skill that another
 
 ## Binding rules (read first, no exceptions)
 
-1. **The skill folder lives ONLY at `<agent-folder>/data/skills/{skill_name}/`.** Any other path (`Tools & Settings/Skills/`, `Notes/skills/`, vault-root, etc.) is invisible to the discovery layer. A skill written elsewhere does not exist.
-2. **`init_skill` is the ONLY way to create the folder.** Do NOT call `create_folder` or `write_file` to seed a new skill manually. Even when you "know" the layout, route through `init_skill` so the validator stays happy and the source-frontmatter is correct.
-3. **Existing artifacts at the wrong path are NOT proof the task is done.** If you find a half-finished `weekly-meeting-summary` under `Tools & Settings/Skills/` or similar, treat it as garbage from a previous broken run. Delete it after you have the real skill landed at `data/skills/{name}/`.
+1. **You never write the on-disk path yourself.** Three tools own every skill I/O: `init_skill` (create), `write_skill` (change SKILL.md OR any file under `scripts/`, `references/`, `assets/`), `read_skill` (load). They resolve the path from the host. Any `create_folder` / `write_file` with a path like `data/skills/...`, `.vault-operator/data/skills/...`, `<agent-folder>/data/skills/...`, `skills/...`, `Notes/skills/...` or a vault-root guess is a bug: `<agent-folder>` is a placeholder for a user setting you cannot see, and a wrong-path skill is invisible to the discovery layer.
+2. **`init_skill` is the ONLY way to seed a new folder.** Do NOT call `create_folder` or `write_file` to seed a new skill manually. Even when you "know" the layout, route through `init_skill` so the validator stays happy and the source-frontmatter is correct.
+   - **Adding a new file to an existing skill goes through `write_skill` too.** A new `scripts/foo.js`, `references/bar.md` or `assets/baz.png` is a `write_skill {name, content, file:"scripts/foo.js"}` call, not a `write_file` at a guessed path. `write_skill` accepts new sub-file paths, resolves the skill folder for you, and snapshots the old version.
+   - **Revising an existing skill.** When the user wants to change a skill that already exists ("improve this skill", a named defect), do NOT scaffold and do NOT guess a filesystem path. Read it with `read_skill <name>`, then write the change back by name with `write_skill {name, content}` (or `file:"references/x.md"` for a resource).
+3. **Existing artifacts at the wrong path are NOT proof the task is done.** If you find a half-finished `weekly-meeting-summary` under `Tools & Settings/Skills/`, `Inbox/Orphans/`, the vault-root `data/skills/`, or any similar place, treat it as garbage from a previous broken run. Delete it. The real skill lives where `init_skill` put it; the discovery layer scans one root only.
 4. **`quick_validate` is mandatory before declaring done.** Step 5 is not optional. A skill that "looks right" but was never validated is not finished.
 5. **Do not short-circuit by reusing a similar-sounding existing skill.** When the user asks to BUILD a new skill, build a new one. Reuse means edit-and-save under the same name -- different name means new skill, even if the domain overlaps with something that already exists.
 
@@ -117,15 +119,16 @@ List the planned scripts, references, and assets before initializing.
 ### Step 3: Initialize the skill folder (MANDATORY before any write)
 
 Call the `init_skill` helper script. This is the only valid way to
-seed the folder. It creates the layout under
-`<agent-folder>/data/skills/{name}/` with a SKILL.md template (TODO
-placeholders) plus empty `scripts/`, `references/`, `assets/` folders
-and stamps `source: user` into the frontmatter.
+seed the folder. It creates the folder at a location it takes from
+the host and stamps `source: user` into the frontmatter, plus empty
+`scripts/`, `references/`, `assets/` folders and a SKILL.md template.
+You do not need to know or type the path.
 
-NEVER substitute manual `write_file` calls for this step. The
-discovery layer relies on the `source: user` marker plus the exact
-folder location -- bypass either and the skill loads as a stray
-artifact (or not at all).
+NEVER substitute manual `write_file` calls for this step, and NEVER
+guess a path from the placeholder text. `<agent-folder>` is a user
+setting you cannot see; typing `data/skills/{name}/` writes into the
+vault root, where the discovery layer never scans. The skill then
+does not exist even though a file was written.
 
 ```
 run_skill_script({
@@ -144,6 +147,20 @@ are NOT overwritten -- the script refuses if the target exists.
 ### Step 4: Edit the skill
 
 Now fill out the SKILL.md body and write the resources you planned.
+Every write goes through `write_skill` -- by name, not by path. The
+tool resolves the folder and snapshots the previous version.
+
+```
+write_skill {name: "my-new-skill", content: "<full SKILL.md body>"}
+write_skill {name: "my-new-skill", content: "<file body>", file: "scripts/foo.js"}
+write_skill {name: "my-new-skill", content: "<file body>", file: "references/bar.md"}
+```
+
+Do NOT use `write_file` with any path that looks like the skill's
+folder -- neither `data/skills/...`, `.vault-operator/...`, nor a
+guess at `<agent-folder>`. `write_skill` is the sink for SKILL.md and
+for every sub-file under `scripts/`, `references/`, `assets/`, new or
+existing.
 
 Writing guidelines:
 
@@ -195,7 +212,7 @@ Link these from the new skill's SKILL.md only when the new skill itself follows 
 
 ## Where the skill lands
 
-Skills created via this workflow land in `<agent-folder>/data/skills/{name}/` with `source: agent` written to frontmatter by `init_skill`. The agent never writes into `builtin/` (Sebastian-managed) or under a plugin-id source (VaultDNA-managed) -- the validator rejects that.
+`init_skill` writes the skill into a folder the host resolves and stamps `source: agent` into the frontmatter. You do not need to know the exact path -- `read_skill`, `write_skill` and the Settings UI all find it by name. The agent never writes into `builtin/` (maintainer-managed) or under a plugin-id source (VaultDNA-managed) -- the validator rejects that.
 
 The Source column in Settings -> Skills distinguishes three categories:
 

@@ -5,7 +5,7 @@ description: Common issues and how to fix them.
 
 # Troubleshooting
 
-Fixes for the most common Vault Operator issues. If your problem is not listed here, open Settings > Vault Operator > Advanced > Debug and check the latest log entries, or ask in the community forum.
+Fixes for the most common Vault Operator issues. If your problem is not listed here, open Settings > Vault Operator > Advanced > Data & diagnostics and check the latest log entries, or ask in the community forum.
 
 :::info Plugin name in Obsidian
 The plugin is called **Vault Operator** in Obsidian (Settings > Community plugins). It is not listed as "Obsidian Agent". The plugin id is `vault-operator`.
@@ -20,7 +20,7 @@ Symptom: "Connection failed" or "API key invalid" when testing a model.
 | Wrong API key | Re-enter the key in Settings > Vault Operator > Providers > Providers. Regenerate it at the provider's website if unsure. |
 | Expired key | Some providers expire keys after inactivity. Generate a new one. |
 | Wrong base URL | For Azure and custom endpoints, verify the full URL including `/v1` if required. |
-| Rate limited | Wait a few minutes and try again. Consider setting a rate limit in Settings > Vault Operator > Advanced > Loop. |
+| Rate limited | Wait a few minutes and try again. Consider setting a rate limit in Settings > Vault Operator > Agents > Loop. |
 | Firewall or proxy | Obsidian uses Electron's network stack. Check that your firewall allows outbound HTTPS. |
 
 :::tip Test connection
@@ -51,10 +51,10 @@ Symptom: The agent keeps calling tools repeatedly without making progress, or hi
 | Cause | Solution |
 |-------|----------|
 | Weak model | Smaller or older models sometimes repeat themselves. Switch to a flagship model (Claude Sonnet, GPT-4o, GPT-5-class). |
-| Consecutive error limit too high | Lower it in Settings > Vault Operator > Advanced > Loop > Consecutive error limit (default: 3). |
-| Max iterations too high | Set a reasonable cap in Settings > Vault Operator > Advanced > Loop > Max iterations (default: 25). |
+| Consecutive error limit too high | Lower it in Settings > Vault Operator > Agents > Loop > Consecutive error limit (default: 3). |
+| Max iterations too high | Set a reasonable cap in Settings > Vault Operator > Agents > Loop > Max iterations (default: 25). |
 | Approval pending | The agent paused on an approval and is waiting for you. Approve or deny in the chat to let it continue. |
-| Context overflow | Enable **context condensing** in Settings > Vault Operator > Advanced > Loop. Lower the condensing threshold if you see 400-errors. |
+| Context overflow | Enable **context condensing** in Settings > Vault Operator > Agents > Loop. Lower the condensing threshold if you see 400-errors. |
 
 :::info Emergency stop
 Click the **Stop** button in the chat toolbar at any time to halt the agent. You can undo any changes already made via the checkpoint system.
@@ -90,7 +90,7 @@ Symptom: Obsidian feels slow, the agent takes a long time, or the UI lags.
 | Cause | Solution |
 |-------|----------|
 | Large vault indexing | The semantic index build runs in the background. Wait for it to finish. |
-| Too many concurrent sub-agents | Lower the subtask depth cap in Settings > Vault Operator > Advanced > Loop (default: 2). |
+| Too many concurrent sub-agents | Lower the subtask depth cap in Settings > Vault Operator > Agents > Loop (default: 2). |
 | Large context window | Enable context condensing to keep the conversation from growing too large. |
 | Many MCP servers | Each connected server maintains an active connection. Remove unused servers in Settings > Vault Operator > Customize > Connectors. |
 | Slow model | Local models on limited hardware can be slow. Try a smaller model or switch to a cloud provider. |
@@ -128,10 +128,10 @@ Symptom: A 400 error with `context_length_exceeded`, `prompt is too long`, or th
 
 | Cause | Solution |
 |-------|----------|
-| Conversation too long for the model's context window | Enable **Context condensing** in Settings > Vault Operator > Advanced > Loop. The plugin keeps a stable cache-aligned prefix and condenses older turns. |
+| Conversation too long for the model's context window | Enable **Context condensing** in Settings > Vault Operator > Agents > Loop. The plugin keeps a stable cache-aligned prefix and condenses older turns. |
 | Threshold set too high | Lower **Condensing threshold** to 0.6 or 0.7. The plugin also runs an emergency condensing pass on any 400 context-overflow error. |
 | Very large @-mention attached to the chat | Plaintext, Markdown, and XML attachments are capped at 80,000 characters with a `read_file path=...` hint. Older builds injected the full text. Update the plugin, or split the source into smaller notes. |
-| Long tool output filling the context | Enable **Context externalization** in Settings > Vault Operator > Advanced > Loop. Large tool outputs are written to a temp file and the conversation keeps a compact reference (`read_file path=...`) instead of the full payload. |
+| Long tool output filling the context | Enable **Context externalization** in Settings > Vault Operator > Agents > Loop. Large tool outputs are written to a temp file and the conversation keeps a compact reference (`read_file path=...`) instead of the full payload. |
 
 ## Inline AI chat
 
@@ -172,11 +172,11 @@ Symptom: The agent does not remember things from previous conversations.
 | `400: tool_use ids were found without tool_result` | Anthropic or Claude-via-Copilot rejected the request because the conversation history had an orphan tool call. Usually caused by an aborted stream or a resumed crashed conversation. | v2.5.0 sanitises the history automatically on every API call, so this should no longer surface. If it does, start a new conversation. |
 | `400: Unsupported parameter: 'max_tokens' is not supported` | Old Copilot code path sending the wrong token-limit parameter. | v2.5.0 sends `max_completion_tokens` for every Copilot model. Update Vault Operator. |
 | `401: Unauthorized` | Invalid or expired API key. | Re-enter the key in Settings > Vault Operator > Providers > Providers. |
-| `429: Rate limit exceeded` | Too many API calls in a short time. | Set a rate limit in Settings > Vault Operator > Advanced > Loop, or wait and retry. |
+| `429: Rate limit exceeded` | Too many API calls in a short time. | Set a rate limit in Settings > Vault Operator > Agents > Loop, or wait and retry. |
 | `ECONNREFUSED` | Local server (Ollama, LM Studio) is not running. | Start the local server, then retry. |
 | `Checkpoint failed` | Could not create a file snapshot before editing. | Check disk space. Adjust the snapshot timeout in Settings > Vault Operator > Vault > Vault. |
 | Drawio or Diagrams plugin says "Not a diagram file" when opening a file the agent wrote | Hand-authored `.drawio.svg` without a valid mxfile wrapper. | Delete the broken file. Ask the agent again. v2.5.0 blocks direct `write_file` for `.drawio.svg` and routes to the built-in `create_drawio` tool, which writes a plugin-compatible format. |
 
 :::tip Debug surface
-Settings > Vault Operator > Advanced > Debug shows the agent's internal ring buffer (last 100 log entries), the generated system prompt, and connection status for each provider. Start here when something behaves unexpectedly.
+Settings > Vault Operator > Advanced > Data & diagnostics shows the agent's internal ring buffer (last 100 log entries), the generated system prompt, and connection status for each provider. Start here when something behaves unexpectedly.
 :::

@@ -9,7 +9,7 @@
  * Spike-1 verdict: ATTACH DATABASE in sql.js is not production-ready
  * (FS API not public). LocalKnowledgeAdapter therefore queries the
  * knowledge.db instance directly and joins results in JavaScript --
- * 0.3 ms p95 for 2-hop walks on Sebastian's vault, well below the
+ * 0.3 ms p95 for 2-hop walks on the user's vault, well below the
  * 500 ms target.
  *
  * FEATURE-0317 / PLAN-006 task 4.

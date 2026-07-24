@@ -14,7 +14,6 @@ import type ObsidianAgentPlugin from '../../../main';
 interface AskFollowupQuestionInput {
     question: string;
     options?: string[];
-    allow_multiple?: boolean;
 }
 
 export class AskFollowupQuestionTool extends BaseTool<'ask_followup_question'> {
@@ -43,12 +42,9 @@ export class AskFollowupQuestionTool extends BaseTool<'ask_followup_question'> {
                         type: 'array',
                         items: { type: 'string' },
                         description:
-                            'Optional list of suggested answers. If provided, the user can click one or type their own answer.',
-                    },
-                    allow_multiple: {
-                        type: 'boolean',
-                        description:
-                            'When true, the user can select multiple options (checkboxes). The answer will be a comma-separated list.',
+                            'Optional list of suggested answers. The user can click one to send it immediately, ' +
+                            'combine several (each option has a "+" that adds it to the input without sending), ' +
+                            'or type their own answer.',
                     },
                 },
                 required: ['question'],
@@ -57,7 +53,7 @@ export class AskFollowupQuestionTool extends BaseTool<'ask_followup_question'> {
     }
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
-        const { question, options, allow_multiple } = input as unknown as AskFollowupQuestionInput;
+        const { question, options } = input as unknown as AskFollowupQuestionInput;
         const { callbacks } = context;
 
         if (!question) {
@@ -74,7 +70,7 @@ export class AskFollowupQuestionTool extends BaseTool<'ask_followup_question'> {
         }
 
         try {
-            const answer = await context.askQuestion(question, options, allow_multiple);
+            const answer = await context.askQuestion(question, options);
             callbacks.pushToolResult(`<answer>${answer}</answer>`);
             callbacks.log(`User answered followup question: "${answer}"`);
         } catch (error) {

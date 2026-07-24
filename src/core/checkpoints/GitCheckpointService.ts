@@ -415,7 +415,7 @@ export class GitCheckpointService {
                             // FIX-01-07-03 diagnostic (kept): read back what's on disk right
                             // after the write. Originally added to spot reactive plugins
                             // (pretty-properties, TaskNotes, templater) that hook
-                            // vault.on('modify') and mutate the file. Sebastian's
+                            // vault.on('modify') and mutate the file. the user's
                             // 2026-05-23 repro proved no mismatch -- the disk is correctly
                             // restored. The warning still helps if a future plugin starts
                             // overwriting.

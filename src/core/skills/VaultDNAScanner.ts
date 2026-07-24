@@ -20,6 +20,7 @@ import {
     getVaultDnaPath,
 } from '../utils/agentFolder';
 import type { ObsidianAgentSettings } from '../../types/settings';
+import { sanitizeDirectoryEntry } from '../tools/BaseTool';
 import type { RecurringHandle } from '../../util/scheduleRecurring';
 
 /** FEATURE-0507: subset of the plugin used to resolve the configurable agent folder.
@@ -905,7 +906,7 @@ export class VaultDNAScanner {
             `source: ${skill.id}`,
             '---',
             '',
-            `# ${skill.name}`,
+            `# ${sanitizeDirectoryEntry(skill.name, 80)}`,
             '',
             metadataBlock,
             '',
@@ -1003,9 +1004,15 @@ export class VaultDNAScanner {
         redactedCount: number,
     ): string {
         const lines: string[] = [];
-        lines.push(`# ${skill.name}`);
+        // AUDIT FIX-29-05 M-3: manifest name/description are untrusted (any
+        // installed plugin, including one never enabled). This body is later
+        // read back and framed like any other skill, so it is a prompt sink --
+        // the earlier "writes a file, not a prompt" reasoning only held while
+        // the <imported-skill> envelope was assumed effective, which H-1 showed
+        // it was not. Same caps as the SkillRegistry directory line.
+        lines.push(`# ${sanitizeDirectoryEntry(skill.name, 80)}`);
         lines.push('');
-        lines.push(`**Description:** ${skill.description}`);
+        lines.push(`**Description:** ${sanitizeDirectoryEntry(skill.description, 300)}`);
         lines.push(`**Status:** ${skill.enabled ? 'Enabled' : 'Disabled'}`);
         lines.push(`**Plugin ID:** ${skill.id}`);
 
@@ -1047,12 +1054,12 @@ export class VaultDNAScanner {
         lines.push('');
         lines.push('## Configuration File');
         lines.push('');
-        lines.push(`Settings path: \`${configPath}\``);
+        lines.push(`Settings path: \`${sanitizeDirectoryEntry(configPath, 200)}\``);
         lines.push('');
         lines.push('To configure this plugin programmatically:');
-        lines.push(`1. Read the config: read_file("${configPath}")`);
+        lines.push(`1. Read the config: read_file("${sanitizeDirectoryEntry(configPath, 200)}")`);
         lines.push('2. Understand the settings structure and modify values as needed');
-        lines.push(`3. Write changes: write_file("${configPath}", updatedJSON)`);
+        lines.push(`3. Write changes: write_file("${sanitizeDirectoryEntry(configPath, 200)}", updatedJSON)`);
         lines.push('');
         lines.push('Do NOT ask the user to open Settings UI. Modify data.json directly.');
 
@@ -1069,7 +1076,7 @@ export class VaultDNAScanner {
                 lines.push(`(${redactedCount} sensitive field(s) redacted)`);
             }
             lines.push('');
-            lines.push(`For full settings, read: \`${configPath}\``);
+            lines.push(`For full settings, read: \`${sanitizeDirectoryEntry(configPath, 200)}\``);
         }
 
         // Documentation reference
@@ -1084,9 +1091,9 @@ export class VaultDNAScanner {
         lines.push('## Usage');
         lines.push('');
         if (skill.enabled) {
-            lines.push(`When the user asks for functionality related to ${skill.name}:`);
+            lines.push(`When the user asks for functionality related to ${sanitizeDirectoryEntry(skill.name, 80)}:`);
             lines.push(`1. Read the plugin documentation (.readme.md) to understand capabilities and dependencies`);
-            lines.push(`2. Read the config file (${configPath}). If it does not exist, that is normal -- create it with the required settings`);
+            lines.push(`2. Read the config file (${sanitizeDirectoryEntry(configPath, 200)}). If it does not exist, that is normal -- create it with the required settings`);
             lines.push('3. Configure the plugin by writing data.json with the values needed for the task');
             lines.push('4. Execute the task using the appropriate tool:');
             lines.push('   - For Obsidian-native commands (including file export): use execute_command');
@@ -1132,12 +1139,12 @@ export class VaultDNAScanner {
         parts.push('');
         parts.push('## Configuration File');
         parts.push('');
-        parts.push(`Settings path: \`${configPath}\``);
+        parts.push(`Settings path: \`${sanitizeDirectoryEntry(configPath, 200)}\``);
         parts.push('');
         parts.push('To configure this plugin programmatically:');
-        parts.push(`1. Read the config: read_file("${configPath}")`);
+        parts.push(`1. Read the config: read_file("${sanitizeDirectoryEntry(configPath, 200)}")`);
         parts.push('2. Understand the settings structure and modify values as needed');
-        parts.push(`3. Write changes: write_file("${configPath}", updatedJSON)`);
+        parts.push(`3. Write changes: write_file("${sanitizeDirectoryEntry(configPath, 200)}", updatedJSON)`);
         parts.push('');
         parts.push('Do NOT ask the user to open Settings UI. Modify config directly.');
 
@@ -1152,7 +1159,7 @@ export class VaultDNAScanner {
                 parts.push(`(${redactedCount} sensitive field(s) redacted)`);
             }
             parts.push('');
-            parts.push(`For full settings, read: \`${configPath}\``);
+            parts.push(`For full settings, read: \`${sanitizeDirectoryEntry(configPath, 200)}\``);
         }
 
         // Documentation reference

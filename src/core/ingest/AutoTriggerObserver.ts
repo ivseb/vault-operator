@@ -4,7 +4,7 @@
  * Auto-Trigger via Frontmatter-Property.
  *
  * Backs FEAT-19-27 (ADR-102). Bei Note-create oder -modify prueft der
- * Observer Frontmatter-Property-Match (zB Sebastians "Kategorie: Quelle").
+ * Observer Frontmatter-Property-Match (zB des Nutzers "Kategorie: Quelle").
  * Wenn gematcht UND Cooldown abgelaufen UND nicht bereits triaged:
  * Trigger-Callback feuert (zB ingest_triage Tool-Call vom Plugin).
  */

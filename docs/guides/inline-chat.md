@@ -83,7 +83,7 @@ If the vault match is weak, the appendix prefixes the source list with a low-con
 The composer mirrors the sidebar:
 
 - A `+` menu with: **Attach file**, **Add vault file**, **Insert skill...**, **Insert prompt...**, **Insert workflow...**, and **Select MCP servers**.
-- Autocomplete for `/skills`, `#prompts`, `§workflows`, and `@vault file` references.
+- Autocomplete for `/` (skills, prompts and workflows in one menu, each row labelled with its type) and `@vault file` references.
 - An attachment chip bar above the textarea for pending image and text attachments.
 - A per-turn model picker on the toolbar (defaults to "Auto", with thinking and effort overrides for providers that support them).
 - A status pill that shows "Thinking", "Calling `<tool>`", "Done", or errors.
@@ -113,10 +113,6 @@ Every edit-action apply and every write tool fired by a free-chat turn emits a c
 - **Weitere Optionen** (more-vertical icon): open a small menu with **Chat ab hier löschen**, which restores the checkpoint and closes the panel so the next open starts fresh.
 
 Markers stamp the session task id, so reopening the conversation from the sidebar history rehydrates them via the sidebar's rehydrate path.
-
-## Skills as inline actions
-
-Skills that opt in via the `inlineActions.skillCapabilities` setting can appear in the inline action set, capped by `inlineActions.skillsTopN`. Eligible skills are picked up when the plugin wires the inline actions; adding a skill later requires a plugin reload.
 
 ## Panel chrome
 

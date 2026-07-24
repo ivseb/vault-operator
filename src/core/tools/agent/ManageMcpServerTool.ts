@@ -48,10 +48,10 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
         return {
             name: this.name,
             description: 'Manage MCP (Model Context Protocol) server connections. Add, remove, update, list, test, or reconnect MCP servers. ' +
-                'Supports two transport types: "sse" (Server-Sent Events over HTTP) and "streamable-http" (HTTP streaming). ' +
-                'stdio is NOT supported — it would spawn host processes outside the sandbox. ' +
-                'For servers that only support stdio (e.g. Playwright MCP), the user must start them externally ' +
-                'with an HTTP bridge (e.g. "npx @playwright/mcp@latest --port 3001") and then connect via SSE or streamable-http.',
+                'This tool supports two remote transport types: "sse" (Server-Sent Events over HTTP) and "streamable-http" (HTTP streaming). ' +
+                'stdio (local process) servers cannot be added through this tool: they spawn a host process and require a per-device trust ' +
+                'confirmation, so the user must add them in Settings (Tools & MCP servers) themselves. You can list and use stdio servers ' +
+                'the user already configured, but not create or modify them here.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -281,6 +281,29 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
         callbacks.pushToolResult(this.formatSuccess(lines.join('\n')));
     }
 
+    /**
+     * AUDIT-034 R1: reconnect and test both re-open the connection, which for a
+     * stdio server means child_process.spawn. The agent (untrusted LLM output)
+     * must not reach a spawn, so it may not reconnect/test a stdio server even
+     * one the user has trusted. The user controls stdio server lifecycle in
+     * Settings (Tools & MCP servers). Returns true if the action was refused.
+     */
+    private refuseStdio(
+        name: string,
+        action: string,
+        callbacks: { pushToolResult(c: string): void },
+    ): boolean {
+        const conn = this.mcpClient.getConnection(name);
+        if (conn?.config.type === 'stdio') {
+            callbacks.pushToolResult(this.formatError(
+                `Server "${name}" is a local (stdio) server. The agent cannot ${action} it because that `
+                + 'starts a local process. Ask the user to manage it in Settings (Tools & MCP servers).',
+            ));
+            return true;
+        }
+        return false;
+    }
+
     private async handleReconnect(
         params: ManageMcpServerInput,
         callbacks: { pushToolResult(c: string): void },
@@ -289,6 +312,7 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
             callbacks.pushToolResult(this.formatError('Missing "name" for reconnect action.'));
             return;
         }
+        if (this.refuseStdio(params.name, 'reconnect', callbacks)) return;
         await this.mcpClient.reconnect(params.name);
         const conn = this.mcpClient.getConnection(params.name);
         callbacks.pushToolResult(this.formatSuccess(
@@ -304,6 +328,7 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
             callbacks.pushToolResult(this.formatError('Missing "name" for test action.'));
             return;
         }
+        if (this.refuseStdio(params.name, 'test', callbacks)) return;
         const result = await this.mcpClient.testConnection(params.name);
         callbacks.pushToolResult(this.formatSuccess(result));
     }
@@ -314,8 +339,11 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
 
     private validateTransportType(type: string | undefined): void {
         if (!type) throw new Error('Missing "type". Must be "sse" or "streamable-http".');
+        if (type === 'stdio') {
+            throw new Error('stdio servers cannot be added by the agent: they spawn a local process and need a per-device trust confirmation. The user must add stdio servers in Settings (Tools & MCP servers).');
+        }
         if (type !== 'sse' && type !== 'streamable-http') {
-            throw new Error(`Invalid type "${type}". Must be "sse" or "streamable-http". stdio is not supported — it spawns host processes.`);
+            throw new Error(`Invalid type "${type}". Must be "sse" or "streamable-http".`);
         }
     }
 

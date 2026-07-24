@@ -70,12 +70,20 @@ export class RulesTab {
                 listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.rules.empty') });
                 return;
             }
+            // Boxed table, same visual language as the Models table (IMP-04-10-01).
+            const table = listEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
+            const thead = table.createEl('thead');
+            const hr = thead.createEl('tr');
+            hr.createEl('th', { text: t('settings.rules.headerRule') });
+            hr.createEl('th', { text: '', cls: 'agent-th-actions' });
+            hr.createEl('th', { text: t('settings.rules.headerActive'), cls: 'agent-skill-th-toggle' });
+            const tbody = table.createEl('tbody');
             for (const rPath of paths) {
-                const row = listEl.createDiv({ cls: 'agent-rules-row' });
-                const label = row.createSpan({ cls: 'agent-rules-label' });
-                label.createSpan({ text: RulesLoader.displayName(rPath) });
+                const row = tbody.createEl('tr');
+                const nameTd = row.createEl('td', { cls: 'agent-skill-name-cell' });
+                nameTd.createDiv({ text: RulesLoader.displayName(rPath), cls: 'agent-skill-name' });
 
-                const actions = row.createDiv({ cls: 'agent-rules-actions' });
+                const actions = row.createEl('td', { cls: 'agent-actions-cell' });
 
                 const editBtn = actions.createEl('button', { cls: 'agent-rules-edit-btn' });
                 setIcon(editBtn, 'pencil');
@@ -115,7 +123,8 @@ export class RulesTab {
                 // Enable/disable toggle
                 this.plugin.settings.rulesToggles ??= {};
                 const isActive = this.plugin.settings.rulesToggles[rPath] !== false;
-                const toggleEl = row.createDiv({
+                const toggleTd = row.createEl('td', { cls: 'agent-skill-toggle-cell' });
+                const toggleEl = toggleTd.createDiv({
                     cls: `checkbox-container agent-rules-toggle${isActive ? ' is-enabled' : ''}`,
                 });
                 toggleEl.addEventListener('click', () => {

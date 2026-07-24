@@ -14,6 +14,7 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
+import { isMcpServerActive } from '../../mcp/mcpActivation';
 import { isSafePathSegment } from '../../utils/safePathName';
 import {
     CompositionCycleError,
@@ -101,15 +102,14 @@ export class InvokeMcpServerTool extends BaseTool<'invoke_mcp_server'> {
             return;
         }
 
-        // SC-03 / AUDIT-EPIC-29 L-1: enforce the activeMcpServers whitelist
-        // unconditionally. Pre-L-1 the check was guarded by
-        // `activeMcpServers.length > 0`, which silently let any serverId
-        // through when the user had not enabled any servers. Fail-closed
-        // now: an empty list means no skill-driven MCP calls are allowed.
-        const activeMcpServers: string[] = this.plugin.settings?.activeMcpServers ?? [];
-        if (!activeMcpServers.includes(serverId)) {
+        // MCP activation whitelist (single source of truth: mcpActivation).
+        // Empty == all connected active; non-empty == user narrowing;
+        // mcpDisabled == explicit off. Not the security boundary -- the 'mcp'
+        // effect approval gate applies to this path too and only connected
+        // servers are callable.
+        if (this.plugin.settings && !isMcpServerActive(this.plugin.settings, context.mode, serverId)) {
             callbacks.pushToolResult(this.formatError(new Error(
-                `MCP server "${serverId}" is not in the active servers list. `
+                `MCP server "${serverId}" is not enabled for this chat. `
                 + `Enable it via the pocket-knife button in the chat toolbar.`,
             )));
             return;
@@ -136,13 +136,18 @@ export class InvokeMcpServerTool extends BaseTool<'invoke_mcp_server'> {
 
         try {
             const result = await mcpClient.callTool(serverId, toolName, callArgs);
-            callbacks.pushToolResult(this.formatSuccess(JSON.stringify({
+            // AUDIT 2026-07-17 M-2: the result is attacker-controlled (a
+            // compromised connected server). Frame it as untrusted with
+            // boundary-tag defang, exactly like use_mcp_tool, instead of
+            // embedding it raw in the trusted success envelope (CWE-1427).
+            const envelope = this.formatSuccess(JSON.stringify({
                 ok: true,
                 server: serverId,
                 tool: toolName,
                 depth: compositionStack.depth(),
-                result,
-            }, null, 2)));
+            }, null, 2));
+            const body = this.formatUntrustedContent('mcp', result, { server: serverId, tool: toolName });
+            callbacks.pushToolResult(`${envelope}\n${body}`);
             callbacks.log(`Invoked MCP tool: ${stackId} (depth ${compositionStack.depth()})`);
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

@@ -21,7 +21,10 @@ import { defangBoundaryTags } from '../core/tools/BaseTool';
 import * as safeFs from '../core/security/safeFs';
 import { spawnAllowed, spawnAllowedSync } from '../core/security/spawnAllowlist';
 
-const DEFAULT_PORT = 27182;
+/** Loopback port the local MCP HTTP server binds to. Exported so the
+ *  settings UI can show the exact connect URL without duplicating the literal. */
+export const MCP_LOCAL_PORT = 27182;
+const DEFAULT_PORT = MCP_LOCAL_PORT;
 
 /** Callback for tunnel URL changes (displayed in Settings UI). */
 type TunnelUrlCallback = (url: string | null) => void;
@@ -50,6 +53,8 @@ export class McpBridge {
     get tunnelUrl(): string | null { return this._tunnelUrl; }
     get remoteConnected(): boolean { return this.relayClient?.connected ?? false; }
     get remoteConnecting(): boolean { return this.relayClient?.connecting ?? false; }
+    /** IMP-14-03-01: worker version seen on the last /poll, or null until one completed. */
+    get deployedWorkerVersion(): string | null { return this.relayClient?.lastSeenWorkerVersion ?? null; }
 
     get running(): boolean { return this._running; }
 

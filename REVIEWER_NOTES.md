@@ -10,7 +10,15 @@ installing.
 Vulnerability reporting contact and SLA: see [SECURITY.md](SECURITY.md).
 
 The reviewer-oriented short version: there is no path from chat output (LLM
-text) to `fs.*` or `child_process.spawn`. Filesystem access goes through
+text) to `fs.*`, and no path by which the LLM can spawn a *new* process or
+choose *what* is spawned. One narrow, deliberately human-gated exception exists
+since FEAT-04-13: the LLM can ask to reconnect an MCP server the user has
+already added and trusted; for a local (stdio) server this refuses (the agent
+cannot reconnect/test stdio servers, only the user manages them in Settings),
+so the LLM cannot re-spawn even a trusted local process. Every stdio spawn
+requires a per-device human "Trust and run" confirmation before its first launch,
+and the command is restricted to `node`/`npx` as a bare name (no path, no shell
+metacharacters). Filesystem access goes through
 [src/core/security/safeFs.ts](src/core/security/safeFs.ts) with a hard
 root-directory allowlist; process spawning goes through
 [src/core/security/spawnAllowlist.ts](src/core/security/spawnAllowlist.ts)
@@ -33,7 +41,7 @@ with the community plugin maintainer on request.
 | The user | Trusted | Configures providers, approves writes, installs the plugin |
 | The Obsidian host | Trusted | Plugin runs in the same renderer process |
 | The LLM provider (Anthropic, OpenAI, etc.) | Untrusted output | LLM responses are treated as adversarial input |
-| Third-party MCP servers | Untrusted | The user can configure remote MCP servers (HTTP / SSE only -- see "Shell execution"); their responses are treated as adversarial |
+| Third-party MCP servers | Untrusted | The user can configure remote MCP servers (HTTP / SSE) and, since FEAT-04-13, local stdio servers (Desktop-only, device-local config, per-device human trust -- see "Shell execution"); their responses are treated as adversarial |
 | npm packages loaded from `esm.sh` / `cdn.jsdelivr.net` / `unpkg.com` / `registry.npmjs.org` | Untrusted | User-initiated; mitigated by sandbox + SHA-256 integrity pinning (TOFU + build-time) |
 | Local files outside the vault and outside the plugin data dir | Out of scope | The plugin must never read or write them |
 
@@ -136,6 +144,7 @@ platform variants:
 
 ```
 node, node.exe                                   -- legacy worker path (SBX-1: sandbox is iframe-only)
+npx, npx.cmd                                     -- stdio MCP servers (FEAT-04-13, MVP: node/npx only)
 which, where, where.exe                          -- binary discovery
 git, git.exe                                     -- shadow git for vault checkpoints
 soffice, soffice.exe, soffice.bin,
@@ -168,10 +177,24 @@ the spawn allowlist, so a custom recipe with a non-allowlisted binary
 (e.g. `rm`) cannot spawn. Recipe execution has a master toggle plus a
 per-recipe toggle in settings (default: disabled).
 
-The MCP **client** (`McpClient`) connects only via Streamable-HTTP or SSE
-transports -- there is no stdio-spawn path in the plugin today. Users who
-want to use stdio-only MCP servers (e.g. Playwright MCP) must run them
-externally and connect via their HTTP gateway.
+The MCP **client** (`McpClient`) connects via Streamable-HTTP, SSE, and --
+since FEAT-04-13 / ADR-168 -- local stdio servers. The stdio path is
+deliberately narrow and defense-layered: it is Desktop-only (no Node on
+mobile); the config lives in a device-local store outside the vault
+(`~/.obsidian-agent/devices/<id>/`) so a sync-injected config never reaches
+another device; a spawn requires an explicit per-device human "Trust and run"
+confirmation before its first launch (fail-closed: untrusted = no spawn); and
+the command is gated by `assertStdioCommandAllowed` (bare `node`/`npx` only, no
+path separator so a `/tmp/evil/node` basename spoof is rejected, no shell
+metacharacters). The actual process launch is the MCP SDK's
+`StdioClientTransport` (cross-spawn with `shell:false`), so args are never
+shell-interpreted. The agent (LLM) cannot add, modify, or trust a stdio server
+and cannot reconnect/test one (`manage_mcp_server` refuses stdio for those
+actions); only the user configures stdio servers in Settings. Users who want OS
+isolation can still run stdio servers externally and connect via an HTTP
+gateway. The child env is the VO allowlist (paths/locale/CLI-config locations,
+no credentials) plus the SDK's own default env; secret-named `config.env` values
+are encrypted at rest via the OS keychain and decrypted only at spawn.
 
 **What would break this.** A new feature that takes a user-controlled binary
 name and passes it to `spawnAllowed`, or a new entry in `ALLOWED_BINARIES`

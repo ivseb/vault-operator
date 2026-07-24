@@ -68,7 +68,7 @@ The agent then runs `anti_echo_search`, returns sources that frame the topic dif
 
 ### Approval and audit
 
-Sandbox runs need approval like any other write tool, even when the script does not write anything. The approval card shows the full source code before it runs. Sandbox execution is logged in the audit trail (**Settings > Vault Operator > Advanced > Log**) just like any other tool call.
+Sandbox runs need approval like any other write tool, even when the script does not write anything. The approval card shows the full source code before it runs. Sandbox execution is logged in the audit trail (**Settings > Vault Operator > Advanced > Data & diagnostics**) just like any other tool call.
 
 ## Self-development tools
 

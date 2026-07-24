@@ -34,7 +34,50 @@
  * migrateAgentLayout and migratePluginDataDirs.
  */
 const rawFs = require('fs') as typeof import('fs');
+const rawOs = require('os') as typeof import('os');
+const rawCrypto = require('crypto') as typeof import('crypto');
 import * as pathModule from 'path';
+
+/**
+ * Single source of truth for the migration-backup directory layout
+ * (Review-Finding: the sha256/md5 12-char vault-hash under
+ * ~/.vault-operator-migration-backups/ was recomputed in three places).
+ * Backups live in the home dir so they stay OUTSIDE any sync container
+ * (iCloud / Obsidian-Sync). sha256 is canonical; md5 is a back-compat
+ * fallback for snapshots written by older versions.
+ */
+export interface MigrationBackupDirs {
+    backupsRoot: string;
+    sha256Dir: string;
+    md5Dir: string;
+    /** Preferred dir: sha256 when it exists or when md5 is absent, else md5. */
+    preferredDir: string;
+}
+
+export function resolveMigrationBackupDirs(vaultBasePath: string): MigrationBackupDirs {
+    const backupsRoot = pathModule.join(rawOs.homedir(), '.vault-operator-migration-backups');
+    const hash = (algo: string) => rawCrypto.createHash(algo).update(vaultBasePath).digest('hex').slice(0, 12);
+    const sha256Dir = pathModule.join(backupsRoot, hash('sha256'));
+    const md5Dir = pathModule.join(backupsRoot, hash('md5'));
+    let preferredDir = sha256Dir;
+    try {
+        if (!rawFs.existsSync(sha256Dir) && rawFs.existsSync(md5Dir)) preferredDir = md5Dir;
+    } catch { /* probe failure: keep sha256 */ }
+    return { backupsRoot, sha256Dir, md5Dir, preferredDir };
+}
+
+/** True when a migration backup snapshot with at least one entry exists (sync, desktop-only). */
+export function migrationBackupExists(vaultBasePath: string): boolean {
+    if (!vaultBasePath) return false;
+    const { sha256Dir, md5Dir } = resolveMigrationBackupDirs(vaultBasePath);
+    return [sha256Dir, md5Dir].some((dir) => {
+        try {
+            return rawFs.existsSync(dir) && rawFs.readdirSync(dir).length > 0;
+        } catch {
+            return false;
+        }
+    });
+}
 
 export interface RestoreEntry {
     label: string;

@@ -13,12 +13,13 @@
  * Part of Self-Development Phase 2+3: Skill Self-Authoring + Code Modules.
  */
 
-import { TFile, TFolder } from 'obsidian';
+import { Notice, TFile, TFolder } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import { AstValidator } from '../sandbox/AstValidator';
 import { validateSkillFrontmatter } from './SkillFrontmatterValidator';
+import { dedent, parseSkillFrontmatterBlock, splitSkillFrontmatter } from './skillFrontmatterParser';
 import { TRUSTED_SKILL_TIERS, type SkillProvenanceStore } from './SkillProvenanceStore';
 import type ObsidianAgentPlugin from '../../main';
 import type { EsbuildWasmManager } from '../sandbox/EsbuildWasmManager';
@@ -37,6 +38,19 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * A SKILL.md the loader refused. FIX-29-05-01: surfaced in Settings > Skills
+ * so a broken skill reads as broken instead of as missing.
+ */
+export interface RejectedSkill {
+    /** Vault-relative path of the SKILL.md that failed validation. */
+    filePath: string;
+    /** Containing folder name -- the only stable identity a rejected skill has. */
+    folder: string;
+    /** Joined hard-validation errors, shown verbatim to the user. */
+    reason: string;
+}
+
 export interface SelfAuthoredSkill {
     name: string;
     description: string;
@@ -46,7 +60,7 @@ export interface SelfAuthoredSkill {
      * Origin discriminator (FEAT-29-11 source-frontmatter).
      *   - `user`     -- self-authored or imported by the user
      *   - `learned`  -- created by the recipe-promotion / skill-authoring flow
-     *   - `builtin`  -- materialized from the plugin bundle (Sebastian-managed)
+     *   - `builtin`  -- materialized from the plugin bundle (maintainer-managed)
      *   - `bundled`  -- legacy synonym for `builtin`, kept for back-compat
      *   - any other string is a plugin-id (VaultDNAScanner-managed plugin skill)
      */
@@ -83,6 +97,16 @@ export interface SelfAuthoredSkill {
 
 export class SelfAuthoredSkillLoader {
     private skills = new Map<string, SelfAuthoredSkill>();
+    /**
+     * FIX-29-05-01: SKILL.md files that failed hard validation, keyed by path.
+     * A rejected skill has no usable name, so the file path is its identity.
+     * Kept so Settings can show the user WHY a skill does not load -- the old
+     * console.warn-and-return-null presented to the user as "the chat does not
+     * know my skill", which sends them looking in entirely the wrong place.
+     */
+    private rejected = new Map<string, RejectedSkill>();
+    /** Signature of the last reported rejection set, to keep the Notice from repeating on every rescan. */
+    private lastReportedRejections = '';
     private readonly skillsDir: string;
     /**
      * User/learned skills dir. Computed on each loadAll() so a change to
@@ -145,6 +169,7 @@ export class SelfAuthoredSkillLoader {
      */
     async loadAll(): Promise<void> {
         this.skills.clear();
+        this.rejected.clear();
 
         await this.scanSkillsFrom(this.getUserSkillsDir());
 
@@ -157,6 +182,59 @@ export class SelfAuthoredSkillLoader {
         }
 
         console.debug(`[SelfAuthoredSkillLoader] Loaded ${this.skills.size} skill(s)`);
+        this.reportRejections();
+    }
+
+    /**
+     * FIX-29-05-01: tell the user once when skills failed to load. The doc
+     * comment on SkillFrontmatterValidator promised "console.warn plus a
+     * Notice" but only the console.warn ever shipped, so a broken skill was
+     * indistinguishable from a missing one unless the user happened to open
+     * the developer console.
+     *
+     * Fires only when the rejection set CHANGED, so a rescan (hot reload,
+     * import, migration) does not re-nag about skills the user already knows
+     * about and has chosen not to fix.
+     */
+    private reportRejections(): void {
+        const signature = [...this.rejected.keys()].sort().join('|');
+        if (signature === this.lastReportedRejections) return;
+        this.lastReportedRejections = signature;
+        if (this.rejected.size === 0) return;
+
+        const count = this.rejected.size;
+        const names = [...this.rejected.values()]
+            .map(r => sanitizeDirectoryEntry(r.folder, 40))
+            .slice(0, 3)
+            .join(', ');
+        const more = count > 3 ? ` and ${count - 3} more` : '';
+        new Notice(
+            `Vault Operator: ${count} skill${count === 1 ? '' : 's'} could not be loaded (${names}${more}). ` +
+            `Open Settings > Skills to see why.`,
+            10000,
+        );
+    }
+
+    /**
+     * FIX-29-05-01: keyed by path, so re-parsing the same file (hot reload,
+     * rescan) updates the entry instead of stacking duplicates.
+     */
+    private recordRejection(filePath: string, reason: string): void {
+        console.warn(`[SelfAuthoredSkillLoader] Rejected skill at ${filePath}: ${reason}`);
+        const withoutSkillMd = filePath.replace(/\/SKILL\.md$/i, '');
+        this.rejected.set(filePath, {
+            filePath,
+            folder: withoutSkillMd.slice(withoutSkillMd.lastIndexOf('/') + 1),
+            reason,
+        });
+    }
+
+    /**
+     * SKILL.md files that failed hard validation in the last scan.
+     * Consumed by SkillsTab to explain the rejection instead of hiding it.
+     */
+    getRejectedSkills(): RejectedSkill[] {
+        return [...this.rejected.values()].sort((a, b) => a.folder.localeCompare(b.folder));
     }
 
     /**
@@ -554,7 +632,7 @@ export class SelfAuthoredSkillLoader {
         }
 
         const skill = this.skills.get(skillName);
-        if (!skill) throw new Error(`Skill "${skillName}" not found.`);
+        if (!skill) throw new Error(`Skill "${sanitizeDirectoryEntry(skillName, 80)}" not found.`);
 
         const skillDir = skill.filePath.replace(/\/SKILL\.md$/, '');
         const sourceFile = this.plugin.app.vault.getAbstractFileByPath(
@@ -677,7 +755,7 @@ export class SelfAuthoredSkillLoader {
         sourceCode: string,
     ): Promise<void> {
         const skill = this.skills.get(skillName);
-        if (!skill) throw new Error(`Skill "${skillName}" not found.`);
+        if (!skill) throw new Error(`Skill "${sanitizeDirectoryEntry(skillName, 80)}" not found.`);
 
         const skillDir = skill.filePath.replace(/\/SKILL\.md$/, '');
         const codeDir = `${skillDir}/code`;
@@ -761,11 +839,30 @@ export class SelfAuthoredSkillLoader {
                 parsed.source = await this.resolveSkillSource(parsed.source, skillFolder, content);
                 parsed.inventory = await this.loadSkillInventory(skillFolder, parsed.isCoordinator);
                 this.skills.set(parsed.name, parsed);
+                // RE-AUDIT N-4: the else-branch below unregisters the skill's
+                // code tools. Without re-registering here, the break-fix-save
+                // cycle left them dead until a full plugin reload -- the
+                // teardown was not reversible in-session.
+                if (parsed.codeModules.length > 0) {
+                    await this.loadCodeModules(parsed);
+                    this.registerCodeTools(parsed);
+                }
+            } else {
+                // AUDIT FIX-29-05 I-1: the previously loaded copy would
+                // otherwise stay live, so breaking a skill by editing it looked
+                // like the edit simply had no effect.
+                this.removeSkillByPath(file.path);
             }
+            // AUDIT FIX-29-05 I-1: this is the hot-reload path -- edit a skill,
+            // break its frontmatter -- which is precisely the moment
+            // FIX-29-05-01 exists for, and it fired no Notice. The call is
+            // signature-deduped, so it is free when nothing changed.
+            this.reportRejections();
         } catch (e) {
             console.warn(`[SelfAuthoredSkillLoader] Failed to load ${file.path}:`, e);
         }
     }
+
 
     /**
      * Load cached compiled JS for a skill's code modules.
@@ -811,9 +908,12 @@ export class SelfAuthoredSkillLoader {
                 } else {
                     // Fallback: minimal info from module name
                     moduleInfo = {
-                        name: `custom_${moduleName.replace(/-/g, '_')}`,
+                        name: `custom_${moduleName.replace(/[^a-zA-Z0-9_]/g, '_')}`,
                         file: moduleName,
-                        description: `Code module: ${moduleName}`,
+                        // RE-AUDIT L-1: this becomes a TOOL SCHEMA description sent to
+            // the API. `moduleName` is a filename inside an author-controlled
+            // skill folder, so it is untrusted input on a prompt path.
+            description: `Code module: ${sanitizeDirectoryEntry(moduleName, 60)}`,
                         inputSchema: { type: 'object', properties: {} },
                         isWriteOperation: false,
                         dependencies: [],
@@ -836,9 +936,12 @@ export class SelfAuthoredSkillLoader {
      */
     private parseCodeModuleDefinition(sourceCode: string, moduleName: string): CodeModuleInfo {
         const defaults: CodeModuleInfo = {
-            name: `custom_${moduleName.replace(/-/g, '_')}`,
+            name: `custom_${moduleName.replace(/[^a-zA-Z0-9_]/g, '_')}`,
             file: moduleName,
-            description: `Code module: ${moduleName}`,
+            // RE-AUDIT L-1: this becomes a TOOL SCHEMA description sent to
+            // the API. `moduleName` is a filename inside an author-controlled
+            // skill folder, so it is untrusted input on a prompt path.
+            description: `Code module: ${sanitizeDirectoryEntry(moduleName, 60)}`,
             inputSchema: { type: 'object', properties: {} },
             isWriteOperation: false,
             dependencies: [],
@@ -971,21 +1074,38 @@ export class SelfAuthoredSkillLoader {
         let frontmatter: string | null = null;
         let body: string | null = null;
 
-        const yaml = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        // RE-AUDIT N-5: shared with SkillsManager and WriteSkillTool so the
+        // three readers cannot disagree about where the frontmatter ends.
+        const yaml = splitSkillFrontmatter(content);
         if (yaml) {
-            frontmatter = yaml[1];
-            body = yaml[2].trim();
+            frontmatter = yaml.frontmatter;
+            body = yaml.body.trim();
         } else {
             const html = content.match(/<!--\s*(?:Metadata|metadata|SKILL|skill)\s*\n([\s\S]*?)\n-->/);
             if (html) {
-                frontmatter = html[1];
+                // AUDIT FIX-29-05 L-8: keys inside an HTML-comment metadata
+                // block are commonly indented for readability. The shared
+                // parser only accepts keys at column 0 (deliberate: that is
+                // what stops an indented `Trigger:` inside a description from
+                // becoming a phantom top-level key). Dedent the capture here
+                // rather than relaxing the rule for every SKILL.md shape.
+                frontmatter = dedent(html[1]);
                 // Body = full content WITHOUT the metadata block so the skill
                 // markdown the user wrote still reaches the prompt.
                 body = content.replace(html[0], '').trim();
             }
         }
 
-        if (frontmatter === null || body === null) return null;
+        if (frontmatter === null || body === null) {
+            // RE-AUDIT N-4: the most common way a user breaks a skill -- a
+            // mistyped or missing `---` fence -- used to return null here
+            // WITHOUT recording a rejection. The hot-reload path then tore the
+            // skill down while the Notice saw an unchanged signature and stayed
+            // silent, and Settings showed nothing. Record it like any other
+            // rejection so the user learns what happened.
+            this.recordRejection(filePath, 'no YAML frontmatter or <!-- Metadata --> block found');
+            return null;
+        }
 
         // Parse frontmatter key-value pairs
         const fm = this.parseFrontmatter(frontmatter);
@@ -998,11 +1118,11 @@ export class SelfAuthoredSkillLoader {
         // loads.
         const validation = validateSkillFrontmatter(fm);
         if (!validation.valid) {
-            console.warn(
-                `[SelfAuthoredSkillLoader] Rejected skill at ${filePath}: ${validation.errors.join('; ')}`,
-            );
+            this.recordRejection(filePath, validation.errors.join('; '));
             return null;
         }
+        // A file that now parses must not linger in the rejected list.
+        this.rejected.delete(filePath);
         if (validation.warnings.length > 0) {
             console.debug(
                 `[SelfAuthoredSkillLoader] Warnings for ${filePath}: ${validation.warnings.join('; ')}`,
@@ -1048,21 +1168,13 @@ export class SelfAuthoredSkillLoader {
         };
     }
 
+    /**
+     * FIX-29-05-02: delegates to the shared parser so this loader and
+     * SkillsManager read the same SKILL.md identically (block scalars
+     * included). See skillFrontmatterParser.ts for the supported shape.
+     */
     private parseFrontmatter(text: string): Record<string, string> {
-        const result: Record<string, string> = {};
-        for (const line of text.split('\n')) {
-            const colonIdx = line.indexOf(':');
-            if (colonIdx === -1) continue;
-            const key = line.slice(0, colonIdx).trim();
-            let value = line.slice(colonIdx + 1).trim();
-            // Strip quotes
-            if ((value.startsWith('"') && value.endsWith('"')) ||
-                (value.startsWith("'") && value.endsWith("'"))) {
-                value = value.slice(1, -1);
-            }
-            result[key] = value;
-        }
-        return result;
+        return parseSkillFrontmatterBlock(text);
     }
 
     private parseArray(value: string): string[] {
@@ -1101,6 +1213,10 @@ export class SelfAuthoredSkillLoader {
     }
 
     private removeSkillByPath(path: string): void {
+        // RE-AUDIT N-9: without this, deleting a broken skill folder -- the
+        // obvious repair -- leaves a ghost in the Settings rejected box and
+        // inflates the next Notice count with a folder that no longer exists.
+        this.rejected.delete(path);
         for (const [name, skill] of this.skills) {
             if (skill.filePath === path) {
                 // Unregister code tools before removing

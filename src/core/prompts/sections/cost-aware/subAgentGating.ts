@@ -10,6 +10,8 @@
 export function getSubAgentGatingSection(): string {
     return `## 4. SUB-AGENT GATING (Tier 4 escalation rules)
 
+CHEAP PATH FIRST: for multi-read RESEARCH (3+ reads/searches, vault sweeps, web research), use the dedicated \`investigate\` tool -- read-only, cheaper model, returns the answer with source anchors, NO justification required. The rules below apply to the expensive generic \`new_task\` path only.
+
 Spawning a sub-agent (\`new_task\`) is allowed ONLY when the task fits one of these three categories. Name the category in the sub-task prompt's first line.
 
   PARALLEL: 3+ truly independent investigations that can run simultaneously

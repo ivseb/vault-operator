@@ -98,14 +98,13 @@ PPTX and POTX templates land in `Tools & Settings/Templates` instead, since that
 
 ## Configuration {#frontmatter-template}
 
-Ingest reads its frontmatter templates and entity properties from settings.
+Ingest reads its entity properties from settings.
 
 Under **Settings > Vault Operator > Vault > Vault**, in the Ingest section:
 
-- `ingestNoteTemplate`: vault-relative path to the Markdown template used by `/ingest`. The skill reads the frontmatter block and fills it from the source. The First-Run Wizard preselects `Quelle Template.md` (German vaults) or `Source Template.md` (English vaults) inside the Templates folder configured in Obsidian's core Templates plugin (read from `.obsidian/templates.json`). Empty by default if the wizard was skipped.
-- `ingestDeepNoteTemplate`: same idea for `/ingest-deep`. Same default behaviour from the wizard.
-- `meetingSummaryTemplate`: same idea for `/meeting-summary`.
 - `pdfStrategy`: `page-refs` (default for `/ingest`) or `markdown-mirror` (forced for `/ingest-deep`).
+
+The ingest skills read their note structure from the bundled OKF template materialized into your Obsidian Templates folder (re-materialize it from the same settings section). The former per-skill template path settings were removed; no code ever read them.
 
 Under **Settings > Vault Operator > Providers > Embeddings**, in the Graph expansion section:
 

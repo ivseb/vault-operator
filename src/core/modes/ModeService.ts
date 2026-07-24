@@ -169,6 +169,9 @@ export class ModeService {
         if (!mode) return null;
         this.plugin.settings.currentMode = slug;
         await this.plugin.saveSettings();
+        // The forced-workflow chip is keyed per agent; both chat surfaces
+        // re-render via the hub (IMP-02-12-01).
+        this.plugin.forcedWorkflowHub.notify();
         return mode;
     }
 }

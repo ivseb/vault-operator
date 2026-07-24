@@ -307,7 +307,7 @@ export function prepareBedrockConverseInput(
     //     budget driven by the thinking toggle. The Bedrock translation
     //     layer
     //       { reasoning_config: { type: 'enabled', budget_tokens: N } }
-    //     is preserved verbatim here (live-verified by Sebastian on Sonnet
+    //     is preserved verbatim here (live-verified on Sonnet
     //     4.6, see commit be611b4a).
     // Fail-safe: with no effort and thinking off the field is omitted
     // entirely (byte-identical to today), and if building it ever throws we

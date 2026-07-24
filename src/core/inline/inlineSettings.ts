@@ -17,8 +17,6 @@ export interface ResolvedInlineActionsSettings {
     floatingMenuEnabled: boolean;
     vaultRagInLookup: boolean;
     vaultRagConfidenceThreshold: number;
-    showVaultSourcesInTooltip: boolean;
-    skillsTopN: number;
     /** FEAT-33-12: 'cm-block-widget' (default) or 'popover-overlay'. */
     inlineChatDisplay: 'cm-block-widget' | 'popover-overlay';
 }
@@ -28,8 +26,6 @@ export const INLINE_ACTIONS_DEFAULTS: ResolvedInlineActionsSettings = {
     floatingMenuEnabled: false,
     vaultRagInLookup: true,
     vaultRagConfidenceThreshold: 0.7,
-    showVaultSourcesInTooltip: true,
-    skillsTopN: 10,
     inlineChatDisplay: 'cm-block-widget',
 };
 
@@ -39,12 +35,11 @@ export function resolveInlineActionsSettings(
     if (raw === undefined || raw === null) {
         return { ...INLINE_ACTIONS_DEFAULTS };
     }
-    const threshold = typeof raw.vaultRagConfidenceThreshold === 'number'
+    // Number.isFinite excludes NaN/Infinity: typeof NaN === 'number' would
+    // otherwise let a NaN threshold through the clamp unchanged (Review-Finding).
+    const threshold = typeof raw.vaultRagConfidenceThreshold === 'number' && Number.isFinite(raw.vaultRagConfidenceThreshold)
         ? Math.min(1, Math.max(0, raw.vaultRagConfidenceThreshold))
         : INLINE_ACTIONS_DEFAULTS.vaultRagConfidenceThreshold;
-    const topN = typeof raw.skillsTopN === 'number' && Number.isFinite(raw.skillsTopN)
-        ? Math.max(0, Math.floor(raw.skillsTopN))
-        : INLINE_ACTIONS_DEFAULTS.skillsTopN;
     const display: 'cm-block-widget' | 'popover-overlay' =
         raw.inlineChatDisplay === 'popover-overlay'
             ? 'popover-overlay'
@@ -56,8 +51,6 @@ export function resolveInlineActionsSettings(
         floatingMenuEnabled: raw.floatingMenuEnabled ?? INLINE_ACTIONS_DEFAULTS.floatingMenuEnabled,
         vaultRagInLookup: raw.vaultRagInLookup ?? INLINE_ACTIONS_DEFAULTS.vaultRagInLookup,
         vaultRagConfidenceThreshold: threshold,
-        showVaultSourcesInTooltip: raw.showVaultSourcesInTooltip ?? INLINE_ACTIONS_DEFAULTS.showVaultSourcesInTooltip,
-        skillsTopN: topN,
         inlineChatDisplay: display,
     };
 }

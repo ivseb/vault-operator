@@ -3,8 +3,7 @@
  * Summary-Generierung als SummaryGeneratorFn-Implementation fuer
  * FrontmatterIndexer.
  *
- * Nutzt den vom Plugin konfigurierten Memory-Model-Key (oder einen
- * expliziten Override aus VaultIngestSettings.summaryPrompt.modelOverride).
+ * Nutzt den vom Plugin konfigurierten Memory-Model-Key.
  * Trunkiert Note-Content auf max. 8k Zeichen um Token-Kosten zu deckeln.
  */
 
@@ -13,7 +12,7 @@ import type { ApiHandler, MessageParam } from '../../api/types';
 const MAX_INPUT_CHARS = 8_000;
 
 export interface BuildSummaryGeneratorOpts {
-    /** Multi-Line-Prompt aus Settings (Default = Sebastians Wortlaut). */
+    /** Multi-Line-Prompt aus Settings (Default = des Nutzers Wortlaut). */
     promptTemplate: string;
     /** Factory: gibt einen ApiHandler oder null wenn Modell fehlt. */
     apiHandlerFactory: () => ApiHandler | null;

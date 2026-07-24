@@ -20,8 +20,21 @@ import type {
 import type { VerdictLiteral } from './types';
 
 export interface ClassifyApi {
-    classifyText?(prompt: string, abortSignal?: AbortSignal): Promise<string>;
+    // FIX-19-05-05: optionaler maxTokens-Parameter. Der geteilte
+    // classifyText-Pfad war fuer 1-Wort-Antworten (Prefilter) auf 50 Tokens
+    // gedeckelt; der Verifier braucht ein ganzes JSON-Urteil und uebergibt
+    // ein grosses Budget, damit die schliessende Klammer nicht abgeschnitten
+    // wird. Provider ohne Support fuer das Argument ignorieren es gefahrlos.
+    classifyText?(prompt: string, abortSignal?: AbortSignal, maxTokens?: number): Promise<string>;
 }
+
+/**
+ * FIX-19-05-05: Output-Budget fuer den Verifier-Call. Ein Urteil ist
+ * {verdict, confidence, summary (ein Satz), sources[]} und laeuft je nach
+ * Summary/URLs auf 60..250 Tokens -- 512 gibt Reserve, ohne zu bezahlen, was
+ * nicht gebraucht wird (das Modell stoppt am JSON-Ende).
+ */
+const VERIFIER_MAX_TOKENS = 512;
 
 export interface LlmVerifierProviderOptions {
     midApi: ClassifyApi;
@@ -39,12 +52,17 @@ const ALLOWED_VERDICTS: readonly VerdictLiteral[] = [
     'no_external_source',
 ];
 
+// FIX-19-05-05: der Fehler-Fallback traegt verifierError:true. So ist ein
+// gescheiterter Lauf (Parse-Fehler/Truncation/Exception/kein classifyText)
+// vom echten, vom Modell gemeldeten no_external_source unterscheidbar. Der
+// Orchestrator persistiert ihn nicht und die UI zeigt ihn nicht als Befund.
 const FAIL_CLOSED: RawVerdict = {
     verdict: 'no_external_source',
     confidence: 0,
     summary: '',
     sources: [],
     tokensUsed: 0,
+    verifierError: true,
 };
 
 export class LlmVerifierProvider implements VerifierProvider {
@@ -72,7 +90,7 @@ export class LlmVerifierProvider implements VerifierProvider {
     private async callTier(input: VerifierInput, api: ClassifyApi): Promise<RawVerdict> {
         if (!api.classifyText) return FAIL_CLOSED;
         try {
-            const raw = await api.classifyText(this.buildPrompt(input));
+            const raw = await api.classifyText(this.buildPrompt(input), undefined, VERIFIER_MAX_TOKENS);
             const parsed = parseVerdictJson(raw);
             return parsed ?? FAIL_CLOSED;
         } catch (error) {
@@ -138,8 +156,12 @@ export function parseVerdictJson(raw: string): RawVerdict | null {
         return null;
     }
 
-    const verdict = parsed.verdict as VerdictLiteral | undefined;
-    if (!verdict || !ALLOWED_VERDICTS.includes(verdict)) return null;
+    // FIX-19-05-05: case-insensitiv. Der mid-tier schreibt nicht immer exakt
+    // lowercase ("Outdated", "MATCHES"); ein Case-Mismatch darf nicht still
+    // auf FAIL_CLOSED fallen (eine der Parse-Null-Routen zum leeren Verdict).
+    const rawVerdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : '';
+    const verdict = rawVerdict as VerdictLiteral;
+    if (!rawVerdict || !ALLOWED_VERDICTS.includes(verdict)) return null;
 
     const confidence = clamp01(Number(parsed.confidence));
     if (Number.isNaN(confidence)) return null;

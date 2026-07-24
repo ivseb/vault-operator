@@ -237,7 +237,8 @@ export class BedrockProvider implements ApiHandler {
         return {
             id: this.config.model,
             info: {
-                contextWindow: getModelContextWindow(this.config.model),
+                // ADR-158 stage 1: discovery-reported window wins
+                contextWindow: this.config.contextWindow ?? getModelContextWindow(this.config.model),
                 supportsTools: true,
                 supportsStreaming: true,
             },
@@ -270,18 +271,23 @@ export class BedrockProvider implements ApiHandler {
      * Quick non-streaming classification call for the skill matcher.
      * Uses ConverseCommand (no stream) to keep it cheap.
      */
-    async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+    async classifyText(prompt: string, abortSignal?: AbortSignal, maxTokens = 50): Promise<string> {
         // No temperature: Opus 4.7+, Fable and Mythos reject any sampling
         // parameter with a ValidationException, and the direct Anthropic and
         // OpenAI classify paths omit it too. The classification is short and
         // deterministic enough without it.
+        //
+        // FIX-19-05-05: maxTokens ist jetzt parametrisiert. Default 50 fuer den
+        // 1-Wort-Prefilter (yes/no/unsure); der Freshness-Verifier uebergibt
+        // ~512, weil sein JSON-Urteil sonst mitten in der summary abgeschnitten
+        // wird -> Parse-Fehler -> stiller FAIL_CLOSED.
         const sdk = await getBedrockSdk();
         const client = await this.getClient();
         const response = await client.send(
             new sdk.ConverseCommand({
                 modelId: this.config.model,
                 messages: [{ role: 'user', content: [{ text: prompt }] }],
-                inferenceConfig: { maxTokens: 50 },
+                inferenceConfig: { maxTokens },
             }),
             { abortSignal },
         );

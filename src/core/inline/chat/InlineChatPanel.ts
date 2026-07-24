@@ -105,6 +105,8 @@ export interface InlinePanelHandle {
      */
     appendCheckpointMarker(marker: InlineCheckpointMarker): string;
     setStatus(text: string, level?: 'info' | 'error'): void;
+    /** Re-render the forced-workflow status chip in the composer (FEAT-02-12). */
+    refreshForcedWorkflow(): void;
     close(): void;
 }
 
@@ -180,6 +182,18 @@ export interface InlineChatPanelOptions {
      * plain textContent from streaming -- unit-tests run that way.
      */
     renderMarkdown?: RenderMarkdownHook;
+    /**
+     * Returns the slug of the forced workflow for the current agent, or '' when
+     * none. The panel reads it to render a non-interactive status chip in the
+     * composer (FEAT-02-12). A callback keeps the panel generic and testable.
+     */
+    getForcedWorkflowSlug?: () => string;
+    /**
+     * Subscribe the panel's forced-workflow chip to the cross-surface
+     * refresh hub (IMP-02-12-01). Called once per open() with the chip
+     * renderer; must return the unsubscriber, which close() invokes.
+     */
+    subscribeForcedWorkflowRefresh?: (cb: () => void) => () => void;
 }
 
 const DEFAULT_WIDTH = 520;
@@ -207,8 +221,12 @@ export class InlineChatPanel {
     private sendButtonEl: HTMLElement | null = null;
     private stopButtonEl: HTMLElement | null = null;
     private chipBarEl: HTMLElement | null = null;
+    private forcedChipEl: HTMLElement | null = null;
     private autocomplete: AutocompleteLike | null = null;
     private readonly onClose?: () => void;
+    private readonly getForcedWorkflowSlug?: () => string;
+    private readonly subscribeForcedWorkflowRefresh?: (cb: () => void) => () => void;
+    private forcedWorkflowRefreshUnsub: (() => void) | null = null;
     private readonly setIcon: SetIconHook;
 
     private rootEl: HTMLElement | null = null;
@@ -252,6 +270,8 @@ export class InlineChatPanel {
         this.onClose = options.onClose;
         this.setIcon = options.setIcon ?? ((el, name) => { el.textContent = iconFallback(name); });
         this.renderMarkdownHook = options.renderMarkdown;
+        this.getForcedWorkflowSlug = options.getForcedWorkflowSlug;
+        this.subscribeForcedWorkflowRefresh = options.subscribeForcedWorkflowRefresh;
     }
 
     get isOpen(): boolean { return this.rootEl !== null; }
@@ -262,6 +282,9 @@ export class InlineChatPanel {
 
     open(): InlinePanelHandle {
         this.close();
+        // IMP-02-12-01: chip re-renders when any surface changes the pin.
+        this.forcedWorkflowRefreshUnsub =
+            this.subscribeForcedWorkflowRefresh?.(() => this.renderForcedWorkflowChip()) ?? null;
         const doc = this.containerEl.ownerDocument;
         const root = doc.createElement('div');
         root.classList.add('agent-inline-panel');
@@ -346,6 +369,14 @@ export class InlineChatPanel {
         const wrapper = doc.createElement('div');
         wrapper.classList.add('chat-input-wrapper');
         composerContainer.appendChild(wrapper);
+
+        // FEAT-02-12: forced-workflow status row, above the attachment chips.
+        // AttachmentHandler empties the chip bar on every render, so the forced
+        // indicator needs its own element the attachment handler never touches.
+        const forcedChip = doc.createElement('div');
+        forcedChip.classList.add('chat-context-chips', 'agent-inline-forced-row');
+        wrapper.appendChild(forcedChip);
+        this.forcedChipEl = forcedChip;
 
         // Attachment chip bar (sidebar-style: above textarea). Empty by
         // default; AttachmentHandler renders chips into this element.
@@ -524,16 +555,20 @@ export class InlineChatPanel {
 
         try { textarea.focus(); } catch { /* test stub */ }
 
+        this.renderForcedWorkflowChip();
         return this.makeHandle();
     }
 
     close(): void {
         const wasOpen = this.rootEl !== null;
+        this.forcedWorkflowRefreshUnsub?.();
+        this.forcedWorkflowRefreshUnsub = null;
         if (this.rootEl !== null) {
             this.rootEl.remove();
             this.rootEl = null;
         }
         this.bodyEl = null;
+        this.forcedChipEl = null;
         this.inputEl = null;
         this.statusEl = null;
         this.previewEl = null;
@@ -696,8 +731,37 @@ export class InlineChatPanel {
             setModelLabel: (label, tooltip) => this.setModelLabel(label, tooltip),
             setRunning: (running) => this.setRunning(running),
             setStatus: (t, l) => this.setStatus(t, l),
+            refreshForcedWorkflow: () => this.renderForcedWorkflowChip(),
             close: () => this.close(),
         };
+    }
+
+    /**
+     * FEAT-02-12: render (or clear) the forced-workflow status chip in the
+     * composer. Non-interactive; turning the workflow off happens on its pin in
+     * the "+" menu. Reads the slug via the injected callback so the panel stays
+     * generic and unit-testable.
+     */
+    private renderForcedWorkflowChip(): void {
+        if (this.forcedChipEl === null) return;
+        while (this.forcedChipEl.firstChild !== null) {
+            this.forcedChipEl.removeChild(this.forcedChipEl.firstChild);
+        }
+        const slug = this.getForcedWorkflowSlug?.() ?? '';
+        if (slug === '') return;
+        const doc = this.forcedChipEl.ownerDocument;
+        const chip = doc.createElement('div');
+        chip.classList.add('chat-context-chip', 'chat-forced-workflow-chip');
+        chip.setAttribute('title', t('ui.sidebar.forcedWorkflowChipTooltip', { slug }));
+        const icon = doc.createElement('span');
+        icon.classList.add('context-chip-icon');
+        this.setIcon(icon, 'git-branch');
+        chip.appendChild(icon);
+        const label = doc.createElement('span');
+        label.classList.add('context-chip-label');
+        label.textContent = t('ui.sidebar.forcedWorkflowChipLabel', { slug });
+        chip.appendChild(label);
+        this.forcedChipEl.appendChild(chip);
     }
 
     private setRunning(running: boolean): void {

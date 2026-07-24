@@ -8,6 +8,8 @@ import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
 import { resolveExternalSourceInterface } from '../../core/memory/SourceInterface';
+import { loadableSkills } from '../../core/context/SkillsManager';
+import { sanitizeDirectoryEntry } from '../../core/tools/BaseTool';
 
 export async function handleGetContext(
     plugin: ObsidianAgentPlugin,
@@ -75,11 +77,16 @@ export async function handleGetContext(
     if (!strictMode) {
         if (plugin.skillsManager) {
             try {
-                const skills = await plugin.skillsManager.discoverSkills();
+                // FIX-29-05-03 / FIX-29-05-04: only skills that actually load,
+                // and sanitise the untrusted frontmatter before it reaches an
+                // external client's model context.
+                const skills = loadableSkills(await plugin.skillsManager.discoverSkills());
                 if (skills.length > 0) {
                     sections.push('--- Available Skills ---');
                     for (const s of skills) {
-                        sections.push(`- ${s.name}: ${s.description ?? ''}`);
+                        sections.push(
+                            `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description ?? '', 300)}`,
+                        );
                     }
                 }
             } catch { /* non-fatal */ }

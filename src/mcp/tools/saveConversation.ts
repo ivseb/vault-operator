@@ -8,7 +8,7 @@
  *
  * sync-mode is resolved per-provider (FEAT-23-04). ChatGPT and
  * Perplexity default to 'manual' so family-shared accounts do not
- * leak into Sebastian's personal memory.
+ * leak into the user's personal memory.
  *
  * FIX-23-01-01 / ADR-110: Living-Document-Semantik. Calls within the
  * same MCP-session-key (mcpToken + source_interface) within 30

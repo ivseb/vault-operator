@@ -128,15 +128,29 @@ export class IgnoreService {
 
     /**
      * Get user-facing description of why a path is blocked.
+     *
+     * When the blocked path looks like an attempt to reach a skill definition by
+     * filesystem path, the message redirects to the by-name skill tools. The
+     * skills folder is hidden and per-install configurable (default
+     * `.vault-operator/data/skills/`, but overridable and even absolute), so a
+     * constructed path is fragile -- an agent that guesses `.obsidian/plugins/
+     * .../skills/...` hits this deny-zone. read_skill / write_skill resolve the
+     * real path from the skill NAME, so the agent never needs to know it.
      */
     getDenialReason(path: string): string {
-        if (this.isProtected(path)) {
-            return `"${path}" is protected (.obsidian-agentprotected). Cannot write to protected files.`;
+        const base = this.isProtected(path)
+            ? `"${path}" is protected (.obsidian-agentprotected). Cannot write to protected files.`
+            : this.isIgnored(path)
+                ? `"${path}" is excluded (.obsidian-agentignore). Add it to the ignore list to allow access.`
+                : `"${path}" is blocked by system defaults.`;
+
+        if (looksLikeSkillDefinitionPath(this.normalize(path))) {
+            return base
+                + ' If you meant to read or revise an installed skill, do not target its files by '
+                + 'path -- use read_skill or write_skill with the skill NAME; they resolve the '
+                + 'hidden, per-install skills folder for you.';
         }
-        if (this.isIgnored(path)) {
-            return `"${path}" is excluded (.obsidian-agentignore). Add it to the ignore list to allow access.`;
-        }
-        return `"${path}" is blocked by system defaults.`;
+        return base;
     }
 
     // -------------------------------------------------------------------------
@@ -213,4 +227,17 @@ export class IgnoreService {
             return path === p || path.startsWith(p + '/');
         }
     }
+}
+
+/**
+ * Heuristic: does a (normalised, vault-relative) path look like an attempt to
+ * reach a skill DEFINITION by filesystem path? Signals: a `SKILL.md` basename,
+ * or a `skills/<name>/` segment (the skill workspace, under any parent -- the
+ * real `.vault-operator/data/skills/` OR a wrongly-guessed
+ * `.obsidian/plugins/.../skills/`). Only advisory: it merely enriches the
+ * message of an already-denied path, so a false positive (e.g. a user note
+ * folder literally named `skills`) costs nothing.
+ */
+function looksLikeSkillDefinitionPath(path: string): boolean {
+    return /(^|\/)SKILL\.md$/i.test(path) || /(^|\/)skills\/[^/]+(\/|$)/i.test(path);
 }

@@ -3,7 +3,7 @@
  *
  * FEAT-29-11 Step B. Writes the esbuild-generated `BUNDLED_SKILLS` constant
  * to disk under `<agent-folder>/data/skills/{name}/` so built-in skills live
- * side-by-side with user-authored and plugin-managed skills (Sebastian's
+ * side-by-side with user-authored and plugin-managed skills (the user's
  * "Skill ist Skill" decision). Runs on every plugin onload BEFORE the
  * SelfAuthoredSkillLoader scans the skills directory, so the materialized
  * skills become visible without a second loadAll() pass.

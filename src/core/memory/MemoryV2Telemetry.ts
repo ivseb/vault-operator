@@ -1,7 +1,7 @@
 /**
  * MemoryV2Telemetry -- jsonl logger for the v2 hot-path.
  *
- * Logs the event categories that operators / Sebastian want visibility on:
+ * Logs the event categories that operators want visibility on:
  *   - cache       prompt-cache hit ratio per turn (Anthropic cache_read_tokens)
  *   - retrieval   p50/p95 latency of ContextComposer + recall_memory
  *   - drift       topic-drift events emitted by ContextComposer
@@ -105,7 +105,7 @@ export class MemoryV2Telemetry {
     }
     /**
      * BA-26 / FEAT-23-05: telemetry-counter for the legacy
-     * update_memory MCP tool. Lets Sebastian see when no client uses
+     * update_memory MCP tool. Lets the maintainer see when no client uses
      * it any more and the tool can be removed entirely.
      */
     async legacyUpdateMemory(payload: { category: string; sourceInterface: string }) {

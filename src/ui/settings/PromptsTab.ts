@@ -189,17 +189,26 @@ export class PromptsTab {
                 });
                 return;
             }
+            // Boxed table, same visual language as the Models table (IMP-04-10-01).
+            const table = listEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
+            const thead = table.createEl('thead');
+            const hr = thead.createEl('tr');
+            hr.createEl('th', { text: t('settings.prompts.headerPrompt') });
+            hr.createEl('th', { text: '', cls: 'agent-th-actions' });
+            hr.createEl('th', { text: t('settings.prompts.headerActive'), cls: 'agent-skill-th-toggle' });
+            const tbody = table.createEl('tbody');
             for (const p of prompts) {
-                const row = listEl.createDiv({ cls: 'agent-rules-row' });
-                const label = row.createSpan({ cls: 'agent-rules-label' });
-                label.createSpan({ text: p.name });
-                label.createSpan({ cls: 'agent-workflow-slug', text: `/${p.slug}` });
+                const row = tbody.createEl('tr');
+                const nameTd = row.createEl('td', { cls: 'agent-skill-name-cell' });
+                nameTd.createDiv({ text: p.name, cls: 'agent-skill-name' });
+                const sub = nameTd.createDiv({ cls: 'agent-skill-desc' });
+                sub.createSpan({ cls: 'agent-workflow-slug', text: `/${p.slug}` });
                 if (p.mode) {
                     const modeName = allModes.find((m) => m.slug === p.mode)?.name ?? p.mode;
-                    label.createSpan({ cls: 'agent-prompt-mode-badge', text: modeName });
+                    sub.createSpan({ cls: 'agent-prompt-mode-badge', text: modeName });
                 }
 
-                const actions = row.createDiv({ cls: 'agent-rules-actions' });
+                const actions = row.createEl('td', { cls: 'agent-actions-cell' });
 
                 const editBtn = actions.createEl('button', { cls: 'agent-rules-edit-btn' });
                 setIcon(editBtn, 'pencil');
@@ -231,7 +240,8 @@ export class PromptsTab {
 
                 // Enable/disable toggle
                 const isActive = p.enabled !== false;
-                const toggleEl = row.createDiv({
+                const toggleTd = row.createEl('td', { cls: 'agent-skill-toggle-cell' });
+                const toggleEl = toggleTd.createDiv({
                     cls: `checkbox-container agent-rules-toggle${isActive ? ' is-enabled' : ''}`,
                 });
                 toggleEl.addEventListener('click', () => { void (async () => {

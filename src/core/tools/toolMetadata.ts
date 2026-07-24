@@ -498,6 +498,14 @@ If ANY check fails, call create_xlsx again with corrections.`,
         whenToUse: 'Only for 5+ step tasks that benefit from context isolation or parallel processing.',
         commonMistakes: 'Delegating simple 1-4 step tasks — do those yourself with your own tools.',
     },
+    investigate: {
+        group: 'agent', label: 'Investigate', icon: 'search-check',
+        signature: 'investigate(question)',
+        description: 'Delegate a research question to a read-only sub-agent (vault + web, mid tier). Heavy reads stay in the sub-agent\'s context; the answer comes back with source anchors (path + heading + offset) for targeted re-reads.',
+        example: 'investigate("Which notes discuss the Q3 OKRs, and what are the open action items? Prefer vault sources.")',
+        whenToUse: 'Answering needs 3+ reads/searches, a broad vault sweep, or web research whose sources you do not need verbatim.',
+        commonMistakes: 'Using it when the verbatim file content is needed (editing, quoting, user asked for full text) -- read_file directly instead.',
+    },
     run_in_background: {
         group: 'agent', label: 'Background research', icon: 'satellite',
         signature: 'run_in_background(message, title?)',
@@ -533,6 +541,18 @@ If ANY check fails, call create_xlsx again with corrections.`,
         example: 'read_skill({ name: "office-workflow" })',
         whenToUse: 'BEFORE doing the work when the user\'s task matches a skill\'s purpose (read the SKILLS directory in your system prompt). Skip when no skill applies.',
         commonMistakes: 'Loading a skill whose description does not match the task. Re-loading the same skill in the same turn — the body is already in the conversation. Calling read_skill for the system tool catalogue (use find_tool for tools, read_skill for skills).',
+    },
+    // Write counterpart of read_skill: revise an EXISTING skill by name. Group
+    // 'edit' so it rides with the edit tools; always requires approval
+    // (classified 'self-modify' in toolEffects.ts, since editing a skill changes
+    // future agent behaviour).
+    write_skill: {
+        group: 'edit', label: 'Write Skill', icon: 'book-marked',
+        signature: 'write_skill(name, content, file?, description?)',
+        description: 'Revise an EXISTING skill by name: overwrite its SKILL.md body (or a file under references/, scripts/, assets/) without needing the on-disk path. The write counterpart of read_skill. Creating a NEW skill stays with the skill-creator skill (init_skill).',
+        example: 'write_skill({ name: "interview-insights", content: "## Step 1\\n..." })',
+        whenToUse: 'To improve or fix a skill you have loaded with read_skill. Read it first, then write the revised content back by name. Do NOT guess a filesystem path for write_file — this tool resolves the path for you and snapshots the change for undo.',
+        commonMistakes: 'Trying to create a new skill with it (use the skill-creator skill / init_skill instead). Passing a full filesystem path as the name (pass the bare skill name from the SKILLS directory). Expecting a bundled/pro skill edit to keep trusted-tier status — it is converted to a local user override.',
     },
     // NOTE: group is 'agent' for mode-level availability (shows in Agent Control tools).
     // The Pipeline classifies this as 'sandbox' ApprovalGroup for approval checks.

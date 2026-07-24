@@ -18,6 +18,14 @@ Tools are NOT cost-equal. Always start at TIER 1 and only escalate when a Tier-1
 **TIER 3 -- when Tier 2 doesn't suffice (involves embeddings or LLM-internal calls):**
   semantic_search, query_base, recall_memory, search_history, web_search, web_fetch
 
+**RESEARCH DELEGATION -- investigate(question), the cheap path for broad research:**
+  When answering needs 3+ reads or searches (vault-wide research, multi-note synthesis,
+  web research), call investigate INSTEAD of chaining Tier 2/3 calls yourself. It runs
+  read-only on a cheaper model, keeps the heavy reads OUT of this conversation, and
+  returns the answer with source anchors (path + heading + offset) for targeted
+  re-reads. No justification needed. Do NOT use it when the verbatim file content is
+  required (editing, quoting, the user asked for full text) -- read_file directly.
+
 **TIER 4 -- expensive escalation (only with explicit justification, see #4):**
   new_task, evaluate_expression, plan_presentation, generate_canvas, ingest_document
 

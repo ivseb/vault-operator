@@ -55,6 +55,17 @@ export function computePollDelayMs(elapsedMs: number, requestCount: number): num
     if (elapsedMs >= LONG_POLL_MIN_ELAPSED_MS) return 0;
     return POLL_INTERVAL_MS;
 }
+
+/**
+ * IMP-14-03-01: whether the relay worker live on the user's account differs
+ * from the one bundled in this plugin. A worker deployed before the version
+ * field existed sends nothing, which counts as outdated. Any mismatch (older,
+ * or newer after a plugin downgrade) means "redeploy to match", so the check
+ * is a plain inequality rather than an ordered comparison.
+ */
+export function isWorkerOutdated(seen: string | null | undefined, bundled: string): boolean {
+    return (seen ?? '') !== bundled;
+}
 const INITIAL_RECONNECT_DELAY_MS = 5_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 
@@ -169,11 +180,16 @@ export class RelayClient {
     // starts a second loop; the stale loop detects the generation mismatch
     // when its poll settles and exits without touching shared state.
     private pollGeneration = 0;
+    // IMP-14-03-01: version reported by the worker on the most recent /poll,
+    // or null until a poll has completed. The settings tab compares it against
+    // the bundled RELAY_WORKER_VERSION to warn about a stale deployment.
+    private _lastSeenWorkerVersion: string | null = null;
 
     constructor(private plugin: ObsidianAgentPlugin) {}
 
     get connected(): boolean { return this._connected; }
     get connecting(): boolean { return this._connecting; }
+    get lastSeenWorkerVersion(): string | null { return this._lastSeenWorkerVersion; }
 
     connect(relayUrl: string, token: string): void {
         const cleanUrl = relayUrl.replace(/\/$/, '');
@@ -247,7 +263,13 @@ export class RelayClient {
                 // relay with the OLD relay's correlation id would be wrong
                 // on both ends. Drop it instead (pre-FIX-44-C2 behaviour
                 // for the cross-relay case).
-                const data = response.json as { requests?: unknown[] };
+                const data = response.json as { requests?: unknown[]; workerVersion?: unknown };
+                // IMP-14-03-01: remember the worker's self-reported version so
+                // the settings tab can flag a stale deployment. Legacy workers
+                // send nothing, leaving this null.
+                if (typeof data.workerVersion === 'string') {
+                    this._lastSeenWorkerVersion = data.workerVersion;
+                }
                 let requestCount = 0;
                 if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
                     requestCount = data.requests.length;

@@ -33,43 +33,20 @@ cp styles.css "$PLUGIN_DIR/"
 [ -f node_modules/sql.js/dist/sql-wasm.wasm ] && cp node_modules/sql.js/dist/sql-wasm.wasm "$PLUGIN_DIR/"
 [ -f node_modules/sql.js/dist/sql-wasm-browser.wasm ] && cp node_modules/sql.js/dist/sql-wasm-browser.wasm "$PLUGIN_DIR/"
 
-# Copy bundled skills (and remove stale ones)
-if [ -d "bundled-skills" ]; then
-  # Build list of current bundled skill names
-  bundled_names=()
-  for skill_dir in bundled-skills/*/; do
-    skill_name=$(basename "$skill_dir")
-    bundled_names+=("$skill_name")
-    mkdir -p "$PLUGIN_DIR/skills/$skill_name"
-    cp "$skill_dir"* "$PLUGIN_DIR/skills/$skill_name/" 2>/dev/null
-  done
-
-  # Remove deployed bundled skills that no longer exist in source
-  if [ -d "$PLUGIN_DIR/skills" ]; then
-    for deployed_dir in "$PLUGIN_DIR/skills"/*/; do
-      [ -d "$deployed_dir" ] || continue
-      deployed_name=$(basename "$deployed_dir")
-      # Check if this deployed skill has source: bundled in its SKILL.md
-      skill_md="$deployed_dir/SKILL.md"
-      if [ -f "$skill_md" ] && grep -q "^source: bundled" "$skill_md"; then
-        # It's a bundled skill -- check if it still exists in source
-        found=false
-        for bn in "${bundled_names[@]}"; do
-          if [ "$bn" = "$deployed_name" ]; then
-            found=true
-            break
-          fi
-        done
-        if [ "$found" = false ]; then
-          rm -rf "$deployed_dir"
-          echo "Removed stale bundled skill: $deployed_name"
-        fi
-      fi
-    done
-  fi
-
-  echo "Copied bundled skills."
-fi
+# Bundled skills are NOT copied into $PLUGIN_DIR/skills/ anymore.
+#
+# Since FEAT-29-11 the runtime loader (SelfAuthoredSkillLoader) scans exactly
+# one location: <agent-folder>/data/skills/ (default .vault-operator/data/skills/).
+# It never reads <pluginDir>/skills/. Bundled AND pro skills are inlined into
+# main.js at build time (esbuild.config.mjs -> BUNDLED_SKILLS) and materialized
+# into that single canonical folder by BuiltinSkillMaterializer at plugin start.
+#
+# The old copy-loop below wrote skill folders into $PLUGIN_DIR/skills/ that
+# nothing reads. They looked like live skills, drifted stale (source: bundled
+# vs the current source: builtin), and got re-created on every deploy -- so
+# cleaning them out of a vault was pointless while this script existed. Removed.
+# If you need to ship skills in a distributable build artifact, that is the
+# esbuild inline path, not a file copy here.
 
 echo "Deployment complete."
 echo ""

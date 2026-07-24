@@ -272,7 +272,7 @@ export interface HeadlessApprovalPolicy {
 export interface ContextExtensions {
     /** Abort signal for the currently running task */
     abortSignal?: AbortSignal;
-    askQuestion?: (question: string, options?: string[], allowMultiple?: boolean) => Promise<string>;
+    askQuestion?: (question: string, options?: string[]) => Promise<string>;
     signalCompletion?: (result: string) => void;
     /**
      * Request user approval for a tool call.
@@ -681,6 +681,21 @@ export class ToolExecutionPipeline {
                 }
             }
 
+            // Issue 3 Wave A: re-check the abort right before the pre-write
+            // checkpoint. The top-of-function precheck (step 0) cannot cover
+            // Stop landing DURING the awaited approval gate above. Without
+            // this, executeTool would call GitCheckpointService.snapshot -- the
+            // isomorphic-git op the service header flags as prone to indefinite
+            // hangs on iCloud vaults (this project's deploy target) -- for a
+            // task the user already stopped, holding the UI unlock for seconds
+            // to minutes. Return an error result (never write, never snapshot)
+            // so the tool_use stays answered for history consistency.
+            if (extensions?.abortSignal?.aborted) {
+                const msg = `Tool "${toolCall.name}" skipped: task was stopped before the write.`;
+                this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                return this.errorResult(toolCall.id, msg);
+            }
+
             // 4. Checkpoint before each write — snapshot the file BEFORE it is modified.
             //    Every write gets its own checkpoint for granular restore (Kilo Code pattern).
             if (tool.isWriteOperation && (this.plugin.settings.enableCheckpoints ?? true)) {
@@ -1018,6 +1033,16 @@ export class ToolExecutionPipeline {
         // vectors from an ignored folder.
         semantic_search: [
             { key: 'folder', write: false },
+        ],
+        // use_mcp_tool.sink_to_path (FEAT: MCP result sink): the tool writes the
+        // FULL MCP result to this vault path instead of routing ~30k tokens of
+        // payload through the model. Write-side so isIgnored + isProtected run
+        // before execute(): the sink must obey .obsidian-agentignore /
+        // .obsidian-agentprotected and the configDir / agent-secret deny-zones
+        // exactly like write_file. Absent sink_to_path -> the entry is skipped
+        // (typeof raw !== 'string') and behaviour is unchanged.
+        use_mcp_tool: [
+            { key: 'sink_to_path', write: true },
         ],
     };
 

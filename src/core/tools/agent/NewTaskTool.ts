@@ -174,8 +174,16 @@ export class NewTaskTool extends BaseTool<'new_task'> {
             const header = profile
                 ? `[Sub-agent completed -- profile: ${profile}]`
                 : `[Sub-agent completed -- mode: ${mode}]`;
+            // SEC-20260718-I1: the completion processed untrusted vault/web
+            // content -- wrap it in the trust boundary (defangs smuggled
+            // boundary tags); the header stays outside as trusted framing.
             callbacks.pushToolResult(
-                `${header}\n\n${result || '(No response from sub-agent)'}`
+                `${header}\n\n`
+                + this.formatUntrustedContent(
+                    'subagent',
+                    result || '(No response from sub-agent)',
+                    profile ? { profile } : { mode },
+                ),
             );
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

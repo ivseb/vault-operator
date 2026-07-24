@@ -64,7 +64,6 @@ export interface LookupActionOptions {
     getRagSettings?: () => {
         enabled: boolean;
         confidenceThreshold: number;
-        showSourcesInTooltip: boolean;
         topN: number;
         webFallbackEnabled?: boolean;
     };
@@ -94,7 +93,6 @@ export class LookupAction implements InlineAction {
     private readonly getRagSettings: () => {
         enabled: boolean;
         confidenceThreshold: number;
-        showSourcesInTooltip: boolean;
         topN: number;
         webFallbackEnabled?: boolean;
     };
@@ -105,7 +103,7 @@ export class LookupAction implements InlineAction {
         this.edgeAggregator = options.edgeAggregator;
         this.webLookup = options.webLookup;
         this.getRagSettings = options.getRagSettings ?? (() => ({
-            enabled: true, confidenceThreshold: 0.7, showSourcesInTooltip: true, topN: 5,
+            enabled: true, confidenceThreshold: 0.7, topN: 5,
         }));
         this.id = options.id ?? 'lookup';
         this.label = options.label ?? 'Lookup';

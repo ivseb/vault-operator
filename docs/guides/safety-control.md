@@ -130,7 +130,7 @@ Each entry records:
 
 **Location:** JSONL files in your vault under `.vault-operator/data/logs/`, one per day, named by date (for example `2026-03-31.jsonl`).
 
-**Retention:** Logs are kept for 30 days, then deleted. Browse recent logs in **Settings > Vault Operator > Advanced > Log**.
+**Retention:** Logs are kept for 30 days, then deleted. Browse recent logs in **Settings > Vault Operator > Advanced > Data & diagnostics**.
 
 :::info No file content in logs
 The operation log records that a file was read or written, but not the full content. It logs path and content length, not the actual text.

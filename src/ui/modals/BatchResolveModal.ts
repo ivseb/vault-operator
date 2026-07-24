@@ -2,15 +2,17 @@
  * BatchResolveModal -- bulk-apply for the Knowledge-review tab
  * (IMP-20-06-01 W3-T3).
  *
- * Lets the user filter the verdict list by severity + min confidence
- * and then run a single bulk action (mark verified / delete) over the
- * surviving rows. Includes an Abort button that flips a cancellation
- * flag the loop checks between rows.
+ * FIX-19-05-06: der Batch-Dialog macht nur noch EINES -- die gefilterten
+ * Zeilen AUSBLENDEN (bis der naechste Scan eine Aenderung findet). Das
+ * fruehere mark-verified/delete-Auswahlmenue war verwirrend ("was passiert
+ * beim Run?") und delete war eine gefaehrliche Massen-Aktion, die niemand aus
+ * einem Freshness-Review heraus will. Der echte Fix laeuft pro Notiz ueber den
+ * Agenten ("Fix with agent"), nicht als Stapel.
  *
  * Wayfinder entry: see `src/ARCHITECTURE.map`, row `batch-resolve-modal`.
  */
 
-import { Modal, Notice, TFile } from 'obsidian';
+import { Modal, Notice } from 'obsidian';
 import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
 import type {
@@ -19,8 +21,6 @@ import type {
 } from '../../core/health/KnowledgeReviewReader';
 
 const ALL_SEVERITIES: ReviewSeverity[] = ['critical', 'moderate', 'info'];
-
-type BatchAction = 'mark-verified' | 'delete';
 
 export interface BatchResolveModalOptions {
     onChange: () => void;
@@ -33,7 +33,6 @@ export class BatchResolveModal extends Modal {
 
     private selectedSeverities: Set<ReviewSeverity> = new Set(['critical', 'moderate']);
     private minConfidence = 0;
-    private action: BatchAction = 'mark-verified';
     private aborted = false;
 
     constructor(plugin: ObsidianAgentPlugin, rows: ReviewRow[], opts: BatchResolveModalOptions) {
@@ -50,6 +49,8 @@ export class BatchResolveModal extends Modal {
 
         contentEl.createEl('h3', { text: t('modal.batchResolve.title') });
         contentEl.createEl('p', { text: t('modal.batchResolve.rowsInView', { count: this.rows.length }) });
+        // FIX-19-05-06: klarer Erklaertext, was "Run" tut.
+        contentEl.createEl('p', { cls: 'batch-resolve-explainer', text: t('modal.batchResolve.hideExplainer') });
 
         this.renderFilters(contentEl);
         const previewEl = contentEl.createDiv('batch-resolve-preview');
@@ -78,16 +79,9 @@ export class BatchResolveModal extends Modal {
 
         runBtn.addEventListener('click', () => {
             void (async () => {
+                // FIX-19-05-06: nur noch Ausblenden -- keine destruktive
+                // Massen-Loeschung mehr, also kein Confirm noetig.
                 const targets = this.filteredRows();
-                // Audit M-1 mitigation: per-batch confirm for the
-                // destructive action. Mark-verified stays one-click.
-                if (this.action === 'delete') {
-                    const ok = await this.confirmDestructive(
-                        t('modal.batchResolve.deleteConfirmTitle'),
-                        t('modal.batchResolve.deleteConfirmMessage', { count: targets.length }),
-                    );
-                    if (!ok) return;
-                }
                 runBtn.disabled = true;
                 abortBtn.disabled = false;
                 await this.runBatch(targets, counterEl).finally(() => {
@@ -132,16 +126,8 @@ export class BatchResolveModal extends Modal {
             const parsed = parseFloat(confInput.value);
             this.minConfidence = Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
         });
-
-        const actionRow = parent.createDiv('batch-resolve-filter-row');
-        actionRow.createEl('strong', { text: t('modal.batchResolve.action') });
-        const select = actionRow.createEl('select');
-        const optVerified = select.createEl('option', { text: t('modal.resolveConflict.markVerified'), value: 'mark-verified' });
-        optVerified.selected = true;
-        select.createEl('option', { text: t('modal.chatHistory.delete'), value: 'delete' });
-        select.addEventListener('change', () => {
-            this.action = select.value as BatchAction;
-        });
+        // FIX-19-05-06: kein Aktions-Auswahlmenue mehr -- der Dialog blendet
+        // nur aus. Loeschen/Fixen laeuft nicht ueber den Stapel.
     }
 
     private filteredRows(): ReviewRow[] {
@@ -159,11 +145,7 @@ export class BatchResolveModal extends Modal {
         for (const row of rows) {
             if (this.aborted) break;
             try {
-                if (this.action === 'mark-verified') {
-                    this.markVerifiedRow(row);
-                } else {
-                    await this.deleteRow(row);
-                }
+                this.hideRow(row);
                 done++;
             } catch (e) {
                 console.debug('[BatchResolveModal] row failed', row.path, e);
@@ -171,6 +153,9 @@ export class BatchResolveModal extends Modal {
             }
             counterEl.empty();
             counterEl.appendText(t('modal.batchResolve.progress', { done, total: rows.length, failed }));
+            // FIX-19-05-06: dem UI-Thread Luft geben, damit der Zaehler + der
+            // Abort-Knopf bei vielen Zeilen reagieren (hideRow ist synchron).
+            await new Promise<void>((r) => window.setTimeout(r, 0));
         }
         new Notice(this.aborted
             ? t('notice.knowledgeReview.batchCompleteAborted', { done, failed })
@@ -178,7 +163,8 @@ export class BatchResolveModal extends Modal {
         this.opts.onChange();
     }
 
-    private markVerifiedRow(row: ReviewRow): void {
+    /** FIX-19-05-06: blendet die Zeile aus (Dismiss bis zur naechsten Aenderung). */
+    private hideRow(row: ReviewRow): void {
         const db = this.plugin.knowledgeDB?.getDB();
         if (!db) return;
         db.run(
@@ -187,32 +173,5 @@ export class BatchResolveModal extends Modal {
             [row.path, new Date().toISOString()],
         );
         this.plugin.knowledgeDB?.markDirty();
-    }
-
-    private async deleteRow(row: ReviewRow): Promise<void> {
-        const file = this.plugin.app.vault.getAbstractFileByPath(row.path);
-        if (!(file instanceof TFile)) return;
-        await this.plugin.app.fileManager.trashFile(file);
-    }
-
-    private confirmDestructive(title: string, message: string): Promise<boolean> {
-        return new Promise((resolve) => {
-            const modal = new (class extends Modal {
-                onOpen(): void {
-                    const { contentEl } = this;
-                    contentEl.createEl('h3', { text: title });
-                    contentEl.createEl('p', { text: message });
-                    const row = contentEl.createDiv('batch-resolve-confirm');
-                    const cancel = row.createEl('button', { text: t('modal.newMode.cancel') });
-                    const ok = row.createEl('button', { text: t('modal.chatHistory.delete'), cls: 'mod-warning' });
-                    cancel.addEventListener('click', () => { this.close(); resolve(false); });
-                    ok.addEventListener('click', () => { this.close(); resolve(true); });
-                }
-                onClose(): void {
-                    resolve(false);
-                }
-            })(this.plugin.app);
-            modal.open();
-        });
     }
 }

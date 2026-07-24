@@ -271,22 +271,10 @@ export class FirstRunWizardModal extends Modal {
         }
     }
 
-    private applyTemplatePathsToSettings(folder: string, lang: string): void {
-        const fileName = (de: string, en: string) => `${folder}/${lang === 'de' ? de : en}`;
-        const tpl = this.plugin.settings.vaultIngest.templates;
-        if (!tpl.ingestNoteTemplate) {
-            tpl.ingestNoteTemplate = fileName('Quelle Template.md', 'Source Template.md');
-        }
-        if (!tpl.ingestDeepNoteTemplate) {
-            tpl.ingestDeepNoteTemplate = fileName('Quelle Template.md', 'Source Template.md');
-        }
-        if (!tpl.meetingSummaryTemplate) {
-            tpl.meetingSummaryTemplate = fileName('Meeting-Notiz Template.md', 'Meeting Note Template.md');
-        }
-        if (!tpl.quellenNotizTemplate) {
-            tpl.quellenNotizTemplate = fileName('Notiz Template.md', 'Note Template.md');
-        }
-        tpl.templatesLanguage = lang;
+    private applyTemplatePathsToSettings(_folder: string, lang: string): void {
+        // FEAT-30-07: nur noch die Sprachwahl wird persistiert. Die vier
+        // Template-Pfad-Settings sind entfernt (nie von Code gelesen).
+        this.plugin.settings.vaultIngest.templates.templatesLanguage = lang;
     }
 
     private async finishAndStartChat(): Promise<void> {

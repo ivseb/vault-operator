@@ -16,7 +16,8 @@
  *   - `name` contains reserved words "anthropic" or "claude"
  *   - `description` missing or not a string
  *   - `description` longer than 1024 characters
- *   - `description` contains angle brackets (< or >)
+ *   - `description` contains a prompt-boundary tag (FIX-29-05-05; plain angle
+ *     brackets are allowed and only warn)
  *
  * Soft warnings (skill still loads):
  *   - frontmatter has keys outside the allowed/tolerated set
@@ -31,6 +32,13 @@
 // Exported so a test can pin a skill-side validator against this one. A skill
 // script cannot import them (run_skill_script does not bundle), so every skill
 // that validates frontmatter must copy them. A copy nobody checks is a fork.
+// FIX-29-05-05: the ONLY import here. BaseTool carries type-only imports, so
+// this stays runtime-weightless and the validator stays side-effect-free.
+// Reusing the real defang keeps the boundary-tag rule from forking away from
+// the control it is backing up -- "a copy nobody checks is a fork" applies to
+// this file as much as to the skill-side copies noted below.
+import { defangBoundaryTags } from '../tools/BaseTool';
+
 export const NAME_PATTERN_MULTI = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 export const NAME_PATTERN_SINGLE = /^[a-z0-9]$/;
 export const RESERVED = ['anthropic', 'claude'];
@@ -142,8 +150,34 @@ export function validateSkillFrontmatter(
             errors.push('description cannot be empty');
         } else if (desc.length > MAX_DESC_LEN) {
             errors.push(`description too long (${desc.length} chars, max ${MAX_DESC_LEN})`);
-        } else if (desc.includes('<') || desc.includes('>')) {
-            errors.push('description cannot contain angle brackets (< or >)');
+        } else if (defangBoundaryTags(desc) !== desc) {
+            // FIX-29-05-05: narrow rule. This is DEFENCE IN DEPTH, not the
+            // boundary itself -- the actual control is sanitizeDirectoryEntry
+            // at every path that assembles skill metadata into a prompt. It is
+            // kept because this rule was once silently load-bearing for a sink
+            // nobody had enumerated (ReadSkillTool.frameSkill), and new sinks
+            // will get added again. A tag-shaped description has no legitimate
+            // use, so failing closed here costs nothing.
+            //
+            // Delegating to defangBoundaryTags rather than re-listing the tags
+            // keeps this from drifting out of sync with the real defence, and
+            // inherits its reconstruction-safety (a nested payload that would
+            // reassemble into a live tag is caught too).
+            errors.push('description cannot contain prompt-boundary tags');
+        }
+        // The old rule rejected EVERY angle bracket, which killed ordinary
+        // descriptions such as "web.plaud.ai/file/<id>". Brackets are fine;
+        // they just render literally.
+        if (desc.includes('<') || desc.includes('>')) {
+            warnings.push(
+                'description contains angle brackets -- they will be shown literally, not as markup',
+            );
+        }
+        // Newlines survive a `description: |` literal block scalar. Every
+        // assembly path collapses them, so this cannot forge a section -- but
+        // the author should know the layout will not be preserved.
+        if (/[\r\n]/.test(desc)) {
+            warnings.push('description contains newlines -- they will be collapsed to single spaces');
         }
         if (desc.startsWith('[TODO')) {
             warnings.push(

@@ -19,6 +19,18 @@ import type {
 } from '../../types/settings';
 import { isEffortOptedIn } from '../../types/model-registry';
 
+/**
+ * ADR-158: plausibility clamp for a discovery-reported context window.
+ * Values below the floor are bogus (gateway stubs report 0 or 1; no
+ * servable chat model ships under 4k). AUDIT 2026-07-18 L-3: values above
+ * the ceiling are equally bogus (a compromised or broken endpoint could
+ * report 10^12 and thereby disarm the ADR-157 overflow guardrail) -- 50M
+ * tokens is 50x the largest served window today. Out-of-range values fall
+ * through to the registry chain.
+ */
+export const MIN_PLAUSIBLE_CONTEXT_WINDOW = 4096;
+export const MAX_PLAUSIBLE_CONTEXT_WINDOW = 50_000_000;
+
 /** Return the currently active provider config, or null when none is selected / enabled. */
 export function resolveActiveProvider(
     settings: Pick<ObsidianAgentSettings, 'activeProviderId' | 'providerConfigs'>,
@@ -91,6 +103,15 @@ export function providerConfigToCustomModel(
         apiVersion: provider.apiVersion,
         enabled: true,
         maxTokens: discovered?.maxOutputTokens,
+        // ADR-158 stage 1: the discovery-reported window wins over the
+        // registry chain. Implausible values (0, negative, tiny gateway
+        // stubs) stay undefined so stages 2-4 take over downstream.
+        contextWindow:
+            discovered?.contextWindow !== undefined
+                && discovered.contextWindow >= MIN_PLAUSIBLE_CONTEXT_WINDOW
+                && discovered.contextWindow <= MAX_PLAUSIBLE_CONTEXT_WINDOW
+                ? discovered.contextWindow
+                : undefined,
         // IMP-54-05b: thread the per-model effort opt-in to the wire config.
         // Kept undefined (not false) when absent so untouched configs stay
         // byte-identical.

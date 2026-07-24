@@ -53,9 +53,16 @@ export function validateParameter(
     switch (param.type) {
         case 'vault-file':
         case 'vault-output': {
-            // S-02: No path traversal
-            if (strValue.includes('..')) {
-                return `Path traversal not allowed in "${param.name}"`;
+            // S-14 (AUDIT 2026-07-22 H-1): reject any path token that begins
+            // with a dash. Even with shell:false, a value like
+            // "--lua-filter=evil.lua" is substituted as a STANDALONE argv token
+            // and pandoc (and most CLIs) interpret it as a flag, not a path --
+            // an argument-injection RCE that escapes the sandbox. Path
+            // parameters are never legitimately options, so a leading `-` is
+            // always hostile. SHELL_META does not cover `-`/`=` by design
+            // (they are valid in filenames), hence this dedicated guard.
+            if (strValue.startsWith('-')) {
+                return `Path "${param.name}" must not start with "-" (looks like a command-line option)`;
             }
             // S-02: No absolute paths
             if (path.isAbsolute(strValue)) {

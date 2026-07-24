@@ -144,9 +144,47 @@ export abstract class BaseTool<TName extends ToolName = ToolName> {
  * Boundary-wrapper tag names the agent loop emits (see securityBoundary.ts).
  * Kept in sync with that enumeration; `defangBoundaryTags` strips these from
  * untrusted bodies so a crafted document cannot pre-close the wrapper.
+ *
+ * FIX-29-05-05: added `imported-skill` (ReadSkillTool.frameSkill and
+ * InvokeSkillTool emit it as the untrusted-skill trust envelope) and
+ * `explicit_instructions` (AgentSidebarView, WorkflowLoader).
+ *
+ * IMPORTANT, and the reason this note exists: listing a tag here protects
+ * NOTHING on its own. Protection comes from an emitter calling
+ * defangBoundaryTags on the untrusted part before wrapping it. An earlier
+ * revision of this comment claimed adding `imported-skill` stopped wrapped
+ * content from closing its own envelope; it did not, because no caller
+ * defanged the skill BODY (audit FIX-29-05 H-1). Both emitters now do. When
+ * adding a tag here, find and fix its emitter in the same change.
+ *
+ * FIX-29-05 audit L-2: `success` and `error` were briefly on this list and have
+ * been removed. Unlike every other entry they are ordinary XML element names,
+ * so stripping them corrupted legitimate content the user asked the agent to
+ * read (a JUnit report's `<error type="...">` silently read as a pass). The
+ * one real concern -- a literal `<error>` in vault content skewing result
+ * classification -- belongs at the classifier, which is now anchored
+ * (summarizeForLedger.ts).
+ *
+ * The prefix `(?:\s*\/\s*|\/?)` allows whitespace variants of a CLOSING tag --
+ * `< /available_skills >`, `</ available_skills>` -- which used to slip past
+ * every layer that delegates here (audit FIX-29-05 M-1). Two properties of this
+ * shape are load-bearing and must survive any edit (re-audit N-1, N-2):
+ *
+ *   1. Whitespace is tolerated ONLY together with the slash. A first attempt
+ *      used `<\s*\/?\s*`, which made the slash optional while allowing space,
+ *      so `if (count < history.length && x > 0)` matched `history` as a tag and
+ *      `[^>]*` ate through to the next `>`, silently deleting source from every
+ *      file the agent reads.
+ *   2. The slash is a REQUIRED anchor between the two `\s*`. Two adjacent
+ *      optional whitespace runs give the engine O(n^2) ways to split one run:
+ *      80k spaces measured at ~2.8s on the renderer thread, reachable through
+ *      the uncapped wrapVaultContentForMcp path.
+ *
+ * The tail is `[^<>\n]*` rather than `[^>]*` so a match cannot span lines and
+ * swallow unrelated content on the way to a distant `>`.
  */
 const BOUNDARY_TAG_RE =
-    /<\/?(?:untrusted-content|vault-content|vault_context|web_fetch|web_context|web_search|attached_document|attached_file|attached_folder|available_skills|mcp_response|history|selection)\b[^>]*>/gi;
+    /<(?:\s*\/\s*|\/?)(?:untrusted-content|vault-content|vault_context|web_fetch|web_context|web_search|attached_document|attached_file|attached_folder|available_skills|mcp_response|history|selection|imported-skill|explicit_instructions)\b[^<>\n]*>/gi;
 
 /**
  * Neutralise literal boundary-wrapper tags inside untrusted content.

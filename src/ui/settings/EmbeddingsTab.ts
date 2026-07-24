@@ -341,6 +341,12 @@ export class EmbeddingsTab {
                         const result = await idx.buildIndex((indexed: number, total: number) => {
                             statusEl.setText(`${t('settings.embeddings.rebuilding')} (${indexed}/${total})`);
                         }, true);
+                        // Reclaim the pages freed by the delete-and-reinsert so
+                        // the on-disk DB shrinks instead of staying inflated.
+                        if (!result.cancelled) {
+                            statusEl.setText(t('settings.embeddings.statusCompacting'));
+                            await idx.compact();
+                        }
                         if (result.errors > 0) {
                             new Notice(t('settings.embeddings.indexRebuilt', { indexed: result.indexed, total: result.total, errors: result.errors }));
                         }
@@ -589,7 +595,8 @@ export class EmbeddingsTab {
                 text.inputEl.addEventListener('blur', () => { void (async () => {
                     const names = text.getValue().split(',').map(s => s.trim()).filter(Boolean);
                     this.plugin.settings.mocPropertyNames = names;
-                    this.plugin.graphExtractor?.setMocProperties(names);
+                    // FIX-19-01-15: kein setMocProperties mehr -- der Extractor
+                    // liest die Settings bei der naechsten Extraktion selbst.
                     await this.plugin.saveSettings();
                 })(); });
             });
@@ -660,7 +667,6 @@ export class EmbeddingsTab {
                     this.plugin.settings.backlinksProperty = OKF_DEFAULTS.backlinksProperty;
                     this.plugin.settings.summaryProperty = OKF_DEFAULTS.summaryProperty;
                     this.plugin.settings.sourceNamingConvention = OKF_DEFAULTS.sourceNamingConvention;
-                    this.plugin.graphExtractor?.setMocProperties(this.plugin.settings.mocPropertyNames);
                     await this.plugin.saveSettings();
                     new Notice(t('settings.embeddings.okfResetDone'));
                     this.rerender();

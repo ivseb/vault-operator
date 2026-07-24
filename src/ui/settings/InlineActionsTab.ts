@@ -16,7 +16,7 @@ import type { InlineActionsSettings } from '../../types/settings';
 import { t } from '../../i18n';
 
 export class InlineActionsTab {
-    constructor(private plugin: ObsidianAgentPlugin, private _app: App, private rerender: () => void) {}
+    constructor(private plugin: ObsidianAgentPlugin, private _app: App, private _rerender: () => void) {}
 
     private getSettings(): InlineActionsSettings {
         if (this.plugin.settings.inlineActions === undefined) {
@@ -72,13 +72,9 @@ export class InlineActionsTab {
                 .onChange(async (v) => { settings.vaultRagConfidenceThreshold = v; await this.save(); }),
             );
 
-        new Setting(containerEl)
-            .setName(t('settings.inlineActions.showSources'))
-            .setDesc(t('settings.inlineActions.showSourcesDesc'))
-            .addToggle(t => t
-                .setValue(resolved.showVaultSourcesInTooltip)
-                .onChange(async (v) => { settings.showVaultSourcesInTooltip = v; await this.save(); }),
-            );
+        // FEAT-30-07: "Show vault sources"-Toggle entfernt (funktionslos:
+        // der Wert wurde durchgereicht, aber nie ausgewertet; der
+        // Lookup-Appendix rendert Quellen immer).
 
         new Setting(containerEl)
             .setName(t('settings.inlineActions.chatDisplay'))
@@ -93,25 +89,13 @@ export class InlineActionsTab {
                 }),
             );
 
-        new Setting(containerEl)
-            .setName(t('settings.inlineActions.skillsTopN'))
-            .setDesc(t('settings.inlineActions.skillsTopNDesc'))
-            .addText(t => t
-                .setPlaceholder('10')
-                .setValue(String(resolved.skillsTopN))
-                .onChange(async (raw) => {
-                    const n = Number.parseInt(raw, 10);
-                    if (Number.isFinite(n) && n >= 0) {
-                        settings.skillsTopN = n;
-                        await this.save();
-                    }
-                }),
-            );
-
-        // Footer: rerender control + reload hint.
+        // FEAT-30-07: skillsTopN-Feld entfernt (bediente den toten
+        // Legacy-Floating-Menu-Pfad ohne Production-Caller). Der frühere
+        // "Refresh settings view"-Button ist ebenfalls raus (Review-Finding):
+        // die Inline-Chat-Settings wirken beim Speichern live, ein
+        // Tab-Rerender aendert nichts. reloadHint bleibt als Hinweis, dass
+        // Trigger-/Registrierungs-Aenderungen einen Plugin-Reload brauchen.
         const footer = containerEl.createDiv({ cls: 'setting-item-description' });
         footer.setText(t('settings.inlineActions.reloadHint'));
-        new Setting(containerEl)
-            .addButton(b => b.setButtonText(t('settings.inlineActions.refreshView')).onClick(() => this.rerender()));
     }
 }

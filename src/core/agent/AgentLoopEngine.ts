@@ -20,6 +20,7 @@ import type { AgentLoopState } from './LoopState';
 import type { LoopInterceptor, LoopInterceptorContext } from './interceptors/types';
 import { ThinkingSegmentCollector } from './thinkingSegments';
 import { splitToolBatch } from './splitToolBatch';
+import { applyAggregateBudget } from './toolResultBudget';
 
 /** UI/host feedback ports for one streamed turn. */
 export interface StreamPorts {
@@ -79,6 +80,14 @@ export interface ToolBatchPorts {
      * quirk: the phase is only stamped when a store exists).
      */
     saveInflightSnapshot?: () => void;
+    /**
+     * FIX-24-03-05 / ADR-157 defence line 1: remaining char budget for
+     * THIS turn's aggregated tool results (window minus estimated history
+     * minus reserve, host-computed). When wired, the batch is shrunk to
+     * fit before it enters history; within budget the exact same block
+     * references pass through untouched.
+     */
+    getResultBudgetChars?: () => number;
 }
 
 /** Host ports for the condense triggers (stage 3b). */
@@ -297,6 +306,10 @@ export class AgentLoopEngine {
         },
     ): Promise<void> {
         const toolResultBlocks: ContentBlock[] = [];
+        // Parallel to toolResultBlocks: the tool name per block, so the
+        // aggregate budget can pick the right truncation strategy
+        // (read tools get an offset hint into the original file).
+        const resultToolNames: string[] = [];
 
         // BUG-3 / BUG-032: error results for tools with unparseable/truncated
         // JSON input — forward the provider's actionable message verbatim so
@@ -308,6 +321,7 @@ export class AgentLoopEngine {
                 content: errMsg,
                 is_error: true,
             });
+            resultToolNames.push('');
         }
 
         // Shared per-result bookkeeping: UI callback, mistake counter,
@@ -344,6 +358,7 @@ export class AgentLoopEngine {
                 content: appendQualityGate(result.content, gate),
                 is_error: result.is_error,
             });
+            resultToolNames.push(toolUse.name);
         };
 
         // IMP-41-02-02: maximal parallel-safe PREFIX runs concurrently,
@@ -370,10 +385,29 @@ export class AgentLoopEngine {
             if (state.completionResult !== null) break;
         }
 
+        // FIX-24-03-05 / ADR-157 defence line 1: bound the SUM of this
+        // turn's results before they enter history (two parallel large
+        // reads used to produce ~808k chars in one message, issue #61).
+        // Within budget: same references, byte-identical fast path.
+        let finalResultBlocks = toolResultBlocks;
+        if (ports.getResultBudgetChars) {
+            const outcome = applyAggregateBudget(
+                toolResultBlocks.map((block, i) => ({ block, toolName: resultToolNames[i] ?? '' })),
+                ports.getResultBudgetChars(),
+            );
+            if (outcome.truncatedCount > 0) {
+                console.debug(
+                    `[AgentLoopEngine] aggregate result budget: shrank ${outcome.truncatedCount} `
+                    + `result(s), ${outcome.totalCharsBefore} -> ${outcome.totalCharsAfter} chars`,
+                );
+            }
+            finalResultBlocks = outcome.blocks;
+        }
+
         // Add tool results as the next user message.
         // IMPORTANT: condensing runs AFTER this push so history is always consistent
         // (every assistant tool_call has a matching tool_result before condensing)
-        history.push({ role: 'user', content: toolResultBlocks });
+        history.push({ role: 'user', content: finalResultBlocks });
         // IMP-41-03-01: turn-boundary snapshot (debounced in the store).
         // Fire-and-forget on the host side -- persistence must never stall the loop.
         if (ports.saveInflightSnapshot) {

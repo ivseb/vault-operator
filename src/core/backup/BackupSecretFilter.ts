@@ -60,6 +60,12 @@ const KNOWN_SECRET_KEYS: ReadonlySet<string> = new Set([
     'chatgptOAuthAccessToken',
     'chatgptOAuthRefreshToken',
     'chatgptOAuthIdToken',
+    // FEAT-04-10: OAuth MCP connector session fields nested under
+    // mcpServers[name].oauth.{tokens,clientInformation}. Shape-driven, so the
+    // SDK key names are what get matched wherever they appear.
+    'access_token',
+    'refresh_token',
+    'client_secret',
 ]);
 
 /** Returns the set of key names this filter treats as secrets. */
@@ -94,7 +100,17 @@ function walk(value: unknown): unknown {
         const obj = value as Record<string, unknown>;
         const out: Record<string, unknown> = {};
         for (const [key, v] of Object.entries(obj)) {
-            if (KNOWN_SECRET_KEYS.has(key)) {
+            // FEAT-04-11: a `headers` object carries user-supplied request
+            // headers whose NAMES are arbitrary (Authorization, X-Api-Key, ...)
+            // but whose VALUES are credentials. Redact every non-empty value.
+            if (key === 'headers' && v !== null && typeof v === 'object' && !Array.isArray(v)) {
+                const headers = v as Record<string, unknown>;
+                const redacted: Record<string, unknown> = {};
+                for (const [hk, hv] of Object.entries(headers)) {
+                    redacted[hk] = (hv === '' || hv === null || hv === undefined) ? hv : REDACTED_SENTINEL;
+                }
+                out[key] = redacted;
+            } else if (KNOWN_SECRET_KEYS.has(key)) {
                 // Only redact when the value would actually carry a secret.
                 // Keep null / empty string / undefined as-is so the round-trip
                 // doesn't "leak" a sentinel into fields the user never set.

@@ -18,6 +18,8 @@ pids
 
 # Dependency directories
 node_modules/
+# ohne Slash, sonst rutscht der Symlink durch, den ein git-worktree-Bootstrap anlegt
+node_modules
 jspm_packages/
 
 # TypeScript cache
@@ -76,6 +78,10 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Local verification scripts (never commit -- may hold absolute vault paths)
+_verify_test.ts
+_verify_*.ts
 
 # Plugin data (runtime)
 .obsidian-agent/

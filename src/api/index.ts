@@ -109,6 +109,16 @@ export function buildApiHandlerForModel(model: CustomModel) {
  */
 export function buildApiHandler(config: LLMProvider) {
     const providerType = config.type;
+    // ADR-158: name the winning context-window source once at construction
+    // (getModel() is hot-path; logging there would spam every turn).
+    // AUDIT 2026-07-18 L-1 / AUDIT-034 M-26: never log the model id -- it is
+    // sensitive for custom endpoints. Provider type + source suffice.
+    console.debug(
+        `[ApiHandler] context window source (${providerType}): `
+        + (config.contextWindow !== undefined
+            ? `discovery-reported (${config.contextWindow})`
+            : 'registry chain'),
+    );
     const handler = ((): ApiHandler => {
         switch (providerType) {
             case 'anthropic':

@@ -143,7 +143,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
                 'Change Vault Operator plugin settings. Use action "set" to change a single setting by path, ' +
                 '"apply_preset" to apply a permission preset, or "open_tab" to open a settings tab for the user. ' +
                 'Available presets: "permissive" (writes/web/mcp/skills auto; sandbox, settings and self-modify still ask), "balanced" (reads + web + skills auto, writes ask), "restrictive" (everything that writes asks; reads still run). ' +
-                'Available tabs for open_tab: "providers", "agent-behaviour", "advanced". Sub-tabs: "backup", "models", "permissions", "interface". ' +
+                'Available tabs for open_tab: "providers", "agent-behaviour", "customize", "advanced". Sub-tabs (agent-behaviour): "modes", "permissions", "memory", "loop", "inline-chat"; (customize): "skills", "connectors", "prompts", "workflows", "rules", "recipes"; (advanced): "interface", "vault", "plugin-api", "data", "optional-assets". ' +
                 'This tool cannot change API keys — use configure_model for that.',
             input_schema: {
                 type: 'object',
@@ -171,7 +171,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
                     },
                     sub_tab: {
                         type: 'string',
-                        description: 'Settings sub-tab to open (for action "open_tab"), e.g. "backup", "models", "permissions", "interface"',
+                        description: 'Settings sub-tab to open (for action "open_tab"), e.g. "data", "permissions", "interface", "recipes"',
                     },
                 },
                 required: ['action'],

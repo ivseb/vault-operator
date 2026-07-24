@@ -126,9 +126,63 @@ const ADVISOR_PROFILE: SubagentProfile = {
     maxOutputTokens: 3000,
 };
 
+/**
+ * FEAT-24-10 / ADR-159: the profile behind the dedicated `investigate`
+ * tool. Differs from `research` in two deliberate ways: it runs on the
+ * MID tier (quality over the fast tier -- the investigate results feed
+ * the main conversation directly), and its completion contract demands
+ * SOURCE ANCHORS so the parent can re-read exact passages instead of
+ * trusting the summary blindly (fixes the IMP-24-04-01 class of
+ * meta-acknowledgement answers).
+ */
+const INVESTIGATE_PROFILE: SubagentProfile = {
+    name: 'investigate',
+    description: 'Read-only investigation subagent (vault + web) on the mid tier. Returns the answer plus source anchors (path + heading + offset) so the parent can verify or re-read exact passages.',
+    allowedTools: [
+        'read_file',
+        'read_document',
+        'list_files',
+        'search_files',
+        'semantic_search',
+        'search_history',
+        'web_search',
+        'web_fetch',
+        'attempt_completion',
+        'ask_followup_question',
+    ],
+    roleDefinition: [
+        'You are an investigation subagent. Your job: answer the parent',
+        'agent\'s research question from the vault and/or the web, and make',
+        'every claim verifiable through source anchors.',
+        '',
+        'Rules:',
+        '- Do NOT write, edit, delete, or move any vault content.',
+        '- Do NOT switch modes or spawn further subagents.',
+        '- Your attempt_completion MUST contain the actual answer, never a',
+        '  meta-acknowledgement ("found 5 notes" is wrong; the 5 notes with',
+        '  their content are right). The parent never sees your tool calls.',
+        '- End the completion with a "Sources:" list. One line per source:',
+        '  - vault: path="folder/note.md" heading="Section title" offset=NNN',
+        '    (offset = character offset where the passage starts, from the',
+        '    read_file truncation hints or 0 for small files)',
+        '  - web: url="https://..." title="Page title"',
+        '- Anchor every load-bearing claim to one of those sources inline,',
+        '  e.g. "(see path=..., heading=...)".',
+        '- If the budget runs out, return an honest partial answer with the',
+        '  sources you DID check and name what remains unchecked.',
+        '- If the question is ambiguous, call ask_followup_question once;',
+        '  do not guess.',
+    ].join('\n'),
+    // ADR-159: mid tier -- investigation results feed the main thread
+    // directly, so quality beats the fast tier; still far cheaper than
+    // the parent's flagship-class model.
+    tierOverride: 'mid',
+};
+
 const PROFILES: Record<string, SubagentProfile> = {
     [RESEARCH_PROFILE.name]: RESEARCH_PROFILE,
     [ADVISOR_PROFILE.name]: ADVISOR_PROFILE,
+    [INVESTIGATE_PROFILE.name]: INVESTIGATE_PROFILE,
 };
 
 export function getSubagentProfile(name: string): SubagentProfile | undefined {
