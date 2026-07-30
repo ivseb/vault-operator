@@ -28,6 +28,7 @@ import { RunSkillScriptCache } from '../../sandbox/RunSkillScriptCache';
 import { isSafePathSegment } from '../../utils/safePathName';
 import { classifySkillScript, verdictReason } from '../../governance/skillScriptGuard';
 import { BUNDLED_SKILLS } from '../../../_generated/bundled-skills';
+import { castGenerated } from '../../utils/runtime';
 import { AstValidator } from '../../sandbox/AstValidator';
 
 export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
@@ -146,7 +147,7 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
             fileRelPath: `scripts/${scriptName}.js`,
             fileSource: source,
             skillMd,
-            bundle: BUNDLED_SKILLS,
+            bundle: castGenerated<Record<string, Record<string, string>>>(BUNDLED_SKILLS),
         });
         if (verdict.kind === 'tampered') {
             callbacks.pushToolResult(this.formatError(new Error(

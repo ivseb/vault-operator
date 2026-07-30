@@ -38,7 +38,7 @@ interface Segment {
 interface LooseBlock { type?: string; text?: string; name?: string }
 
 function blocksOf(m: MessageParam): LooseBlock[] {
-    return Array.isArray(m.content) ? (m.content as LooseBlock[]) : [];
+    return Array.isArray(m.content) ? (m.content) : [];
 }
 
 /** Real user turn: role user with text content and no tool_result batch.

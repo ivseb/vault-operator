@@ -16,6 +16,7 @@ import type ObsidianAgentPlugin from '../../main';
 import { resolveCommandAllowance } from '../tools/agent/commandAllowlist';
 import { classifySkillScript, type SkillScriptVerdict } from '../governance/skillScriptGuard';
 import { BUNDLED_SKILLS } from '../../_generated/bundled-skills';
+import { castGenerated } from '../utils/runtime';
 import { isSafePathSegment } from '../utils/safePathName';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import { isHostAllowed } from '../governance/webHostGrants';
@@ -1348,7 +1349,7 @@ export class ToolExecutionPipeline {
             fileRelPath: `scripts/${scriptName}.js`,
             fileSource: await readOrNull(`${skillsDir}/${skillName}/scripts/${scriptName}.js`),
             skillMd: await readOrNull(`${skillsDir}/${skillName}/SKILL.md`),
-            bundle: BUNDLED_SKILLS,
+            bundle: castGenerated<Record<string, Record<string, string>>>(BUNDLED_SKILLS),
         });
     }
 

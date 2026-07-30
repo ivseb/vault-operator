@@ -39,7 +39,7 @@ export interface BootJob {
      * The work. Its return value is ignored -- several of these jobs report
      * counts to their own callers, and the queue only cares that they finished.
      */
-    run: () => Promise<unknown> | unknown;
+    run: () => unknown;
 }
 
 export interface BootJobQueueDeps {

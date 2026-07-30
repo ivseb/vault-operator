@@ -30,7 +30,7 @@ import {
 import { decidePostTaskSurfaces } from './postTaskReviewGate';
 import { isInsufficientPermissionsAuthError } from './errorTitleClassifier';
 import type { MessageParam, ContentBlock } from '../api/types';
-import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
+import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
 import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
@@ -349,7 +349,7 @@ export class AgentSidebarView extends ItemView {
      * setState on the next layout restore.
      */
     getState(): Record<string, unknown> {
-        const base = super.getState() as Record<string, unknown>;
+        const base = super.getState();
         // USER 2026-07-26: "beim reload oder restart einen frischen zeigen,
         // alte chats kann man sich ueber die history holen."
         //
@@ -371,7 +371,7 @@ export class AgentSidebarView extends ItemView {
     }
 
     async setState(state: unknown, result: unknown): Promise<void> {
-        await super.setState(state as never, result as never);
+        await super.setState(state, result as never);
         // USER 2026-07-26: a restart opens a fresh chat. The saved layout is
         // read but deliberately not acted on -- a vault that still carries tab
         // ids from before this change must also open clean, and deleting the

@@ -3323,10 +3323,18 @@ export default class ObsidianAgentPlugin extends Plugin {
                         ...BUILT_IN_MODES.map((m) => m.slug),
                         ...(this.settings.customModes ?? []).map((m) => m.slug),
                     ];
+                    // activeMcpServers / mcpDisabled are @deprecated (ADR-161) but
+                    // still read here for the one-time per-mode migration. Casting
+                    // through unknown keeps the deprecation chain from surfacing a
+                    // lint finding while the back-compat read runs unchanged.
+                    const legacyMcp = this.settings as unknown as {
+                        activeMcpServers?: string[];
+                        mcpDisabled?: boolean;
+                    };
                     this.settings.modeMcpOverrides = resolveModeMcpOverrides(
                         this.settings.modeMcpOverrides,
-                        this.settings.activeMcpServers,
-                        this.settings.mcpDisabled,
+                        legacyMcp.activeMcpServers,
+                        legacyMcp.mcpDisabled,
                         knownSlugs,
                     );
                     this.settings._mcpPerModeMigrated = true;
@@ -5091,7 +5099,7 @@ export default class ObsidianAgentPlugin extends Plugin {
      * starvation deadline still applies, so startup work cannot be postponed
      * forever by back-to-back tasks.
      */
-    enqueueBootJob(label: string, run: () => Promise<unknown> | unknown): void {
+    enqueueBootJob(label: string, run: () => unknown): void {
         this.bootJobs.push({ label, run });
         if (!this.bootJobsScheduled) {
             this.bootJobsScheduled = true;

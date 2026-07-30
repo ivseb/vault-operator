@@ -2,7 +2,7 @@
 import { withBase } from 'vitepress'
 
 /* Keep in sync with manifest.json on every release. */
-const PLUGIN_VERSION = '3.3.2'
+const PLUGIN_VERSION = '3.3.3'
 </script>
 
 <template>
@@ -15,7 +15,7 @@ const PLUGIN_VERSION = '3.3.2'
     >
       <span class="lp-badge-version">v{{ PLUGIN_VERSION }}</span>
       <span class="lp-badge-divider" aria-hidden="true">·</span>
-      <span>Reliable chat history and a hardened core</span>
+      <span>Docs overhaul and code-quality pass</span>
       <svg class="lp-badge-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M7 17 17 7" /><path d="M8 7h9v9" />
       </svg>

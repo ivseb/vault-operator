@@ -98,7 +98,7 @@ export interface PopoverDismissOptions {
 export class PopoverDismisser {
     private anchor: HTMLElement | null = null;
     private doc: Document | null = null;
-    private win: (Window & typeof globalThis) | null = null;
+    private win: Window | null = null;
     private mousedownHandler: ((e: MouseEvent) => void) | null = null;
     private keyHandler: ((e: KeyboardEvent) => void) | null = null;
     private resizeHandler: (() => void) | null = null;

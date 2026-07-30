@@ -150,15 +150,13 @@ function generateInlineAssets() {
             skillCount++;
         }
     }
-    // IMP-01-09-01: both the free bundled-skills/ and the private pro-skills/
-    // trees materialize into the same data/skills/ folder at startup, so the
-    // loader scans one place regardless of a skill's origin. pro-skills/ is
-    // stripped from the public bundle by sync-public.yml + promote-to-test.sh,
-    // so on the public build this loop finds nothing and PRO stays out. The
-    // generated bundled-skills.ts is gitignored, so no premium content is ever
-    // committed. Each skill keeps its own `source:` tag (pro is preserved by
-    // the materializer for future licence gating).
-    for (const skillsRoot of ["bundled-skills", "pro-skills"]) {
+    // Only the built-in skills in bundled-skills/ ship inside the plugin and
+    // materialize into data/skills/ at startup. The monetized Pro catalog used
+    // to bundle from a private pro-skills/ tree; it now lives in its own
+    // marketplace project and is delivered on demand, so the build embeds the
+    // built-in set alone. Each skill keeps its `source:` tag (the materializer
+    // preserves `pro` for licence gating on an installed skill).
+    for (const skillsRoot of ["bundled-skills"]) {
         const rootDir = join(__dirname, skillsRoot);
         if (!existsSync(rootDir)) continue;
         for (const skillDir of readdirSync(rootDir)) {

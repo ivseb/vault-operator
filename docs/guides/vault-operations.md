@@ -124,7 +124,7 @@ Bases let you work with your notes as structured data, similar to a database vie
 **Example:** *"Create a Base of all notes tagged #book with columns for author, rating, and status from frontmatter"*
 
 :::info Built on Obsidian Bases
-Bases use Obsidian's built-in Bases feature. Vault Operator's minimum Obsidian version is 1.13.0, so Bases are always available.
+Bases use Obsidian's built-in Bases feature. The Bases core feature requires a recent Obsidian version (Bases shipped in Obsidian 1.9); on older releases the Base tools are unavailable.
 :::
 
 ## Tips

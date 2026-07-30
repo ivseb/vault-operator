@@ -26,7 +26,9 @@ Any MCP-compatible server works. A few common examples:
 - Local utilities exposed over HTTP (file system helpers, custom scripts)
 - Third-party integrations (GitHub, Slack, calendar services)
 
-### Setup
+There are two kinds of server. A **remote server** you reach over a URL (SSE or Streamable HTTP). A **local (stdio) server** is a command Vault Operator launches on your machine. The two have different setup flows and different trust models.
+
+### Setup for a remote server
 
 1. Open **Settings > Vault Operator > Customize > Connectors > External tool servers**
 2. Click **"+ Add Server"**
@@ -38,12 +40,37 @@ Any MCP-compatible server works. A few common examples:
 | SSE | Older remote servers using Server-Sent Events (fallback) |
 
 4. Enter the server URL
-5. Save. The agent picks up available tools automatically.
+5. If the server needs authentication:
+   - **Token or header auth**: add the credential as a header in the **Headers** field, for example `Authorization=Bearer <token>`. Header values with a secret-looking name (authorization, token, api-key, and similar) are stored encrypted.
+   - **OAuth**: servers that use OAuth show an **Authorize** button. Click it and Vault Operator opens the server's sign-in page in your browser; the returned tokens are stored encrypted and refreshed automatically, so you sign in only once.
+6. Save. The agent picks up available tools automatically.
 
-Once connected, the agent calls external tools with `use_mcp_tool` and manages servers with `manage_mcp_server`.
+Once connected, the agent calls external tools with `use_mcp_tool` and manages remote servers with `manage_mcp_server`.
 
-:::tip Stdio-only servers need a bridge
-Vault Operator does not start child processes for stdio MCP servers. If the server you want to use only ships a stdio binary (for example Playwright MCP), run it locally as an HTTP server first, then point Vault Operator at that URL. Example: `npx @playwright/mcp@latest --port 3001`, then add `http://localhost:3001` as a Streamable HTTP server.
+### Setup for a local (stdio) server
+
+Some MCP servers ship only as a local command, not as a URL (Azure DevOps, Playwright, Filesystem, and others). Vault Operator can launch these directly, without a separate bridge process. This path is **Desktop only** (mobile has no Node runtime) and is deliberately narrow and fail-closed:
+
+- **You add stdio servers, the agent cannot.** `manage_mcp_server` only accepts remote (SSE and Streamable HTTP) servers. Adding, editing, trusting, or reconnecting a stdio server happens in Settings, by you. The agent can use a stdio server's tools once you have set it up, but it can never create or launch one.
+- **The config is device-local.** A stdio server you add on one machine is stored outside the vault and never syncs to another device, so a synced config can never auto-launch a process somewhere else.
+- **The first launch needs your confirmation.** Before a stdio server runs the first time, Vault Operator shows a **Trust and run** prompt on that device. Until you confirm, nothing spawns. Changing the command or its arguments later prompts you again.
+- **Only `node` and `npx`.** The command must be a bare `node` or `npx` (no path, no shell characters). Anything else is rejected with a clear error instead of running.
+- **Secrets stay encrypted.** Environment variables you set for the server (for example an access token) are encrypted at rest and decrypted only at launch.
+
+To add one:
+
+1. Open **Settings > Vault Operator > Customize > Connectors > External tool servers**
+2. Click **"+ Add Server"** and choose the **stdio (local program)** type (Desktop only)
+3. Enter the command (`node` or `npx`) and its arguments, for example command `npx` with args `@azure-devops/mcp`
+4. Add any environment variables the server needs (secret-named values are stored encrypted)
+5. Save, then confirm the **Trust and run** prompt on this device
+
+:::warning A local process runs with your permissions
+A stdio server is a normal process on your machine with your user rights, and there is no OS sandbox around it. Only add servers you curate and trust. If you need OS-level isolation, run the server externally and connect to it over HTTP instead.
+:::
+
+:::tip Servers that are not node or npx
+The stdio path only launches `node` and `npx`. For a server that ships another binary (Python, Go, dotnet), run it locally as an HTTP server first and add it as a Streamable HTTP server. Example: `npx @playwright/mcp@latest --port 3001`, then add `http://localhost:3001`.
 :::
 
 :::tip Discovery is automatic
@@ -93,6 +120,10 @@ You can also enable per-surface sync to opt specific clients into shared memory 
 4. Restart Claude Desktop
 
 Claude Desktop now sees the vault, memory, and history as available tool sources.
+
+:::info How the local connection works
+Claude Desktop speaks MCP over stdio, but Vault Operator's server is a local HTTP server on `127.0.0.1:27182`. "Configure Claude Desktop" wires up a small proxy (`mcp-server-worker.js`) that Claude Desktop launches; the proxy forwards each request to the local HTTP server. Both use a token stored at `~/.obsidian-agent/mcp-token`, so only clients on your machine that can read that file can connect. See [MCP architecture](/concepts/mcp-architecture) for the full picture.
+:::
 
 ### Setup for ChatGPT (custom connector)
 
@@ -151,14 +182,16 @@ Remote access lets you talk to your vault from anywhere, as long as Obsidian is 
 
 ### How it works
 
-A Cloudflare Workers relay acts as a bridge between your local Vault Operator instance and remote clients. The RelayClient in Vault Operator holds a persistent connection to the deployed worker. The relay uses HTTP long-polling. The client polls for incoming requests, processes them locally, and sends responses back. Authentication uses a token embedded in the URL. No data is stored on the relay. It is a passthrough.
+A Cloudflare Workers relay sits between your local Vault Operator instance and remote clients. Vault Operator holds a connection to the deployed worker and polls it over HTTP long-polling: it asks the relay for incoming requests, runs them locally, and posts the responses back. Long-polling is used on purpose, because Obsidian's content security policy blocks WebSocket connections while plain HTTP requests stay allowed. Authentication uses a token embedded in the URL. No vault data is stored on the relay. It is a passthrough.
+
+You do not need Wrangler or a terminal to deploy the worker. Vault Operator ships the worker code and uploads it to Cloudflare for you through the Cloudflare REST API (via Obsidian's `requestUrl`), using a Cloudflare API token you paste into Settings.
 
 ### Setup
 
-1. Deploy the Cloudflare Worker (see the relay deployment guide)
-2. In **Settings > Vault Operator > Customize > Connectors > Remote access**, enter your worker URL
-3. Authenticate with the provided token
-4. The relay connects automatically when Obsidian is running
+1. Create a free Cloudflare account and an API token with the two permissions the setup panel lists (Workers Scripts: Edit and Account Settings: Read).
+2. In **Settings > Vault Operator > Customize > Connectors > Remote access**, paste the API token and click **Deploy**. Vault Operator uploads the worker for you (no Wrangler, no terminal).
+3. Copy the relay URL it returns. The URL already contains the auth token, so you paste the whole URL into your remote client.
+4. The relay connects automatically whenever Obsidian is running.
 
 :::info Always-on requirement
 Remote access requires Obsidian to be running on your machine. The relay forwards requests to your local instance. It does not store your vault data in the cloud.

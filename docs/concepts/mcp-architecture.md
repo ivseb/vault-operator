@@ -26,15 +26,26 @@ On the right, Vault Operator itself is the server. External clients connect to i
 
 You configure external MCP servers in Settings > Vault Operator > Customize > Connectors. Each server needs a transport type and connection details:
 
-- Streamable HTTP is the first-party transport for modern remote servers.
+- Streamable HTTP is the first-party transport for modern remote servers. It supports optional authentication: a header bearer token, or OAuth, where the SDK opens your browser to sign in and stores the returned tokens encrypted and refreshes them automatically.
 - SSE is supported as a first-party fallback for older servers that have not migrated yet.
-- stdio is not supported in-process. A stdio-only server has to run behind an external HTTP/SSE bridge so Vault Operator never spawns host processes.
+- stdio launches a local command-line MCP server directly, on Desktop only. This is the one client-side path where the plugin spawns a host process, so it is fenced in by the layers described under [Local stdio servers](#local-stdio-servers) below.
 
 When Vault Operator connects to a server, it discovers the available tools and resources through MCP's standard discovery protocol. Those tools appear in the agent's tool list alongside the activated tool groups. The agent calls them like any other tool and does not need to know they run in a separate process.
 
-The MCP client handles reconnection automatically. If a server crashes or becomes unreachable, the client retries with exponential backoff.
+The MCP client is deliberately lean and does not reconnect on its own. Enabled connectors reconnect when you restart Obsidian, and you can reconnect a server on demand from Settings > Vault Operator > Customize > Connectors (the Reconnect action). If a server becomes unreachable mid-session, its tools stay listed but calls fail until you reconnect.
 
 Resources, a second MCP concept alongside tools, are also supported. If an MCP server exposes resources like documentation files or database schemas, Vault Operator can list and read them. The agent pulls in resource content as additional context when needed.
+
+### Local stdio servers
+
+A stdio server is a local command Vault Operator starts itself, talking MCP over the process's standard input and output. It is the one client-side path where the plugin spawns a host process, so it is deliberately narrow and fail-closed. Several independent layers stand between a configured entry and a running process:
+
+- **Desktop only.** Mobile has no Node runtime, so the stdio branch is unavailable there (`Platform.isDesktopApp` in `src/core/mcp/McpClient.ts`).
+- **Device-local config, never synced.** stdio servers live in a per-device store outside the vault (`~/.obsidian-agent/devices/<id>/`), not in the synced settings. A config injected through sync or a shared vault never exists on another device, so it can never auto-launch there.
+- **Per-device human trust.** The first launch needs an explicit "Trust and run" confirmation on that device. Without it the spawn is refused. The trust is bound to a fingerprint of the exact command and its arguments, so editing the command later prompts again.
+- **Command allowlist.** Only a bare `node` or `npx` may be spawned (`assertStdioCommandAllowed` in `src/core/security/spawnAllowlist.ts`: no path separator, so a `/tmp/evil/node` basename spoof is rejected, and no shell metacharacters). The launch itself uses the MCP SDK's `StdioClientTransport` (cross-spawn with `shell: false`), so arguments are never shell-interpreted.
+
+The child process inherits a fixed environment allowlist (paths, locale, and known CLI-config locations, no credentials). Any secret-named variable you set for the server is encrypted at rest and decrypted only at spawn. The agent (the LLM) cannot add, edit, trust, reconnect, or test a stdio server: `manage_mcp_server` refuses stdio for every mutating action, so there is no path from model output to a process spawn. Only you manage stdio servers, in Settings. The [Connectors guide](/guides/connectors) has the setup steps.
 
 ## Server side
 
@@ -51,6 +62,8 @@ The `get_context` tool is meant to be called first in every conversation. It ret
 
 All tool calls dispatch directly to Vault Operator's services within Obsidian's renderer process. No IPC overhead. The HTTP handler calls the same functions the internal agent uses.
 
+The server authenticates every request with a bearer token, auto-generated on first run and written to `~/.obsidian-agent/mcp-token`. It binds only to the `127.0.0.1` loopback interface, with a CORS origin and a Host-header allowlist as defense in depth against DNS rebinding. Clients that speak MCP over stdio rather than HTTP, Claude Desktop being the common one, go through a thin proxy, `mcp-server-worker.js` (`src/mcp/mcp-server-worker.ts`): Claude Desktop launches it, and it forwards each stdio request to the local HTTP server on port 27182, reading the same token file to authenticate. The "Configure Claude Desktop" button in Settings writes this proxy into Claude Desktop's config for you.
+
 The `search_vault` tool on the MCP server uses the same knowledge layer pipeline described on the [knowledge layer](./knowledge-layer.md) page. External agents get the same retrieval (vector search, graph expansion, implicit connections, reranking) as the internal agent. The `write_vault` tool supports batch operations, so create, edit, append, and delete can happen in a single call. Per-call content caps and an aggregate cap protect against runaway writes.
 
 ## Living documents and source-interface tagging
@@ -64,6 +77,8 @@ Every persisted message carries the `source_interface` tag. The history sidebar 
 The local HTTP server is only reachable on your machine. For remote access (from Claude Desktop on a different device, or from the Claude web app), the `RelayClient` (`src/mcp/RelayClient.ts`) connects to a Cloudflare Workers relay.
 
 The relay uses HTTP long-polling. The client polls for incoming requests, processes them locally, and sends responses back. Authentication uses a token embedded in the URL. No data is stored on the relay. It is a passthrough.
+
+Long-polling is a deliberate choice: Obsidian's content security policy blocks WebSocket connections, and plain HTTPS requests stay allowed. The worker itself deploys without Wrangler or a terminal. Vault Operator ships the worker code and uploads it to Cloudflare through the Cloudflare REST API (`src/mcp/CloudflareDeployer.ts`, via Obsidian's `requestUrl`), using a Cloudflare API token you provide in Settings.
 
 Remote access requires Obsidian to be running on your machine. The relay cannot access your vault on its own. It only forwards requests to the plugin.
 

@@ -196,8 +196,6 @@ export class VaultTab {
             body: t('settings.vault.sectionVaultHealthInfo'),
         });
 
-        const vh = this.plugin.settings.vaultHealth;
-
         // ADR-163 / FEAT-30-07: der External-Freshness-Verifier ist der
         // opt-in Web-Teilcheck von Vault health (Stufe 3 desselben Stacks
         // wie der kostenlose lokale cluster_freshness-Check) und lebt

@@ -43,13 +43,14 @@ Free. Open source. Local-first. Works with cloud models, with your existing Chat
 A chatbot reads your prompt and answers. Vault Operator runs a loop: it picks an action, executes it against your vault, feeds the result back to the model, and continues until the task is done.
 
 - **Inline AI chat.** Select text in any note and press Cmd+Shift+I (Ctrl+Shift+I on Windows and Linux), or right-click and choose "Inline AI chat", to open a floating chat panel anchored over the selection. The panel runs the same agent loop as the sidebar (skills, MCP, memory) and ships quick actions for Lookup (vault search with optional web fallback), Rewrite, Translate, Summarize, and Find action items. Available since v3.0.0. [Chat interface guide](https://pssah4.github.io/vault-operator/guides/chat-interface).
+- **Run several chats at once.** Open independent conversations in their own tabs, each with its own mode and attachments. A long-running task keeps working in one tab while you start another; interrupted runs resume from history. Available since v3.3.1.
 - **Capture sources with block-level provenance.** Drop a PDF into the chat, get a source note where every key claim links back to the exact paragraph in the original.
 - **Three-layer memory across sessions.** Short-term session summaries, durable facts that survive resets, and a soul profile of how you write and how you want the agent to behave.
 - **Find notes by meaning, not by filename.** Local vector index, full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker, combined with weighted RRF.
 - **Build Word and Excel files, draft PowerPoint decks (PPTX in beta).** Turn project notes into a DOCX, structured data into an XLSX, or meeting notes into a draft PPTX.
 - **Run a vault health check.** Surfaces orphans, broken links, missing backlinks, weak clusters, and over-connected hubs. Every fix creates a checkpoint you can undo.
 - **Use the vault from ChatGPT, Claude Desktop, or Perplexity.** Vault Operator runs as an MCP server, so your other AI clients can read the same memory and history as the in-Obsidian agent.
-- **Hold the keys with auto-approve.** Fail-closed by default. Per-category toggles for read, write, plugin-API, command, MCP, and web. Sensitive folders are gated by a `.obsidian-agentignore` file.
+- **Hold the keys with auto-approve.** Fail-closed by default. Per-category toggles for read, write, plugin-API, command, MCP, and web. One permission center lists every individual grant the agent holds so you can review and revoke any of them. Sensitive folders are gated by a `.obsidian-agentignore` file.
 - **Reuse what Obsidian already exposes.** Plugin-API discovery lets the agent invoke installed plugins (Excalidraw, Dataview, Tasks) instead of duplicating their work.
 
 ---
@@ -97,7 +98,7 @@ Vault Operator is fail-closed. Write operations need your approval unless you op
 
 ## Try it
 
-Vault Operator requires Obsidian 1.13 or newer.
+Vault Operator requires Obsidian 1.8.7 or newer.
 
 1. **Install.** Obsidian Settings > Community Plugins > Browse > "Vault Operator" > Install + Enable.
 2. **Add a provider.** Settings > Vault Operator > Providers > Providers > "+ Add provider". A free [Google AI Studio](https://aistudio.google.com/app/apikey) key is enough to try everything.
@@ -135,7 +136,7 @@ npm run build
 
 Then copy `main.js`, `manifest.json`, and `styles.css` from the repo root into `<vault>/.obsidian/plugins/vault-operator/`. For watch mode and auto-deploy during development, point `PLUGIN_DIR` in `.env` at your test vault and run `npm run dev`.
 
-Requirements: Obsidian 1.13 or newer, desktop only, Node.js 18+ for building.
+Requirements: Obsidian 1.8.7 or newer, desktop only, Node.js 18+ for building.
 
 ---
 
@@ -215,13 +216,14 @@ Apache 2.0.
 聊天机器人读取你的提示词然后作答。Vault Operator 则运行一个循环:它挑选一个操作,在你的知识库上执行,把结果反馈给模型,如此持续,直到任务完成。
 
 - **行内 AI 聊天。** 在任意笔记中选中文本并按 Cmd+Shift+I(Windows 和 Linux 上是 Ctrl+Shift+I),或右键选择 "Inline AI chat",即可打开一个锚定在选区上方的悬浮聊天面板。该面板运行与侧边栏相同的智能体循环(skills、MCP、记忆),并附带若干快捷操作:Lookup(知识库搜索,可选网络回退)、Rewrite、Translate、Summarize 和 Find action items。自 v3.0.0 起可用。[Chat interface guide](https://pssah4.github.io/vault-operator/guides/chat-interface)。
+- **同时运行多个聊天。** 在各自的标签页中打开彼此独立的对话,每个对话都有自己的模式和附件。一个长时间运行的任务会在某个标签页里持续工作,同时你可以开启另一个;被中断的运行会从历史记录中恢复。自 v3.3.1 起可用。
 - **以块级溯源捕获来源。** 把一个 PDF 拖进聊天,你会得到一份来源笔记,其中每一条关键论断都链接回原文中确切的段落。
 - **跨会话的三层记忆。** 短期会话摘要、在重置后依然保留的持久事实,以及一份 soul 档案,记录你如何写作、以及你希望智能体如何行事。
 - **按含义查找笔记,而不是按文件名。** 本地向量索引、全文关键词搜索、通过 wikilinks 进行的图谱扩展,以及本地 cross-encoder 重排器(reranker),再用加权 RRF 组合在一起。
 - **生成 Word 和 Excel 文件,起草 PowerPoint 演示(PPTX 处于 beta 阶段)。** 把项目笔记变成 DOCX,把结构化数据变成 XLSX,或把会议记录变成 PPTX 草稿。
 - **运行知识库健康检查。** 找出孤立笔记、失效链接、缺失的反向链接、薄弱的聚类,以及连接过多的枢纽节点。每一次修复都会创建一个可以撤销的检查点。
 - **从 ChatGPT、Claude Desktop 或 Perplexity 使用你的知识库。** Vault Operator 可以作为 MCP 服务器运行,因此你的其他 AI 客户端可以读取与 Obsidian 内智能体相同的记忆和历史。
-- **通过自动批准掌控大权。** 默认 fail-closed(默认拒绝)。可按类别分别开关:read、write、plugin-API、command、MCP 和 web。敏感文件夹由一个 `.obsidian-agentignore` 文件把关。
+- **通过自动批准掌控大权。** 默认 fail-closed(默认拒绝)。可按类别分别开关:read、write、plugin-API、command、MCP 和 web。一个统一的权限中心会列出智能体持有的每一项单独授权,方便你审查并撤销其中任意一项。敏感文件夹由一个 `.obsidian-agentignore` 文件把关。
 - **复用 Obsidian 已经暴露的能力。** Plugin-API 发现机制让智能体可以调用已安装的插件(Excalidraw、Dataview、Tasks),而不必重复实现它们的功能。
 
 ---
@@ -269,7 +271,7 @@ Vault Operator 是 fail-closed 的。写操作需要你的批准,除非你已为
 
 ## 试一试
 
-Vault Operator 需要 Obsidian 1.13 或更新版本。
+Vault Operator 需要 Obsidian 1.8.7 或更新版本。
 
 1. **安装。** Obsidian Settings > Community Plugins > Browse > "Vault Operator" > Install + Enable。
 2. **添加一个提供商。** Settings > Vault Operator > Providers > Providers > "+ Add provider"。一个免费的 [Google AI Studio](https://aistudio.google.com/app/apikey) 密钥就足以试用所有功能。
@@ -307,7 +309,7 @@ npm run build
 
 然后把仓库根目录下的 `main.js`、`manifest.json` 和 `styles.css` 复制到 `<vault>/.obsidian/plugins/vault-operator/`。若要在开发过程中使用 watch 模式和自动部署,请把 `.env` 里的 `PLUGIN_DIR` 指向你的测试知识库,然后运行 `npm run dev`。
 
-要求:Obsidian 1.13 或更新版本,仅限桌面端,构建需要 Node.js 18+。
+要求:Obsidian 1.8.7 或更新版本,仅限桌面端,构建需要 Node.js 18+。
 
 ---
 

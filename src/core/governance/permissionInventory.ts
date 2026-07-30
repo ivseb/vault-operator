@@ -80,7 +80,7 @@ export interface PermissionInventoryHost {
     settings: {
         autoApproval: Record<string, unknown>;
         mcpAllowWriteTools?: boolean;
-        pluginApi?: { safeMethodOverrides?: Record<string, boolean> };
+        pluginApi?: { safeMethodOverrides?: Record<string, boolean>; approvalCounts?: Record<string, number> };
         /** AUDIT M-18: when and how each grant was made. Keyed by GrantEntry.id. */
         grantProvenance?: Record<string, GrantProvenance>;
         /** AUDIT M-5: hosts the user allowed web_fetch to reach. */

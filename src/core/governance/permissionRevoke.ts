@@ -64,9 +64,7 @@ export function revokeGrant(host: PermissionRevokeHost, id: string): RevokeResul
         }
 
         case 'pluginApiMethod': {
-            const api = s.pluginApi as
-                | { safeMethodOverrides?: Record<string, boolean>; approvalCounts?: Record<string, number> }
-                | undefined;
+            const api = s.pluginApi;
             if (api?.safeMethodOverrides) delete api.safeMethodOverrides[key];
             // AUDIT M-15 again: the accumulator that promoted the method has to
             // go with it, or the next approval promotes it straight back and the

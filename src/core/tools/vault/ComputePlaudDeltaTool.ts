@@ -70,7 +70,7 @@ export class ComputePlaudDeltaTool extends BaseTool<'compute_plaud_delta'> {
                 plaudFiles = raw as PlaudFileMeta[];
             } else if (typeof raw === 'string' && raw.trim().startsWith('[')) {
                 try {
-                    const parsed = JSON.parse(raw);
+                    const parsed: unknown = JSON.parse(raw);
                     if (Array.isArray(parsed)) plaudFiles = parsed as PlaudFileMeta[];
                 } catch { /* fall through to the empty-list guard */ }
             }

@@ -13,7 +13,6 @@ import { Modal, Notice, setIcon, Platform, TFile, getLanguage, Setting } from 'o
 import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
 import { generateShortId } from '../../core/utils/generateShortId';
-import { VIEW_TYPE_AGENT_SIDEBAR } from '../viewTypes';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
 import { OrphanLinkModal } from './OrphanLinkModal';

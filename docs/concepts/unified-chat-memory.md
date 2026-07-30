@@ -127,7 +127,7 @@ The shared facts and conversations live in your local `memory.db` and `history.d
 
 To connect another AI tool to UCM, you need three things:
 
-1. **Vault Operator's MCP server enabled.** **Settings > MCP > Enable MCP server**. The plugin shows the connection URL and an auth token.
+1. **Vault Operator's MCP server enabled.** Open **Settings > Vault Operator > Customize > Connectors > Local connector** and enable the server. The plugin shows the connection URL and an auth token.
 2. **A source-interface tag** configured per connector. In Claude Desktop's MCP config, set the connector to label its calls with `claude-ai` (or whichever source matches). The tag becomes part of every saved conversation and fact.
 3. **Sync mode** chosen per source. The defaults err on the side of privacy. Switch a source from manual to auto only when you trust everything you say in that tool.
 

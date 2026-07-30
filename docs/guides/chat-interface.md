@@ -1,6 +1,6 @@
 ---
 title: Chat Interface
-description: Attachments, @-mentions, tool picker, chat history, and keyboard shortcuts.
+description: Parallel chat tabs, attachments, @-mentions, tool picker, chat history, and keyboard shortcuts.
 ---
 
 # Chat Interface
@@ -24,11 +24,49 @@ Conversations from the inline panel show up in the same history list as sidebar 
 
 ## The chat panel
 
-Open Vault Operator by clicking its icon in the left sidebar. The panel has three areas:
+Open Vault Operator by clicking its icon in the left sidebar. The panel has four areas:
 
-- Toolbar at the top: model picker, tool picker, history button
+- Toolbar at the top: model picker, tool picker, history button, New chat button
+- Tab strip below the toolbar: one tab per open conversation (see [Working with several chats at once](#working-with-several-chats-at-once))
 - Message area in the center: your conversation, activity blocks, approval cards
 - Input bar at the bottom: text field, attachment button, send button
+
+## Working with several chats at once (v3.3.1) {#working-with-several-chats-at-once}
+
+The sidebar holds more than one conversation at a time. A tab strip sits just under the toolbar, with one tab per open chat. Each tab is an independent conversation with its own history, so you can keep separate topics side by side.
+
+### Opening and closing tabs
+
+- Click the **New chat** button in the toolbar, or the **+** at the end of the tab strip, to open another chat. Both open a fresh tab and switch to it.
+- The **New chat session (parallel)** command does the same. It has no default shortcut, so bind one under **Settings > Hotkeys** if you want a keystroke.
+- Click a tab to switch to it. Switching is instant and does not reload the conversation.
+- Click the **x** on a tab to close it. If a run is still going in that chat, Vault Operator asks first (**Close this chat?**) and lets you **Stop and close**. Closing a chat ends it cleanly: it saves, generates the title, and runs memory extraction, the same as any finished conversation.
+
+A tab is named from your first message, so a fresh one reads **New chat** until you send something. Once the agent has more to go on, the tab picks up an automatic title.
+
+### Runs that keep going in the background
+
+Starting a chat no longer waits for another to finish. You can launch a long task (an ingest, a vault-wide edit) in one tab and immediately open a second tab to do other work. The first run keeps streaming into its own tab while you type in another. A small dot on a tab marks a chat with a run in progress, so you can see at a glance which conversations are still working.
+
+Each tab keeps its own state, not just its history:
+
+- **Mode and agent**: switching one chat to a different agent leaves the others on their own.
+- **Model, thinking, and reasoning effort**: a per-chat model override (see [Choosing a model](/guides/choosing-a-model)) applies only to that tab.
+- **Attachments**: a file you drop into one chat is read only by that chat.
+
+So two topics stay separate. A mode switch or an attachment in one tab never changes what another tab does on its next turn.
+
+### One API key, shared across chats
+
+All open chats send requests through the same model and API key, so they share one upstream quota. Runs still proceed in parallel. If they push past the key's rate limit, Vault Operator backs off and retries rather than failing. While a run is waiting for shared capacity, a brief notice (**Waiting on shared API budget (parallel chats)**) appears so a paused chat does not look stuck. That notice only shows when you have configured a request rate limit, which is off by default.
+
+### After a restart
+
+When you reload or restart Obsidian, the sidebar opens one fresh chat. Your earlier conversations are not lost: they are in [Chat history](#chat-history), one click away. If a run was interrupted mid-task (a crash, or a reload while the agent was working), open that conversation from History and Vault Operator offers a **Resume** so you can continue from where it stopped. Each interrupted run is offered once, in its own conversation.
+
+### Picking up an earlier thread
+
+When you open a conversation whose topic you explored before, Vault Operator suggests the related earlier chats at the top of the message area (**You explored this topic before:**). Click one to open it in its own tab, or **Dismiss** the hint. The suggestion is read-only: it never changes either conversation and never merges their histories. See [Memory & Personalization](/guides/memory-personalization) for how chat linking works.
 
 ## Thinking and reasoning effort {#thinking-and-reasoning-effort}
 
@@ -155,7 +193,7 @@ At the top of the message area, a small indicator shows how much of the model's 
 1. Attach files instead of pasting long text. Attachments are handled more efficiently.
 2. Use @-mentions when you know which note you want. It is faster and more precise than asking the agent to search.
 3. Skim activity blocks after the agent works. They show you what tools exist and how the agent thinks about tasks.
-4. Start a new conversation for unrelated topics so context stays focused and you avoid condensation.
+4. Open a new tab for an unrelated topic instead of continuing in the same chat. Context stays focused, you avoid condensation, and a long run in the old tab keeps going in the background.
 
 ## Next steps
 

@@ -9,7 +9,7 @@ This takes about 5 minutes if your API key is already handy, 5 to 10 if you let 
 
 ## Before you start
 
-- **Obsidian 1.13 or later** on macOS, Windows, or Linux. Vault Operator is desktop-only. Earlier versions are blocked by `manifest.json`.
+- **Obsidian 1.8.7 or later** on macOS, Windows, or Linux. Vault Operator is desktop-only. Earlier versions are blocked by `manifest.json`.
 - **An internet connection** if you plan to use a cloud model. If you want everything offline, install [Ollama](https://ollama.ai) or [LM Studio](https://lmstudio.ai) first.
 - **One AI provider API key**. Free options exist (Google Gemini, Ollama). API keys look like `sk-ant-...` for Anthropic, `sk-...` for OpenAI, or a long random string for Google. Get one from the provider's dashboard before you start.
 - **About 100 MB of disk space** for the plugin, the embedding model, and the knowledge database. Large vaults add more.

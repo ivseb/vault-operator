@@ -7,6 +7,8 @@ description: How Vault Operator prevents the agent from doing damage. Path prote
 
 This is what makes it safe to give an AI write access to your notes.
 
+See also: [Safety and control](../guides/safety-control.md) for the practical guide, [Checkpoints](./checkpoints.md), and the [Settings reference](../reference/settings.md).
+
 The principle is fail-closed. If anything goes wrong during an approval check (a missing callback, an unloaded config, an unexpected error), the operation is denied. The agent never silently auto-approves. Every tool call, internal or MCP, flows through one central pipeline.
 
 ## The pipeline
@@ -40,11 +42,25 @@ Some paths are always blocked regardless of configuration: `.git/`, Obsidian wor
 
 The `IgnoreService` (`src/core/governance/IgnoreService.ts`) enforces this. If it hasn't finished loading its patterns yet, it denies all access. Fail-closed.
 
+An ignored path is hidden from enumeration, not only from reads (M-7). `list_files`, tag and link queries, vault statistics, and canvas generation all drop denied entries at the moment they collect results, through `denyZoneFilter.ts`, before any count, limit, or slice. That order matters: a hidden folder that still contributed to "42 notes not shown" would leak its size, and one that still consumed a result slot could be measured by shrinking a limit and counting the gaps. Hiding the names while publishing the count is the same leak with extra steps, so the count is taken over the visible set only.
+
+The agent's own config folder (`.vault-operator/`, except its skill workspace) is itself a deny zone (FIX-44-22). A tool or a sandbox script cannot write there, which is the concrete lock that stops the agent from rewriting `settings.json` to grant itself permissions. Authority over what the agent may do never lives inside a file the agent can edit.
+
+## Below the vault API: safeFs and spawnAllowlist
+
+Everything above decides whether an operation should be allowed. Beneath it sits a harder floor: whether the model can reach the dangerous primitives at all. By construction, it cannot.
+
+There is no path from chat output to `fs.*`. The tools that take a path (`read_file`, `write_file`, `edit_file`) go through Obsidian's `vault.*` API, never the raw filesystem. The only calls that ever reach `fs` are hard-coded by the plugin (the knowledge database, the search index, the checkpoint store), and every one passes through `safeFs` (`src/core/security/safeFs.ts`), which resolves the path and checks it against a fixed allowlist of root directories. A path that escapes with `..` or lands outside the roots is rejected before any read or write happens.
+
+There is no path by which the model can spawn a new process, or choose what is spawned. Every child process goes through `spawnAllowlist` (`src/core/security/spawnAllowlist.ts`), which checks the binary against a hard-coded list (`git` for checkpoints, `soffice` for office conversion, and a few others). A binary that is not on the list does not launch. There is no shell: `options.shell` is forced to `false`, shell metacharacters are rejected, and the `exec` / `execSync` string interfaces are not re-exported at all.
+
+These two wrappers are why an adversarial model response, even one that talks its way past every approval, still cannot read a file outside the vault or run an arbitrary command. The trust boundaries and each allowlisted root and binary are documented in the reviewer notes that ship with the plugin (`REVIEWER_NOTES.md`).
+
 ## Approval effects (ADR-153)
 
 Every tool call routes through the same approval check. What a tool is *allowed* to do is not something the tool declares about itself; it comes from one central registry, `TOOL_EFFECTS` in `src/core/tools/toolEffects.ts`, which maps every tool to exactly one effect class. The pipeline resolves the effect, looks up its policy in `EFFECT_POLICY`, and decides. A tool with no entry fails closed: it is treated as unclassified and always asks. This is deliberate. The earlier design let a tool opt out of approval by self-declaring `isWriteOperation = false`, and a handful of side-effecting tools did exactly that. The effect now comes from outside the tool.
 
-The master toggle lives under Settings > Vault Operator > Agents > Permissions and ships **off**. With it off, every effect that writes, spends money, or leaves the device asks for confirmation.
+The master toggle lives under Settings > Vault Operator > Agents > Auto-approve and ships **off**. With it off, every effect that writes, spends money, or leaves the device asks for confirmation.
 
 | Effect | Examples | Policy |
 |--------|----------|--------|
@@ -87,6 +103,25 @@ The approved plan also binds the execution. After an approved batch gate the pip
 **Known limitation: card-only approvals.** Some write tools cannot produce a meaningful text diff, and for them the gate deliberately shows the plain approval card (tool name, target, parameters) instead of pretending. This covers the binary and structured creators (`create_pptx`, `create_docx`, `create_xlsx`, `create_excalidraw`, `create_drawio`, `create_base`, `update_base`, `generate_canvas`), path-level operations (`move_file`, `create_folder`), and tools whose persistent effect is a database record rather than file content (`ingest_triage` writes a triage-log entry, not the note). Every one of these still asks; what it cannot show is a line-by-line preview of a format that has no lines.
 
 **Sandbox governance.** Sandbox code reaches the vault through the `SandboxBridge`, which now obeys the same rules as the tools: it consults the `IgnoreService`, takes a checkpoint before each write, and treats the agent's own config folder (`.vault-operator/`, except the skill workspace) as a deny-zone, so a script cannot grant itself permissions by rewriting `settings.json`. A skill's trust class (`builtin` / `pro`) is verified against a provenance manifest the plugin controls, not read from the skill's own frontmatter, so a third-party skill cannot forge `source: pro`.
+
+## Seeing and revoking consent
+
+A permission you cannot find again is not really consent, it is a setting that happened to get set. Older versions spread consent across a dozen stores: the category toggles here, promoted plugin-API methods under Advanced, stdio trust in the MCP tab, and session grants, inbound MCP write access and imported-skill trust with no surface at all. The honest answer to "what have I allowed, and how do I take it back?" was "look in four places, and for some of it you cannot".
+
+`permissionInventory.ts` collects every standing and live grant into one flat list, and `permissionRevoke.ts` takes any one of them back. Both are pure and host-shaped (no Obsidian, no DOM), so the kill switch and the settings list enumerate the same set and cannot drift apart the way the stores did. Every entry carries two things the old surfaces never stated:
+
+- **Scope.** `vault` (persisted, travels with Sync), `device` (persisted locally, never synced), `session` (dies on plugin reload), or `run` (dies with the task). Widest to narrowest, because "this vault" and "until Obsidian restarts" have very different blast radii.
+- **Provenance.** `card`, `settings`, `preset`, `onboarding`, or `unknown`, with a timestamp. The stamp is best-effort by design: a missing stamp degrades to `unknown`, never to a wrong claim. Revoking a grant clears its provenance too, so a later re-grant cannot inherit an old date and claim you allowed it earlier than you did.
+
+Revocation is one function with one case per store. A new consent store that forgets to add a case fails loudly (`unknown store`) rather than rendering a Revoke button that quietly does nothing. Revoking a session grant also bumps a revocation epoch, which is what makes an already-running task drop the grant instead of coasting on it.
+
+**Web-host grants (M-5).** `web_fetch` no longer hides behind a single web flag whose only lasting answer was "any page, forever". A standing grant now records one host (`webHostGrants.ts`): per host, because the next path on the same origin carries the same trust and the same reach; exact match, because allowing `example.com` must not cover `evil-example.com` or a subdomain. This only changes when `web_fetch` skips a card. It could always reach any host once a human approved it.
+
+**Command allowlist (M-8).** `execute_command` is different, and the difference is the point. Here the list *is* the capability boundary, not just a record of when to skip a card. A command that is not on the allowlist does not run, whatever the approval path answers (preset, category toggle, run or session grant, or a person clicking Allow). That is why enrolment happens in Settings and never from a card: a card grant on a command id the agent itself chose would reduce the allowlist to a one-time prompt and let the agent drive its own expansion, the exact shape ADR-153 closed for presets. A denylist was rejected because the command space is third-party and unbounded, and you cannot enumerate what is dangerous in a set you do not control.
+
+**Paranoid mode and the approval timeout.** Two runtime brakes sit above all of this. Paranoid mode ("Always ask") is a persisted override: while on, the pipeline asks for every effect except `read` and `ui`, regardless of the toggles, presets, and any run or session grant, and the cards stop offering scope grants because none would take effect. It is deliberately not an `autoApproval` category key, so the effect-policy drift contract stays untouched. Separately, an unanswered card is denied after the approval timeout (default 10 minutes, `advancedApi.approvalTimeoutMinutes`, 0 to wait indefinitely): silence is fail-closed, never a yes.
+
+**Reset to default-deny.** One button returns the whole surface to fail-closed: the restrictive preset, plus every specific grant cleared at once. That covers the web hosts, the enrolled commands, inbound MCP write access, promoted plugin-API methods and their promotion counters, trusted stdio servers and imported skills, and every run and session grant. Anything the permission list can show has to be reachable from the one button that claims to clear everything, or a reset would teach the user that the brake does not work. Paranoid mode is left untouched on purpose, because turning a brake off is never a side effect of pressing another.
 
 ## Checkpoints
 

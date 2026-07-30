@@ -34,7 +34,7 @@ You can override the auto-classification per tier slot. If the active provider h
 |---|---|---|---|
 | Anthropic | API key | explicit (`cache_control` blocks) | Best tool-use reliability. No native embeddings. |
 | OpenAI | API key | openai-implicit (gpt-4o, gpt-4.1, o1, o3, o4) | Native embeddings via `text-embedding-3-small`. |
-| Google Gemini | API key | none in v2.14 (TTL context caching is deferred) | Free tier available. No native embeddings. |
+| Google Gemini | API key | none (TTL context caching is deferred) | Free tier available. No native embeddings. |
 | OpenRouter | API key | none | Searchable model marketplace. Pricing-based tier classifier. |
 | Azure OpenAI | API key plus endpoint | openai-implicit on OpenAI-family deployments | Enterprise tenant. Native embeddings via deployed model. |
 | Amazon Bedrock | IAM access key (optional session token) | bedrock-cachepoint on Claude family | EU residency via `eu.` cross-region inference profiles. No embeddings in phase 1. |
@@ -91,7 +91,7 @@ An OpenAI key also gives you access to embedding models for semantic search. Con
 |---|---|
 | What you need | API key from [Google AI Studio](https://aistudio.google.com/app/apikey) |
 | Tier mapping (auto) | Frontier: Gemini 2.5 Pro. Main: Gemini 2.5 Flash. Budget: Gemini 2.5 Flash-Lite. |
-| Caching | none in v2.14 (TTL context caching is deferred) |
+| Caching | none (TTL context caching is deferred) |
 | Embedding | not available natively |
 
 Setup:
@@ -186,7 +186,7 @@ Bedrock bills per-token directly through your AWS account. There is no free tier
 | | |
 |---|---|
 | What you need | An active ChatGPT Plus or Pro subscription |
-| Available models | gpt-5.5, gpt-5.4, gpt-5.4-mini (Codex-backend lineup as of v2.14, the live `/codex/models` fetch supersedes this fallback when reachable) |
+| Available models | gpt-5.6, gpt-5.5, gpt-5.4, gpt-5.4-mini (static Codex-backend fallback lineup; the live `/codex/models` fetch supersedes it when reachable) |
 | Caching | none (Codex backend does not expose caching) |
 | Embedding | not available |
 
@@ -308,7 +308,7 @@ Before v2.11 the plugin tracked one row per model in a flat `activeModels[]` lis
 
 A one-shot notification modal summarises the result and flags anomalies (multi-auth setups, missing Frontier slot, custom endpoints that need manual tier assignment). The original list lives at `legacy_active_models_backup` for 30 days in case you want to roll back.
 
-The Models tab is hidden from the navigation in v2.11. It re-appears for users who configure new OAuth providers until the inline OAuth flow lands in a later release.
+The Models tab is hidden from the provider sub-tab navigation; provider setup and OAuth sign-in now happen inline in the provider detail modal.
 
 ## Provider comparison
 

@@ -12,7 +12,7 @@
 import type { Plugin } from 'obsidian';
 import { OptionalAssetManager, buildLocaleSpec, type AssetSpec } from '../core/assets/OptionalAssetManager';
 import { LOCALE_PACK_SHA256 } from '../_generated/locale-hashes';
-import { applyLocalePack, getActiveLocale, localePackFilename, needsLocalePack, type SupportedLocale } from './index';
+import { applyLocalePack, getActiveLocale, needsLocalePack, type SupportedLocale } from './index';
 import type { Translations } from './types';
 
 /** Human-readable names for the Settings UI and boot prompt. */

@@ -9,12 +9,40 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [3.3.3] -- 2026-07-30
+
+### Changed
+
+- **Pro skills are no longer bundled with the plugin.** The eleven Pro workflow
+  skills (ingest, ingest-deep, knowledge-ingest, knowledge-batch-ingest,
+  knowledge-rename, meeting-summary, office-workflow, presentation-design,
+  humanizer, skill-creator-pro, skill-translator) move to a separate catalog and
+  will be delivered through the marketplace on demand. Copies you already
+  installed keep working and are not removed. The four built-in skills stay:
+  sandbox-environment, vault-operator-guide, skill-creator, and
+  vault-health-batch. This also brings the plugin bundle back under the 5 MB
+  sync limit.
+
+### Documentation
+
+- Rewrote the documentation site for the 3.3.x line into a single source of
+  truth, and fixed dead redirects, stale version pins, and Chinese README
+  parity.
+
+### Internal
+
+- Review-bot compliance pass over the shipped code, with no behaviour change:
+  removed redundant type assertions and unused imports, routed the deprecated
+  `activeMcpServers` / `mcpDisabled` migration read through a non-deprecated
+  path, typed the generated-asset and `process` / `crypto` global accesses, and
+  reduced a partially supported CSS `text-decoration` to its supported form.
+
 ### MCP remote relay: redeploy after updating
 
 If you use the remote MCP relay, the Cloudflare worker is bundled inside the
 plugin and does not update itself. After a plugin update that changes the
-worker, you have to press **Redeploy** in Settings, MCP for the new worker
-code to go live on your account. Opening the connector URL in a browser only
+worker, you have to press **Redeploy** in Settings > Vault Operator >
+Customize > Connectors for the new worker code to go live on your account. Opening the connector URL in a browser only
 proves the worker is deployed, not that it runs the current code. This was the
 root of the confusing retest in issue #53, where a redeploy before the fixed
 build was published pushed the old worker again and reported success.
@@ -26,6 +54,297 @@ build was published pushed the old worker again and reported success.
   design and the plugin cannot talk to it, so following its README produced a
   relay that never connects. The worker the plugin actually deploys lives in
   `src/mcp/relayWorkerCode.ts` and is untouched.
+
+
+## [3.3.2] -- 2026-07-30
+
+### Parallel chat sessions, history-loss repair, security hardening
+
+EPIC-55 lands: multiple chats now live side by side as tabs. Alongside it, a
+drain-owner fix closes a history-loss path, and three full-codebase audits are
+remediated.
+
+### Added
+
+- **Parallel chat sessions (EPIC-55).** Chats open as tabs in the main area
+  with an in-view tab strip in the sidebar. Background runs stream into their
+  own tab, and attachments plus the active mode are scoped per tab. A restart
+  reopens a single fresh chat, with earlier chats reachable from history and an
+  interrupted run resumable in its own conversation. Adds cross-session topic
+  awareness and a per-model circuit breaker with a budget-wait indicator.
+- **Native `build_meeting_note_from_sink` and `compute_plaud_delta` tools.**
+  Plaud imports dedupe by id at the write point (no more duplicates) and render
+  timestamps in local time.
+
+### Changed
+
+- **Chat tabs name themselves from the first message** at send time. A fresh
+  tab reads "New chat" until then, and the title sharpens over the opening
+  messages.
+- **Block anchors are scoped to a single section** (`within_section`) so a
+  meeting-summary anchor no longer bleeds across the note.
+
+### Fixed
+
+- **History-loss repair (FIX-03-20-02).** A drain-owner gate stops a running
+  chat from dropping its own message history, with six follow-up fixes (F1-F6)
+  and a `deleteAll` tombstone so a cleared history stays cleared after reload.
+- The history index now recovers from disk, and a restart opens a fresh chat
+  instead of a stale one.
+- Skill reload is atomic, scans in parallel, and gives button feedback.
+- Stop now aborts a running sandbox script (FIX-24-08-04).
+
+### Security
+
+- Three full-codebase audits (2026-07-26, 2026-07-27, 2026-07-29) remediated:
+  `execute_command` runs only allowlisted commands, path governance covers
+  `execute_recipe`, the meeting-sink writer and `extract_zip`, MCP credentials
+  stay scoped to where they were granted, the deny zone stays out of tool
+  enumerations, skill scripts run against their bytes rather than their name,
+  the dormant `vm` sandbox is removed, and one settings surface now shows and
+  revokes every granted permission (M-5 / M-18). `inspect_self` no longer leaks
+  OAuth tokens.
+
+
+## [3.3.1] -- 2026-07-24
+
+### Sandbox and compliance hardening
+
+Follow-up to 3.3.0 with no new features.
+
+### Fixed
+
+- **Skill-script sandbox recycles its iframe between calls** so repeated
+  skill-script runs no longer grow the renderer heap without bound.
+- Hardened the pro-skills leak guard and switched onboarding to store-based
+  install text.
+
+### Security
+
+- Cleared two CodeQL escaping alerts and a blocking review-bot sentence-case
+  finding.
+
+
+## [3.3.0] -- 2026-07-24
+
+### Native stdio MCP, connector discovery, Vault Health redesign
+
+The MCP surface grows a local transport and a discovery flow, and the vault
+health / hub-backlink system is rebuilt around the edge graph.
+
+### Added
+
+- **Native stdio MCP client (FEAT-04-13, ADR-168).** Connect to local MCP
+  servers over stdio, next to the existing remote HTTP connectors.
+  `use_mcp_tool` gains a `sink_to_path` option that writes a large result to a
+  file instead of flooding the chat.
+- **MCP connector discovery (FEAT-04-10 / FEAT-04-11).** Browse and pin
+  featured official servers from a registry, with guided token setup, encrypted
+  header tokens, and trust / publisher labels. MCP activation is now per agent
+  (FEAT-04-12).
+- **Unified "/" menu (FEAT-02-13)** merges skills, prompts and workflows into
+  one picker. Forced-workflow selection moves to a vault-local store with a
+  chat-options popover (FEAT-02-12, ADR-160).
+- **Self-forming hub backlinks and a rebuilt Vault Health flow (EPIC-19).**
+  Notes grow an incoming-links table read from the edge graph, reciprocity is
+  treated as a graph property rather than a frontmatter column, the knowledge
+  review reconciles its own on-screen counts and adds freshness re-checks and
+  weak-cluster batch repair, and a new "Update hubs" command runs independently
+  of the health check. Hub notes get "Links" base views.
+- **`write_skill` tool** to revise an existing skill by name; skill-creator-pro
+  ported to the native runtime.
+- **Provider switcher dropdown in the model picker** (IMP-26-05-01) and an
+  `investigate` delegation tool for research-first planning (FEAT-24-10,
+  ADR-159).
+- Chat UX: Shift+Enter grows the composer, plus a per-message cost footer.
+
+### Changed
+
+- **Settings restructured (FEAT-30-07)** with editable custom recipes and
+  freshness as an on-demand health subcheck.
+- **Orphan repair replaced with an explicit linking flow** instead of silently
+  moving notes (FIX-19-01-12).
+
+### Fixed
+
+- Context-overflow guardrail with three defence lines and a registry-driven
+  context-window resolution chain (FIX-24-03-05 / FIX-26-02-02, ADR-157 /
+  ADR-158).
+
+### Security
+
+- MCP-wave audit remediation (token-leak High plus defang and URL-scheme Lows),
+  a security re-scan (one High plus three Lows), Dependabot alerts #73-#77, and
+  subagent completions wrapped as untrusted content.
+
+
+## [3.2.5] -- 2026-07-15
+
+### Review-bot unblock
+
+- Cleared the review-bot scan that blocked the 3.2.4 submission, including the
+  popout-window compatibility warnings.
+- CI installs the optional platform binaries (esbuild) so builds no longer
+  break. No user-visible behaviour change.
+
+
+## [3.2.4] -- 2026-07-14
+
+### Approval governance + MCP write gate (breaking)
+
+EPIC-44 reworks how the agent asks for permission, and the MCP memory tools
+move behind the write toggle.
+
+### Changed
+
+- **MCP write gate (breaking change).** The memory tools `save_to_memory` and
+  `update_memory` (deprecated) join `write_vault` in the MCP write tier and are
+  disabled by default. External clients that saved memory before 3.2.4 (Claude
+  Desktop, ChatGPT, Claude Code, Perplexity) get an error naming the setting
+  until you enable **Allow write tools over MCP** under Settings > Vault
+  Operator > Customize > Connectors. Reading memory (`recall_memory`) is
+  unaffected.
+
+### Added
+
+- **Effect-based approval governance (EPIC-44).** A single batch approval gate
+  with scope-preview cards, session-scope grants (allow until reload), a kill
+  switch (default-deny reset plus paranoid mode), and revert modes so pre-task
+  states restore.
+- **Per-model reasoning-effort opt-in** with an effort slider in the chat model
+  picker (IMP-54-05b).
+- **Chat checkpoint markers persist and rehydrate live** across reloads; orphan
+  checkpoints surface on reload (FIX-44-12).
+
+### Fixed
+
+- Dismissing the post-task review no longer reverts the run (FIX-44-38).
+- ChatGPT OAuth gains the gpt-5.6 lineup and learns per-model reasoning-effort
+  restrictions from the wire (FIX-54-10, FIX-55-03).
+- The first-run wizard routes newly added models to the canonical
+  `providerConfigs` store and guarantees the wizard model is reachable; freshly
+  entered credentials overwrite stale ones on merge.
+
+### Security
+
+- Codex audit 2026-07-14 remediated (12 findings over three review rounds) plus
+  skill-script safety hardening and the governance-asymmetry fix.
+
+
+## [3.2.3] -- 2026-07-10
+
+### Skill monetization + agent-loop levers
+
+### Added
+
+- **Skill monetization wave 1.** skill-creator splits into a free Lite tier and
+  skill-creator-pro; premium skills move to a pro-skills tier with a trusted
+  source flag.
+- **Window-aware file reads, fuzzy block anchors and MOC lookup** in the agent
+  loop, with a coalescing save path.
+
+### Changed
+
+- **Stop reliably halts a running task and offers Resume** with immediate
+  feedback (FIX-24-08-03, IMP-24-08-04).
+- Providers resolve their context window from the model registry instead of
+  hardcoded caps (FIX-COMPACT-10); recipe matching only runs on analysis-intent
+  tasks.
+- Removed the Stigmergy integration entirely (FEAT-32-04).
+
+### Fixed
+
+- Meeting-summary slowness and dead block-references (plus OKF frontmatter and
+  template-miss hardening).
+- KnowledgeDB coalesces concurrent saves so tail writes survive a reload.
+- `evaluate_expression` return payload capped at 16k characters.
+- Issue #54 chat feedback: send shortcut, language, model persistence, and
+  sub-agent models.
+
+
+## [3.2.2] -- 2026-07-07
+
+### Compliance
+
+- Review-bot scan pass (46 findings across 23 files). No user-visible
+  behaviour change.
+
+
+## [3.2.1] -- 2026-07-07
+
+### Localization + agent-loop hardening
+
+EPIC-42 brings the UI to nine languages and EPIC-41 hardens the agent loop, on
+top of a batch of community issue fixes.
+
+### Added
+
+- **Multi-language UI (EPIC-42).** Nine locales with English bundled and eight
+  on-demand language packs; over 1000 UI strings localized.
+- **Agent-loop hardening (EPIC-41).** Provider retry layer with error
+  classification, per-provider circuit breaker, token-bucket rate limiting, a
+  calibrated token estimator, task resume with a crash-recovery banner,
+  hierarchical condensing, and single-slot background research tasks.
+- Switch the active provider directly from the chat model picker (issue #48).
+- Browser-triggered skill runs via the `obsidian://vault-operator-run` deeplink
+  (FEAT-43-01).
+- Deploy-free model metadata (ADR-148) and Claude Sonnet 5 in the model
+  registry.
+
+### Changed
+
+- Reranker moved to an on-demand bundle so `main.js` drops under 5 MB, and
+  language packs no longer auto-deploy to the vault.
+- Incremental markdown rendering during Q&A streaming (issue #48), parallelized
+  background semantic enrichment (issue #35), and one shared sql.js compile at
+  boot (issue #32).
+
+### Fixed
+
+- **P0 data loss:** the post-task review zeroed dot-path files (FIX-01-07-04).
+- `write_file` is now atomic with an empty-content guard against 0-byte data
+  loss.
+- Boot-race chat loss on startup (FIX-22-07-02 / FIX-03-20-01).
+- German UI strings leaking for non-German users (FIX-42-01-02, issue #48).
+
+### Security
+
+- Resolved the 2026-07-05 audit (SBX-1 High plus four Medium) and the
+  2026-07-07 delta audit.
+
+
+## [3.2.0] -- 2026-07-02
+
+### Startup and agent-loop performance + condensing robustness
+
+A large performance pass across boot and the agent loop, plus a hardening round
+on context condensing.
+
+### Added
+
+- **Frontmatter Operator over MCP (FEAT-14-07).** External clients can read and
+  edit note frontmatter through the MCP surface, with input hardening.
+
+### Changed
+
+- **Startup and agent-loop performance pass.** Lazy-load the AWS SDK and
+  isomorphic-git, split shell-ready from services-ready at boot, cache the
+  tool-group map and skill discovery, render history lazily with per-group "Show
+  more", and run semantic enrichment with bounded concurrency. The result is a
+  faster first paint and a send button that shows a preparing state until
+  services are ready.
+- **Context condensing is more robust.** Failures surface instead of being
+  swallowed, the retry loop keeps an adaptive tail, and the ledger records
+  tool-aware result summaries with forensic telemetry.
+
+### Fixed
+
+- Double-toggle render in the model-config toggle pill.
+
+### Security
+
+- Audit sweep (AUDIT-038 plus AUDIT-039 hotfix) and wikilink shortest-path
+  resolution.
 
 
 ## [3.1.1] -- 2026-06-24

@@ -48,7 +48,7 @@ Each model row in the provider modal exposes reasoning controls when the underly
 | Max output tokens | Output budget. Auto clamps to the model ceiling and remaining context room | Auto | `resolveOutputBudget` in `model-registry.ts` |
 
 :::info Caching reality
-Anthropic uses explicit `cache_control` blocks. Bedrock Claude uses explicit `bedrock-cachepoint`. OpenAI gpt-4o, 4.1, o1, o3, and o4 use implicit prefix caching. Gemini has no prefix caching in v2.14 (TTL context caching is deferred). DeepSeek is not a registered provider type.
+Anthropic uses explicit `cache_control` blocks. Bedrock Claude uses explicit `bedrock-cachepoint`. OpenAI gpt-4o, 4.1, o1, o3, and o4 use implicit prefix caching. Gemini has no prefix caching (TTL context caching is deferred). DeepSeek is not a registered provider type.
 :::
 
 ### Models (legacy)
@@ -178,7 +178,7 @@ Since ADR-153 the toggles map to **effect classes** (`EFFECT_POLICY` in `src/cor
 A drift test (`autoApprovalConfigDrift.test.ts`) enforces that every stored toggle gates a real effect and every effect resolves to a real toggle, so this table cannot silently rot again.
 
 :::warning Permissive combination warning
-Turning on **Web** together with a write category lights up a "Permissive" indicator in the Permissions tab. That combination lets the agent fetch internet content and act on it without asking.
+Turning on **Web** together with a write category lights up a "Permissive" indicator in the Auto-approve tab. That combination lets the agent fetch internet content and act on it without asking.
 :::
 
 ### Loop

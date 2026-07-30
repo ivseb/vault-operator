@@ -49,11 +49,11 @@ export class BuildMeetingNoteFromSinkTool extends BaseTool<'build_meeting_note_f
                 properties: {
                     sink_path: {
                         type: 'string',
-                        description: 'Vault path of the sinked get_transcript JSON file (e.g. "Inbox/.plaud-sink-<id>.json").',
+                        description: 'Vault path of the sinked get_transcript JSON file (e.g. "Inbox/.plaud-sink-{id}.json").',
                     },
                     note_path: {
                         type: 'string',
-                        description: 'Target note path (e.g. "Inbox/<title>.md").',
+                        description: 'Target note path (e.g. "Inbox/{title}.md").',
                     },
                     frontmatter: {
                         type: 'object',

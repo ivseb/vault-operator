@@ -437,7 +437,7 @@ export class McpClient {
 
         // Filtered environment: allowlist from the current process, then the
         // server's explicit extras on top.
-        const parentEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+        const parentEnv = (window as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
         const env: Record<string, string> = {};
         for (const key of STDIO_ENV_ALLOWLIST) {
             const v = parentEnv[key];
@@ -736,12 +736,12 @@ function mergeOAuthSession(
 }
 
 /**
- * URL-safe random state via Web Crypto. Uses the renderer/Node global `crypto`
- * (no `require`, review-bot clean) and base64url encoding.
+ * URL-safe random state via Web Crypto. Uses the renderer's `window.crypto`
+ * (no `require`, no `globalThis`) and base64url encoding.
  */
 function randomUrlSafeState(): string {
     const bytes = new Uint8Array(32);
-    globalThis.crypto.getRandomValues(bytes);
+    window.crypto.getRandomValues(bytes);
     let bin = '';
     for (const b of bytes) bin += String.fromCharCode(b);
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
