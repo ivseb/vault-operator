@@ -13,6 +13,9 @@
 import type { FileAdapter } from '../../core/storage/types';
 import type { MessageParam } from '../../api/types';
 import type { SourceInterface } from '../memory/SourceInterface';
+import { generateShortId } from '../utils/generateShortId';
+import { PerFileWriteQueue } from '../utils/perFileWriteQueue';
+import { repairUiMessages } from './repairUiMessages';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,6 +86,17 @@ export interface UiMessage {
     text: string;
     ts: string;
     /**
+     * Review F4 (2026-07-29): true for a user bubble that is the typed answer
+     * to an ask_followup_question, NOT an independent send. Such an answer
+     * enters the API history as a tool_result (role user, but not a real user
+     * turn), so it has no matching anchor there. The edit+resend cut
+     * (computeEditResendCut) excludes these bubbles from its real-send count so
+     * the alignment guard no longer trips for every conversation that used a
+     * followup. Persisted with the message so a reloaded conversation keeps the
+     * distinction. Optional -- absent means a real send.
+     */
+    isFollowupAnswer?: boolean;
+    /**
      * Serialised HTML of the assistant's collapsed "Steps" block (tool
      * calls + grouped operations) captured when the turn finished.
      * Re-injected on conversation reload so the user can still expand
@@ -135,33 +149,75 @@ interface ConversationIndex {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// FEAT-55-03 (ADR-171): the id logic (AUDIT-016 M-4 + AUDIT-025 H-2:
+// crypto.randomUUID, no Math.random fallback, date prefix, 48-bit/day
+// entropy) now lives in the shared generateShortId util so run ids and
+// conversation ids share one hardened implementation. Kept as a local
+// wrapper so existing call sites read unchanged.
 function generateId(): string {
-    // AUDIT-016 M-4: crypto.randomUUID() liefert 122 Bits Entropie statt
-    // Math.random()s 24 Bits. Birthday-Collision damit praktisch
-    // ausgeschlossen, ID-Predictability verschwindet. Wir behalten den
-    // YYYY-MM-DD-Prefix fuer Sortier-/Browse-Komfort und nehmen die
-    // ersten 12 hex-chars der UUID (48 Bit Entropie pro Tag, > 16M
-    // mehr als die alte Variante).
-    //
-    // AUDIT-025 H-2 (GitHub code-scanning alert #67): Math.random()-Fallback
-    // entfernt. Obsidian laeuft auf Electron (Chromium >= v85), wo
-    // crypto.randomUUID() Teil der Standard Web Crypto API ist und immer
-    // verfuegbar. Der Fallback war defensive coding gegen ein Szenario,
-    // das in dieser Runtime nicht eintritt; CodeQL flagged ihn trotzdem
-    // als js/insecure-randomness in einem security context.
-    const date = new Date().toISOString().slice(0, 10);
-    const uuid = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-    return `${date}-${uuid}`;
+    return generateShortId();
 }
 
 // ---------------------------------------------------------------------------
 // ConversationStore
 // ---------------------------------------------------------------------------
 
+/**
+ * First line of the first user message, for a conversation file whose meta has
+ * no usable title. Same shape the live titling uses, so a recovered row reads
+ * like one that was never lost.
+ */
+function deriveTitleFromMessages(uiMessages: unknown[]): string {
+    for (const raw of uiMessages) {
+        if (raw === null || typeof raw !== 'object') continue;
+        const m = raw as { role?: string; type?: string; text?: string; content?: unknown };
+        const isUser = m.role === 'user' || m.type === 'user';
+        if (!isUser) continue;
+        const text = typeof m.text === 'string'
+            ? m.text
+            : (typeof m.content === 'string' ? m.content : '');
+        const line = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
+        if (!line) continue;
+        return line.length > 60 ? `${line.slice(0, 57)}...` : line;
+    }
+    return '';
+}
+
+/**
+ * Placeholder title a conversation carries until it has a real one.
+ *
+ * USER 2026-07-26 renamed it to "New chat". The OLD string stays recognised by
+ * isUnnamedTitle, because every conversation created before that day still
+ * carries it on disk -- treating those as "already named" would stop the first
+ * message from ever titling them.
+ */
+export const UNNAMED_CONVERSATION_TITLE = 'New chat';
+const LEGACY_UNNAMED_TITLES = new Set(['New Conversation', 'New chat', 'New Chat']);
+
+/** True while a conversation still carries a placeholder title. */
+export function isUnnamedTitle(title: string | undefined): boolean {
+    return title === undefined || title.trim() === '' || LEGACY_UNNAMED_TITLES.has(title.trim());
+}
+
 export class ConversationStore {
     private dir: string;
     private indexPath: string;
     private index: ConversationIndex = { version: 1, conversations: [] };
+    // FEAT-55-03 (ADR-171): serialize per-conversation read-modify-writes and
+    // index writes so two parallel chats (or a save racing an append, or the
+    // sidebar racing an MCP/background writer) cannot lose an update. The
+    // underlying VaultDataFileAdapter already writes atomically (tmp+rename),
+    // so this queue only adds the missing in-process serialization.
+    private readonly writeQueue = new PerFileWriteQueue();
+    /**
+     * Review F3: ids explicitly deleted by the user this session. save()
+     * refuses to re-mint a tombstoned id so a stale background session (another
+     * tab still holding the deleted conversation) cannot resurrect it. In-memory
+     * only: after a restart the row and the session are both gone, so there is
+     * nothing to resurrect. Distinct from a ghost-pruned row (never tombstoned),
+     * which the FIX-03-20-05 re-mint still recreates.
+     */
+    private readonly deletedIds = new Set<string>();
 
     constructor(private fs: FileAdapter) {
         this.dir = 'history';
@@ -175,6 +231,7 @@ export class ConversationStore {
     async initialize(): Promise<void> {
         await this.ensureDir();
         await this.loadIndex();
+        await this.reconcileWithDisk();
     }
 
     // -----------------------------------------------------------------------
@@ -197,7 +254,7 @@ export class ConversationStore {
         const now = new Date().toISOString();
         const meta: ConversationMeta = {
             id,
-            title: 'New Conversation',
+            title: UNNAMED_CONVERSATION_TITLE,
             created: now,
             updated: now,
             messageCount: 0,
@@ -255,22 +312,26 @@ export class ConversationStore {
         deltaApiMessages: MessageParam[],
         deltaUiMessages: UiMessage[],
     ): Promise<number> {
-        const meta = this.getMeta(id);
-        if (!meta) return -1;
-        const data = await this.load(id);
-        if (!data) return -1;
-
-        const combinedApi = [...data.messages, ...deltaApiMessages];
-        const combinedUi = [...data.uiMessages, ...deltaUiMessages];
-
-        meta.updated = new Date().toISOString();
-        meta.messageCount = combinedUi.length;
-
-        const merged: ConversationData = { meta, messages: combinedApi, uiMessages: combinedUi };
         const filePath = `${this.dir}/${id}.json`;
-        await this.fs.write(filePath, JSON.stringify(merged));
-        await this.saveIndex();
-        return combinedUi.length;
+        // FEAT-55-03: serialize the whole load -> merge -> write on this
+        // conversation so a concurrent append/save cannot drop a delta.
+        return this.writeQueue.run(filePath, async () => {
+            const meta = this.getMeta(id);
+            if (!meta) return -1;
+            const data = await this.load(id);
+            if (!data) return -1;
+
+            const combinedApi = [...data.messages, ...deltaApiMessages];
+            const combinedUi = [...data.uiMessages, ...deltaUiMessages];
+
+            meta.updated = new Date().toISOString();
+            meta.messageCount = combinedUi.length;
+
+            const merged: ConversationData = { meta, messages: combinedApi, uiMessages: combinedUi };
+            await this.fs.write(filePath, JSON.stringify(merged));
+            await this.saveIndex();
+            return combinedUi.length;
+        });
     }
 
     /**
@@ -284,18 +345,111 @@ export class ConversationStore {
         );
     }
 
-    /** Save (overwrite) full conversation data. */
-    async save(id: string, messages: MessageParam[], uiMessages: UiMessage[]): Promise<void> {
-        const meta = this.getMeta(id);
-        if (!meta) return;
-
-        meta.updated = new Date().toISOString();
-        meta.messageCount = uiMessages.length;
-
-        const data: ConversationData = { meta, messages, uiMessages };
+    /**
+     * Phase A3 (history hardening, FIX-03-20-02): persistently rebuild the
+     * missing assistant answers of a damaged conversation ON DISK. While the
+     * drain-owner gate was broken, files kept the full API history but only
+     * the user prompts in uiMessages -- the History list (index messageCount)
+     * and every load looked empty. Runs load -> repair -> write inside ONE
+     * write-queue slot (appendMessages pattern) so a concurrent session save
+     * cannot interleave. created/updated/title stay untouched: ordering and
+     * names in History must not change; only messageCount is corrected (file
+     * meta and index row). Returns true when the file was rewritten.
+     */
+    async repairConversation(id: string): Promise<boolean> {
         const filePath = `${this.dir}/${id}.json`;
-        await this.fs.write(filePath, JSON.stringify(data));
-        await this.saveIndex();
+        return this.writeQueue.run(filePath, async () => {
+            const data = await this.load(id);
+            if (!data || !Array.isArray(data.messages) || !Array.isArray(data.uiMessages)) return false;
+            const repaired = repairUiMessages(data.messages, data.uiMessages);
+            if (repaired.length <= data.uiMessages.length) return false;
+
+            const meta: ConversationMeta = { ...data.meta, messageCount: repaired.length };
+            const row = this.getMeta(id);
+            if (row) row.messageCount = repaired.length;
+
+            const merged: ConversationData = { meta, messages: data.messages, uiMessages: repaired };
+            await this.fs.write(filePath, JSON.stringify(merged));
+            await this.saveIndex();
+            return true;
+        });
+    }
+
+    /**
+     * Save (overwrite) full conversation data.
+     *
+     * History hardening phase C (FIX-03-20-02): returns { written } and
+     * refuses to shrink silently. A payload with FEWER uiMessages than the
+     * file holds is a red flag (a stale/thin session state about to clobber a
+     * fuller conversation -- the 22.7. Plaud chat was lost exactly so) unless
+     * the caller declares the truncation deliberate via allowShrink (pencil
+     * edit, checkpoint delete). The cheap RAM check (meta.messageCount) gates
+     * an actual file read inside the queue slot; equal-length divergent
+     * states remain last-writer-wins (documented limit).
+     */
+    async save(
+        id: string,
+        messages: MessageParam[],
+        uiMessages: UiMessage[],
+        opts?: { allowShrink?: boolean },
+    ): Promise<{ written: boolean }> {
+        const filePath = `${this.dir}/${id}.json`;
+        // FEAT-55-03: serialize against concurrent append/save on this
+        // conversation (same per-path key as appendMessages).
+        return this.writeQueue.run(filePath, async () => {
+            let meta = this.getMeta(id);
+            if (meta && !opts?.allowShrink && uiMessages.length < meta.messageCount) {
+                const existing = await this.load(id);
+                if (existing && existing.uiMessages.length > uiMessages.length) {
+                    console.warn(
+                        `[ConversationStore] save(${id}) refused: payload has ${uiMessages.length} uiMessages, `
+                        + `file holds ${existing.uiMessages.length}. A deliberate truncation must pass allowShrink.`,
+                    );
+                    return { written: false };
+                }
+            }
+            if (!meta) {
+                if (this.deletedIds.has(id)) {
+                    // Review F3: this id was explicitly deleted from History.
+                    // A late save from a stale background session (another tab
+                    // still holding it) must NOT bring the deleted chat back.
+                    // A ghost-pruned row is never tombstoned, so the re-mint
+                    // below still applies to that (the FIX-03-20-05) case.
+                    console.warn(
+                        `[ConversationStore] save(${id}) refused: the conversation was deleted; not resurrecting it.`,
+                    );
+                    return { written: false };
+                }
+                // FIX-03-20-05: the row can be gone while the session lives on
+                // (boot reconcile ghost-prunes messageCount-0 rows without a
+                // file). The old `return` here silently discarded EVERY
+                // subsequent save for this id -- the 2026-07-28 Storyline chat
+                // was lost exactly this way. Re-mint the row from the payload.
+                meta = {
+                    id,
+                    title: deriveTitleFromMessages(uiMessages) || UNNAMED_CONVERSATION_TITLE,
+                    created: uiMessages[0]?.ts || new Date().toISOString(),
+                    updated: new Date().toISOString(),
+                    messageCount: uiMessages.length,
+                    mode: 'agent',
+                    model: '',
+                    inputTokens: 0,
+                    outputTokens: 0,
+                };
+                this.index.conversations.unshift(meta);
+                console.warn(
+                    `[ConversationStore] save(${id}): index row was missing (ghost-pruned or deleted); re-minted it so the conversation is not silently lost`,
+                );
+            }
+
+            meta.updated = new Date().toISOString();
+            meta.messageCount = uiMessages.length;
+
+            const data: ConversationData = { meta, messages, uiMessages };
+            await this.fs.write(filePath, JSON.stringify(data));
+            await this.saveIndex();
+            return { written: true };
+        });
     }
 
     /** Update metadata fields (e.g., title, token counts). */
@@ -340,6 +494,9 @@ export class ConversationStore {
 
     /** Delete a single conversation. */
     async delete(id: string): Promise<void> {
+        // Review F3: remember the explicit delete so a late save from a stale
+        // background session cannot re-mint the row (see save()).
+        this.deletedIds.add(id);
         this.index.conversations = this.index.conversations.filter((c) => c.id !== id);
         await this.saveIndex();
         const filePath = `${this.dir}/${id}.json`;
@@ -351,6 +508,11 @@ export class ConversationStore {
     /** Delete all conversations. */
     async deleteAll(): Promise<void> {
         for (const c of this.index.conversations) {
+            // Review F3 (re-verify): tombstone like delete() so a stale
+            // background session cannot re-mint a conversation the user just
+            // cleared. deleteAll is the same resurrection class as a single
+            // delete, only wider.
+            this.deletedIds.add(c.id);
             try {
                 await this.fs.remove(`${this.dir}/${c.id}.json`);
             } catch { /* non-fatal */ }
@@ -379,13 +541,142 @@ export class ConversationStore {
         }
     }
 
+    /**
+     * USER 2026-07-26: "viele Chats in der History lassen sich nicht mehr laden,
+     * obwohl sie dort angezeigt werden."
+     *
+     * This used to catch every failure and start with an EMPTY index. Two very
+     * different situations collapsed into one: "there is no index yet" (a fresh
+     * vault) and "the index could not be read this once". In the second case the
+     * next write persisted the empty list, and every conversation recorded
+     * before that moment was gone from the list forever -- while its file sat
+     * untouched on disk. Measured in the live vault: 442 conversation files, 96
+     * index rows, with a hard cut at one date.
+     *
+     * The parse failure is now separated from the absence, and neither starts
+     * from nothing: reconcileWithDisk rebuilds what the files can tell us.
+     */
     private async loadIndex(): Promise<void> {
+        if (!(await this.fs.exists(this.indexPath))) {
+            this.index = { version: 1, conversations: [] };
+            return;
+        }
         try {
             const raw = await this.fs.read(this.indexPath);
-            this.index = JSON.parse(raw) as ConversationIndex;
-        } catch {
-            // No index yet — start fresh
+            const parsed = JSON.parse(raw) as ConversationIndex;
+            this.index = {
+                version: parsed.version ?? 1,
+                conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+            };
+        } catch (e) {
+            // Present but unreadable. Keep the empty list only as the starting
+            // point for the rebuild below; do NOT let it reach disk as-is.
+            console.error(
+                '[ConversationStore] index.json is present but unreadable; rebuilding it '
+                + 'from the conversation files on disk. Cause:',
+                e,
+            );
             this.index = { version: 1, conversations: [] };
+        }
+    }
+
+    /**
+     * Make the index agree with the files that actually exist.
+     *
+     * Two directions, both observed in the live vault:
+     *
+     * ORPHAN FILES -- a conversation file with no index row is invisible in
+     * History even though its content is intact. 374 of them, every one from
+     * before the index was truncated. A row is rebuilt from the file itself, so
+     * they come back with their real title and message count.
+     *
+     * GHOST ROWS -- an index row whose file was never written. These are what
+     * "shows in History but will not load" actually is: a conversation id is
+     * minted when a send begins, and if the first save never lands (an empty
+     * tab, an interrupted run) the row stays forever pointing at nothing. Only
+     * rows with NO messages are dropped: a row that claims content is a
+     * different problem and must not be deleted on a hunch.
+     */
+    private async reconcileWithDisk(): Promise<void> {
+        let files: string[];
+        try {
+            const listed = await this.fs.list(this.dir);
+            files = listed.files;
+        } catch {
+            return; // cannot list: leave the index exactly as it is
+        }
+
+        const known = new Set(this.index.conversations.map((c) => c.id));
+        const onDisk = new Set<string>();
+        const recovered: ConversationMeta[] = [];
+
+        for (const full of files) {
+            const name = full.split('/').pop() ?? full;
+            if (!name.endsWith('.json') || name === 'index.json') continue;
+            const id = name.slice(0, -'.json'.length);
+            onDisk.add(id);
+            if (known.has(id)) continue;
+            const meta = await this.metaFromFile(id);
+            if (meta) recovered.push(meta);
+        }
+
+        // History hardening phase C (FIX-03-20-02): ghosts must AGE before
+        // they are pruned. A freshly created chat whose first save has not
+        // landed yet looks exactly like a ghost (messageCount 0, no file) --
+        // pruning it at the next boot made the Storyline chat vanish without
+        // a trace. 48h keeps such rows visible long enough for the save
+        // re-mint (or the user) to catch them; stale leftovers still clean up.
+        const ghostCutoff = Date.now() - 48 * 3600 * 1000;
+        const ghosts = this.index.conversations.filter((c) => {
+            if (onDisk.has(c.id) || (c.messageCount ?? 0) !== 0) return false;
+            // Review F6: a missing/unparseable `updated` yields NaN, and
+            // `NaN < cutoff` is false -- which kept an empty file-less legacy
+            // row forever. Treat an unparseable timestamp as infinitely old so
+            // it is still pruned. Fresh rows always carry a valid recent
+            // timestamp (create/appendMessages/updateMeta set it), so the 48h
+            // aging protection for just-created chats is unaffected.
+            const updatedMs = Date.parse(c.updated ?? '');
+            return Number.isNaN(updatedMs) || updatedMs < ghostCutoff;
+        });
+        if (recovered.length === 0 && ghosts.length === 0) return;
+
+        const ghostIds = new Set(ghosts.map((c) => c.id));
+        this.index.conversations = [...this.index.conversations.filter((c) => !ghostIds.has(c.id)), ...recovered]
+            // Newest first, which is what list() promises.
+            .sort((a, b) => (b.updated ?? '').localeCompare(a.updated ?? ''));
+
+        console.debug(
+            `[ConversationStore] index reconciled: +${recovered.length} recovered from disk, `
+            + `-${ghosts.length} empty rows with no file`,
+        );
+        await this.saveIndex();
+    }
+
+    /** Rebuild a meta row from a conversation file. Null if unusable. */
+    private async metaFromFile(id: string): Promise<ConversationMeta | null> {
+        try {
+            const raw = await this.fs.read(`${this.dir}/${id}.json`);
+            const data = JSON.parse(raw) as Partial<ConversationData>;
+            const ui = Array.isArray(data.uiMessages) ? data.uiMessages : [];
+            const stored = data.meta;
+            // Prefer the meta the file carries; fall back to what can be derived.
+            const stat = await this.fs.stat(`${this.dir}/${id}.json`).catch(() => null);
+            const fallbackDate = stat ? new Date(stat.mtime).toISOString() : new Date().toISOString();
+            return {
+                id,
+                title: stored?.title?.trim() || deriveTitleFromMessages(ui) || id,
+                created: stored?.created ?? fallbackDate,
+                updated: stored?.updated ?? fallbackDate,
+                messageCount: stored?.messageCount ?? ui.length,
+                mode: stored?.mode ?? 'agent',
+                model: stored?.model ?? '',
+                inputTokens: stored?.inputTokens ?? 0,
+                outputTokens: stored?.outputTokens ?? 0,
+                sourceInterface: stored?.sourceInterface,
+                syncState: stored?.syncState,
+            };
+        } catch {
+            return null;
         }
     }
 

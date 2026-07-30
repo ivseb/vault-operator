@@ -12,6 +12,7 @@
  */
 
 import type ObsidianAgentPlugin from '../main';
+import { keepVisible } from '../core/tools/vault/denyZoneFilter';
 import { handleToolCall } from './tools/index';
 import { TOOLS, AGENT_INTERNAL_TOOLS, MCP_WRITE_TOOLS } from './toolDefinitions';
 import { RelayClient } from './RelayClient';
@@ -210,6 +211,16 @@ export class McpBridge {
             return;
         }
 
+        // AUDIT 2026-07-27 L-2 (CWE-346): Host-header allowlist, defense-in-depth
+        // against DNS rebinding. A rebound browser request is same-origin (CORS
+        // does not stop it) but carries the attacker's Host header; reject any
+        // Host that is not a loopback host or the active tunnel host. Fail closed.
+        if (!isAllowedMcpHost(req.headers['host'] ?? '', this._tunnelUrl)) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Forbidden: host not allowed' } }));
+            return;
+        }
+
         // AUDIT-006 H-1 + AUDIT-013 H-5: Bearer token authentication with
         // timing-safe comparison. The previous `!==` comparison short-
         // circuited on first mismatch, leaking the token byte-by-byte over
@@ -356,7 +367,11 @@ export class McpBridge {
         const vault = this.plugin.app.vault;
 
         // Get top-level folders for write_vault description
-        const folders = vault.getAllFolders()
+        // AUDIT 2026-07-26 M-7: these folder PATHS are baked into the advertised
+        // write_vault description, so a denied folder was disclosed to every
+        // connected MCP client before any tool ran. Filtered before the .slice,
+        // so a denied folder cannot consume one of the 30 slots either.
+        const folders = keepVisible(this.plugin, vault.getAllFolders(), (f) => f.path)
             .map(f => f.path)
             .filter(p => !p.startsWith('.') && p.split('/').length <= 2)
             .sort()
@@ -397,7 +412,7 @@ export class McpBridge {
                 description = `Execute any vault operation by name. Available: ${available}.`;
             }
             if (t.name === 'search_vault') {
-                description += `\n\nVault has ${vault.getMarkdownFiles().length} notes. Semantic index: ${this.plugin.semanticIndex?.isIndexed ? 'built' : 'not built'}.`;
+                description += `\n\nVault has ${keepVisible(this.plugin, vault.getMarkdownFiles(), (f) => f.path).length} notes. Semantic index: ${this.plugin.semanticIndex?.isIndexed ? 'built' : 'not built'}.`;
             }
             return {
                 name: t.name,
@@ -547,6 +562,42 @@ export function timingSafeStringEqual(presented: string, expected: string): bool
     const b = Buffer.from(expected, 'utf8');
     if (a.length !== b.length) return false;
     return timingSafeEqual(a, b);
+}
+
+/**
+ * AUDIT 2026-07-27 L-2 (CWE-346): Host-header allowlist against DNS rebinding.
+ *
+ * The loopback server binds 127.0.0.1, but a browser page that rebinds a
+ * hostname to 127.0.0.1 sends a same-origin request whose Host header is the
+ * attacker's domain. CORS does not stop that (a rebound request is same-origin).
+ * The Bearer token is the primary auth and already blocks this; this is a
+ * redundant second layer that fails closed on an unexpected Host.
+ *
+ * Accepts: the loopback hosts (direct-local clients and cloudflared's origin
+ * host) and, when a tunnel is active, the public tunnel hostname (cloudflared
+ * may forward either shape). Exported for testability.
+ */
+export function isAllowedMcpHost(hostHeader: string, tunnelUrl: string | null): boolean {
+    if (typeof hostHeader !== 'string' || hostHeader.trim().length === 0) return false;
+    let host = hostHeader.trim().toLowerCase();
+    // IPv6 literal must be bracketed per RFC 3986: [::1] or [::1]:port.
+    if (host.startsWith('[')) {
+        const end = host.indexOf(']');
+        if (end === -1) return false;
+        host = host.slice(1, end);
+    } else {
+        // Strip a trailing :port (IPv4 / hostname form).
+        const colon = host.lastIndexOf(':');
+        if (colon !== -1) host = host.slice(0, colon);
+    }
+    if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return true;
+    if (tunnelUrl) {
+        try {
+            const tunnelHost = new URL(tunnelUrl).hostname.toLowerCase();
+            if (tunnelHost && host === tunnelHost) return true;
+        } catch { /* malformed tunnel url -> not a valid host source */ }
+    }
+    return false;
 }
 
 /**

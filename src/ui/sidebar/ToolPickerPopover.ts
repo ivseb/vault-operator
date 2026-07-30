@@ -42,19 +42,14 @@ export class ToolPickerPopover {
     }
 
     private renderPopover(anchorBtn: HTMLElement, containerEl: HTMLElement): void {
-        const slug = this.plugin.settings.currentMode;
-        let resolvedMode = this.modeService.getMode(slug);
+        // FEAT-55-02 (ADR-170): resolve THIS view's active mode via the
+        // ModeService facade (which already falls back to 'agent' for an
+        // unknown slug) instead of reading/repairing the global scalar.
+        let resolvedMode = this.modeService.getActiveMode();
         if (!resolvedMode) {
-            console.warn(`[ToolPicker] currentMode "${slug}" is unknown, falling back to "agent".`);
-            this.plugin.settings.currentMode = 'agent';
-            void this.plugin.saveSettings();
-            this.plugin.forcedWorkflowHub.notify();
-            resolvedMode = this.modeService.getMode('agent');
-            if (!resolvedMode) {
-                console.error('[ToolPicker] default "agent" mode is missing; cannot open picker.');
-                new Notice(t('ui.toolPicker.openFailed'));
-                return;
-            }
+            console.error('[ToolPicker] default "agent" mode is missing; cannot open picker.');
+            new Notice(t('ui.toolPicker.openFailed'));
+            return;
         }
         // Guard against half-migrated custom modes that lost their toolGroups
         // array (would crash .filter()/.flatMap() below).
@@ -93,7 +88,7 @@ export class ToolPickerPopover {
 
         // Current effective tools (settings → defaults)
         const effectiveTools = new Set(
-            this.plugin.settings.modeToolOverrides?.[slug]
+            this.plugin.settings.modeToolOverrides?.[mode.slug]
             ?? this.modeService.getEffectiveToolNames(mode)
         );
         const toolChecks = new Map<string, HTMLInputElement>();
@@ -106,7 +101,7 @@ export class ToolPickerPopover {
                 .filter((g) => !EXCLUDED_GROUPS.has(g))
                 .flatMap((g) => GROUP_TOOLS[g] ?? []);
             const selected = allGroupTools.filter((t) => toolChecks.get(t)?.checked ?? false);
-            await this.modeService.setModeToolOverride(slug, selected);
+            await this.modeService.setModeToolOverride(mode.slug, selected);
         };
 
         const updateCount = () => {

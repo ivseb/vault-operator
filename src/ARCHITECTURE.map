@@ -104,7 +104,7 @@ mcp-registry-discovery    | src/core/mcp/registryDiscovery.ts                   
 
 # SANDBOX
 sandbox                   | src/core/sandbox/SandboxBridge.ts                     | -                | new sandbox executor: implement SandboxExecutor interface
-process-sandbox           | src/core/sandbox/ProcessSandboxExecutor.ts            | -                | extend OS-level isolation policy
+iframe-sandbox            | src/core/sandbox/IframeSandboxExecutor.ts             | -                | the only sandbox backend since SBX-1 (Node vm/ProcessSandboxExecutor removed)
 esbuild-wasm              | src/core/sandbox/EsbuildWasmManager.ts                | -                | extend bundle source resolution
 
 # OFFICE / DOCUMENT GENERATION
@@ -188,6 +188,11 @@ inline-chat-block         | src/core/inline/chat/InlineChatBlockRenderer.ts     
 inline-settings-snapshot  | src/core/inline/settings/InlineActionSettingsSnapshot.ts | ADR-140      | new snapshot field: add to settings cache invalidation, propagate through Per-Action-Pin
 inline-telemetry          | src/core/inline/telemetry/InlineActionTelemetry.ts    | ADR-144         | new event type: add to OperationLogger event-type enum, sanitize before persist
 agent-task-runner         | src/core/agent/AgentTaskRunner.ts                     | ADR-138         | new caller site: provide ToolCallbacks, AgentTaskRunConfig, call runner instead of new AgentTask
+
+# Parallel chat sessions (EPIC-55, concept rows added with /coding once code lands)
+parallel-chat-session     | src/ui/AgentSidebarView.ts                            | ADR-169, ADR-170 | new per-session state: own it on the view/run, not a plugin global; register cross-cutting actions against the active (last-focused) leaf, not leaves[0]
+active-chat-leaf-resolver | src/ui/sidebar/resolveActiveChatLeaf.ts               | ADR-169         | pure resolver every vault-wide action routes through; plugin tracks lastActiveChatLeaf via active-leaf-change, resolveActiveSidebarLeaf() in main.ts wraps it
+run-identity-persistence  | src/core/agent/InflightStore.ts                       | ADR-171         | new shared-store write: route through the serialized atomic writer (tmp+rename); run ids must stay collision-free and globally unique
 
 # =====================================================================
 # SECTION 2: ADR CATALOG
@@ -371,3 +376,7 @@ investigate-delegation-tool| src/core/tools/agent/InvestigateTool.ts          | 
 ADR-157 | agent-loop            | Kontext-Overflow-Guardrail -- Aggregat-Budget im Tool-Batch, Pre-Request-Gate, Wire-Sanitisierung
 ADR-158 | model-metadata        | Kontextfenster-Aufloesungskette -- provider-gemeldet (Discovery) vor Registry vor Claude-Inferenz vor Default
 ADR-159 | agent-loop            | investigate-Delegations-Tool -- Profil-Registry, Quellenanker-Kontrakt, mid-Tier-Routing, Kosten-Rollup
+ADR-169 | parallel-sessions     | Multi-Leaf-Session-Modell -- N Leaves eines View-Typs, aktive Session = zuletzt fokussiert, vault-weite Aktionen auf aktive statt leaves[0]
+ADR-170 | parallel-sessions     | Per-Session-Ownership von Mode/Attachments/Session-Flags -- pro View/Run statt global, kein State-Bleed
+ADR-171 | parallel-sessions     | Concurrency-safe Run-Identity + serialisierte atomare Persistenz -- kollisionsfreie Ids, per-File-Queue mit tmp+rename
+ADR-172 | parallel-sessions     | Geteilte API-Kapazitaets-Koordination -- Rate-Limiter/Circuit/Auth bleiben geteilt, parallel-mit-Backoff bei einem Key

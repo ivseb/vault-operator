@@ -11,6 +11,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sameCredentialScope, hasStoredCredentials } from '../../mcp/mcpCredentialScope';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { McpClient } from '../../mcp/McpClient';
@@ -143,6 +144,19 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
             timeout: params.timeout ?? 60,
         };
 
+        // AUDIT 2026-07-26 M-4: `add` overwrote an existing entry unconditionally,
+        // which made it a silent way around both the origin guard above and the
+        // isBuiltIn protection that `remove` enforces. The refusal above tells
+        // the model to remove-then-add, so that path has to be a deliberate
+        // two-step, not a one-call replace.
+        const clash = this.plugin.settings.mcpServers[params.name];
+        if (clash) {
+            callbacks.pushToolResult(this.formatError(
+                `Server "${params.name}" already exists. Remove it first if you want to replace it.`,
+            ));
+            return;
+        }
+
         this.plugin.settings.mcpServers[params.name] = config;
         await this.plugin.saveSettings();
         await this.mcpClient.connect(params.name, config);
@@ -216,6 +230,31 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
             return;
         }
         this.validateUrl(url);
+
+        // AUDIT 2026-07-26 M-4 (CWE-522): `...existing` carried the stored auth
+        // headers and the OAuth session to whatever URL the model asked for, so
+        // `update` was a one-call way to forward the user's bearer token to an
+        // attacker-chosen host without ever reading it.
+        //
+        // Keyed on the EFFECTIVE change (resolved target vs stored URL), not on
+        // `params.url !== undefined` -- that would refuse a no-op update that
+        // re-sends the same URL, and it disagrees with the `??` a line above,
+        // which treats null as "no change".
+        //
+        // The message deliberately does NOT enumerate which credential kinds are
+        // stored: the origin is already visible to the model via `status`, the
+        // inventory is not, and handing an injected prompt a list of what is
+        // worth stealing is a disclosure of its own.
+        if (url !== existing.url && !sameCredentialScope(existing.url, url)) {
+            if (hasStoredCredentials(existing)) {
+                callbacks.pushToolResult(this.formatError(
+                    `Server "${params.name}" stores credentials granted for its current address, `
+                    + 'so update cannot move it somewhere else. Remove the server and add it again '
+                    + 'if you want it to point at a different host.',
+                ));
+                return;
+            }
+        }
 
         const updatedConfig: McpServerConfig = {
             ...existing,

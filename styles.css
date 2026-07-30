@@ -93,13 +93,13 @@
     border-bottom: 1px solid var(--background-modifier-border);
     padding: 0;
 }
-.modal button.vault-health-top-tab {
+.modal button.vault-health-top-tab.vault-health-top-tab {
     display: inline-flex;
     align-items: center;
     padding: 5px 12px;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+    background: transparent;
+    border: none;
+    box-shadow: none;
     border-bottom: 2px solid transparent;
     color: var(--text-muted);
     font-size: 13px;
@@ -123,11 +123,11 @@
     margin: 12px 0 8px;
     flex-wrap: wrap;
 }
-.modal button.vault-health-filter-tab {
+.modal button.vault-health-filter-tab.vault-health-filter-tab {
     padding: 4px 10px;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+    background: transparent;
+    border: none;
+    box-shadow: none;
     border-bottom: 2px solid transparent;
     color: var(--text-muted);
     font-size: 12px;
@@ -8202,8 +8202,7 @@ h4.agent-settings-section {
 }
 .agent-inline-action-pill.agent-inline-action-pill:hover,
 .agent-inline-action-pill.agent-inline-action-pill:focus,
-.agent-inline-action-pill.agent-inline-action-pill:focus-visible,
-.agent-inline-action-pill.agent-inline-action-pill:active {
+.agent-inline-action-pill.agent-inline-action-pill:focus-visible {
     background: transparent;
     background-color: transparent;
     background-image: none;
@@ -8215,7 +8214,15 @@ h4.agent-settings-section {
     color: var(--interactive-accent-hover, var(--interactive-accent));
     transform: scale(1.15);
 }
+/* :active merged (was a duplicate selector): the focus resets plus the
+   scale(1) that cancels the hover scale. */
 .agent-inline-action-pill.agent-inline-action-pill:active {
+    background: transparent;
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    outline: none;
     transform: scale(1);
 }
 .agent-inline-action-pill svg {
@@ -9220,10 +9227,10 @@ h4.agent-settings-section {
 }
 
 /* FEAT-19-02-01: Alle abwaehlen, neben dem Anwenden-Knopf. */
-.modal button.vault-health-select-toggle {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
+.modal button.vault-health-select-toggle.vault-health-select-toggle {
+    background: transparent;
+    border: none;
+    box-shadow: none;
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     cursor: pointer;
@@ -9323,4 +9330,181 @@ h4.agent-settings-section {
     font-size: var(--font-smaller);
     color: var(--text-muted);
     margin-top: 2px;
+}
+
+/* FEAT-55-06: cross-session topic awareness -- read-only related-conversation
+   suggestion. Deliberately unobtrusive (the spec calls for non-intrusive,
+   dismissible). Reuses the neutral row shape without the approval accent. */
+.related-conversations-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+    margin: 6px 0;
+    border-radius: 8px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    font-size: 12px;
+}
+.related-conversations-label { display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
+.related-conversations-icon { display: flex; align-items: center; }
+.related-conversations-item {
+    background: var(--background-modifier-hover);
+    border: none;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-normal);
+}
+.related-conversations-item:hover { background: var(--background-modifier-active-hover); }
+.related-conversations-dismiss {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 11px;
+    margin-left: auto;
+}
+
+/* FEAT-55-01 (user request 2026-07-25): History tag for conversations with an
+   interrupted-task snapshot, plus a clickable boot notice that jumps to the
+   interrupted chat. */
+.history-row-interrupted-marker {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.7em;
+    font-weight: 500;
+    background: rgba(224, 108, 117, 0.18);
+    color: var(--text-muted);
+    margin-left: 6px;
+}
+.vo-clickable-notice { cursor: pointer; }
+.vo-clickable-notice:hover { text-decoration: underline; }
+
+/* FEAT-55-01 in-view chat tabs: a tab strip inside the sidebar view. */
+.vo-tab-strip {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 4px 4px 0 4px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    scrollbar-width: thin;
+}
+.vo-tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 160px;
+    padding: 4px 8px;
+    border-radius: 6px 6px 0 0;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.vo-tab:hover { background: var(--background-modifier-hover); }
+.vo-tab-active {
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-weight: 500;
+}
+.vo-tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+.vo-tab-running-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--interactive-accent);
+    flex-shrink: 0;
+    animation: vo-tab-pulse 1.4s ease-in-out infinite;
+}
+@keyframes vo-tab-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.vo-tab-close {
+    display: flex;
+    align-items: center;
+    opacity: 0.5;
+    border-radius: 3px;
+}
+.vo-tab-close:hover { opacity: 1; background: var(--background-modifier-hover); }
+.vo-tab-add {
+    display: flex;
+    align-items: center;
+    padding: 4px 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+.vo-tab-add:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+
+/* AUDIT 2026-07-26 M-18: the specific-permissions list at the end of the
+   Permissions tab. Compact by design: one line per grant, so a vault with a
+   dozen of them stays reviewable instead of pushing the switches off-screen. */
+.agent-granted {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.agent-granted-empty {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.agent-granted-empty-icon {
+    display: inline-flex;
+    color: var(--text-success);
+}
+
+.agent-granted-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.agent-granted-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.agent-granted-row:last-child {
+    border-bottom: none;
+}
+
+.agent-granted-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.agent-granted-title {
+    font-size: var(--font-ui-small);
+}
+
+.agent-granted-meta {
+    margin-top: 1px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+.agent-granted-revoke {
+    flex: none;
+    font-size: var(--font-ui-smaller);
+    padding: 3px 10px;
+    cursor: pointer;
+    color: var(--text-error);
 }

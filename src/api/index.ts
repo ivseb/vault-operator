@@ -69,8 +69,15 @@ export function withCircuitBreaker(
         abortSignal?: AbortSignal,
     ): ApiStream {
         return (async function* () {
-            if (!health.canRequest(providerType)) {
-                const wait = health.secondsUntilProbe(providerType);
+            // FEAT-55-04 (ADR-172): key the breaker by provider::model (same
+            // scheme as RequestRateLimiter.key) instead of providerType alone.
+            // Under parallel chats a struggling model must not fail-fast or
+            // starve the half-open probe of a healthy model on the same
+            // provider (one model = one endpoint). The user-facing message
+            // keeps the readable providerType.
+            const breakerKey = `${providerType}::${handler.getModel().id}`;
+            if (!health.canRequest(breakerKey)) {
+                const wait = health.secondsUntilProbe(breakerKey);
                 throw new Error(
                     `Provider "${providerType}" is currently unreachable (circuit open). `
                     + `Next automatic attempt in ${wait}s.`,
@@ -78,7 +85,7 @@ export function withCircuitBreaker(
             }
             try {
                 yield* handler.createMessage(systemPrompt, messages, tools, abortSignal);
-                health.reportSuccess(providerType);
+                health.reportSuccess(breakerKey);
             } catch (err) {
                 const cls = classifyProviderError(err);
                 // FIX-54-11 follow-up: structured diagnostic line on auth-class
@@ -89,7 +96,7 @@ export function withCircuitBreaker(
                 if (cls === 'auth') {
                     logAuthErrorDiagnostics(err, { providerType, model: handler.getModel().id });
                 }
-                health.reportFailure(providerType, cls);
+                health.reportFailure(breakerKey, cls);
                 throw err;
             }
         })();

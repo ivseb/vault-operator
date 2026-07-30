@@ -15,6 +15,7 @@ import { MCP_ALLOW_LOCAL_HEADER, obsidianFetch } from './obsidianFetch';
 import { McpOAuthProvider } from './McpOAuthProvider';
 import { isLocalHostname, isPrivateIpHostname, validateProviderUrl } from '../../api/providers/providerUrlGuard';
 import { assertStdioCommandAllowed, SpawnNotAllowed } from '../security/spawnAllowlist';
+import { stdioTrustFingerprint } from './stdioTrustFingerprint';
 import { Platform } from 'obsidian';
 
 /**
@@ -178,7 +179,7 @@ export interface McpClientOptions {
      * device. Injected by main.ts from the DeviceLocalStore. When undefined,
      * stdio is treated as untrusted (fail-closed) and connect() rejects.
      */
-    isStdioTrusted?: (name: string) => boolean;
+    isStdioTrusted?: (name: string, fingerprint?: string) => boolean;
     /**
      * FEAT-04-13 / ADR-168: decrypts a stdio env secret right before spawn.
      * Injected from main.ts (SafeStorageService.decrypt). Passthrough for
@@ -198,7 +199,7 @@ export class McpClient {
     private persistOAuth?: (name: string) => void | Promise<void>;
     private onStatusChange?: () => void;
     private randomState: () => string;
-    private isStdioTrusted?: (name: string) => boolean;
+    private isStdioTrusted?: (name: string, fingerprint?: string) => boolean;
     private decryptSecret?: (value: string) => string;
 
     constructor(options: McpClientOptions = {}) {
@@ -302,7 +303,18 @@ export class McpClient {
             // SSRF guard in obsidianFetch keeps loopback connections working
             // for users who enabled the toggle. The header is stripped before
             // the wire request, so it never reaches the remote server.
-            const baseHeaders: Record<string, string> = { ...(config.headers ?? {}) };
+            // AUDIT 2026-07-26 (P3): the config headers were spread in FIRST and
+            // the opt-in only ever ADDED. Since the agent can write an MCP server
+            // config (manage_mcp_server), it could simply put
+            // `x-obsilo-allow-local: 1` in the headers and grant itself the
+            // loopback/RFC-1918 access the setting exists to withhold. An internal
+            // control channel that travels in the same map as caller-supplied data
+            // has to be scrubbed from that map before it is trusted.
+            const baseHeaders: Record<string, string> = {};
+            for (const [k, v] of Object.entries(config.headers ?? {})) {
+                if (k.toLowerCase() === MCP_ALLOW_LOCAL_HEADER) continue;
+                baseHeaders[k] = v;
+            }
             if (allowLocal) {
                 baseHeaders[MCP_ALLOW_LOCAL_HEADER] = '1';
             }
@@ -398,8 +410,13 @@ export class McpClient {
         if (!config.command) {
             throw new Error(`stdio MCP server "${name}" has no command configured.`);
         }
-        if (!this.isStdioTrusted || !this.isStdioTrusted(name)) {
-            throw new Error(`stdio MCP server "${name}" is not trusted on this device. Confirm it in Settings before it can run.`);
+        // AUDIT 2026-07-26 M-16: trust is bound to the command line it was
+        // granted for, not to the server NAME. Before this, confirming
+        // "npx @vendor/mcp" once kept spawning under that trust even after the
+        // config was edited to run something else entirely.
+        const fingerprint = stdioTrustFingerprint(config);
+        if (!this.isStdioTrusted || !this.isStdioTrusted(name, fingerprint)) {
+            throw new Error(`stdio MCP server "${name}" is not trusted on this device for this command. Confirm it in Settings before it can run.`);
         }
         // AUDIT-034 R2/R3: single-source-of-truth guard in spawnAllowlist.
         // Restricts to node/npx (MVP), rejects a path-qualified command (basename

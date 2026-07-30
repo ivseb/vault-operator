@@ -15,6 +15,8 @@ import { spawnAllowedSync } from '../../core/security/spawnAllowlist';
 import { ENV_APPDATA, readEnv } from '../../util/envKeys';
 import { addSectionHeading, addInfoButton, openInfoPopover } from './utils';
 import { confirmModal } from '../modals/PromptModal';
+import { stdioTrustFingerprint } from '../../core/mcp/stdioTrustFingerprint';
+import { sameCredentialScope } from '../../core/mcp/mcpCredentialScope';
 import { applyDestructiveStyle } from '../buttonStyle';
 import { isSecretEnvName } from '../../core/security/stdioEnvCrypto';
 import { parseShellArgs, joinArgsForDisplay } from '../../core/mcp/stdioArgs';
@@ -725,7 +727,9 @@ export class McpTab {
                         cancelLabel: t('settings.mcp.cancel'),
                     });
                     if (trusted) {
-                        store.grantTrust(serverName);
+                        // AUDIT 2026-07-26 M-16: bind the trust to the command
+                        // line the user just confirmed, so a later edit re-asks.
+                        store.grantTrust(serverName, stdioTrustFingerprint(stdioConfig));
                         this.ensureServerActive(serverName);
                         if (mcpClient) { await mcpClient.disconnect(serverName); await mcpClient.connect(serverName, stdioConfig); }
                     } else {
@@ -778,6 +782,11 @@ export class McpTab {
                     if (k in originalHeaders) { headers[k] = originalHeaders[k]; }
                     else { new Notice(t('notice.mcp.secretKeyRenamed')); return; }
                 }
+                // AUDIT 2026-07-26 M-4: does the edited URL stay in the scope the
+                // stored credential was granted for? Same predicate the tool uses.
+                const keepsCredentialScope = editConfig === undefined
+                    || trimmedUrl === editConfig.url
+                    || sameCredentialScope(editConfig.url, trimmedUrl);
                 const newConfig: import('../../types/settings').McpServerConfig = {
                     type,
                     url: trimmedUrl,
@@ -791,8 +800,15 @@ export class McpTab {
                     // (editing the URL away from the vouched-for host drops it).
                     ...(editConfig?.official && trimmedUrl === editConfig.url ? { official: true } : {}),
                     ...(editConfig?.displayName ? { displayName: editConfig.displayName } : {}),
-                    ...(editConfig?.authType ? { authType: editConfig.authType } : {}),
-                    ...(editConfig?.oauth ? { oauth: editConfig.oauth } : {}),
+                    // AUDIT 2026-07-26 M-4: authType and oauth used to survive ANY
+                    // edit, including one that moved the server to a different
+                    // host. The `official` flag one line up already applies this
+                    // reasoning to the trust badge; the actual session is worth
+                    // more than the badge. Same scope rule as the tool path, so a
+                    // person editing in settings and an agent calling update get
+                    // the same answer.
+                    ...(editConfig?.authType && keepsCredentialScope ? { authType: editConfig.authType } : {}),
+                    ...(editConfig?.oauth && keepsCredentialScope ? { oauth: editConfig.oauth } : {}),
                 };
                 this.plugin.settings.mcpServers ??= {};
                 this.plugin.settings.mcpServers[serverName] = newConfig;
@@ -1324,7 +1340,7 @@ export class McpTab {
                     cancelLabel: t('settings.mcp.cancel'),
                 });
                 if (trusted) {
-                    store.grantTrust(spec.serverKey);
+                    store.grantTrust(spec.serverKey, stdioTrustFingerprint(config));
                     this.ensureServerActive(spec.serverKey);
                     if (this.plugin.mcpClient) { await this.plugin.mcpClient.disconnect(spec.serverKey); await this.plugin.mcpClient.connect(spec.serverKey, config); }
                 } else {

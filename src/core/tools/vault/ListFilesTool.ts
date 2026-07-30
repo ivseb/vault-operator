@@ -1,5 +1,7 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
+import { isDeniedPath } from './denyZoneFilter';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type ObsidianAgentPlugin from '../../../main';
 
 export class ListFilesTool extends BaseTool<'list_files'> {
@@ -46,6 +48,9 @@ export class ListFilesTool extends BaseTool<'list_files'> {
             const allFolders = this.app.vault.getAllFolders();
 
             const matchingFiles = allFiles.filter((f) => {
+                // AUDIT 2026-07-26 M-7: first predicate, so the header counts
+                // only visible entries.
+                if (isDeniedPath(this.plugin, f.path)) return false;
                 if (!dirPath) return true;
                 if (recursive) return f.path.startsWith(dirPath + '/') || f.path.startsWith(dirPath);
                 // Non-recursive: only direct children
@@ -54,6 +59,9 @@ export class ListFilesTool extends BaseTool<'list_files'> {
             });
 
             const matchingFolders = allFolders.filter((folder) => {
+                // IgnoreService matches folders too: a `Private/` rule hits the
+                // folder itself and every child.
+                if (isDeniedPath(this.plugin, folder.path)) return false;
                 if (!dirPath) {
                     // Root: show top-level folders only (non-recursive)
                     return recursive ? folder.path !== '' : (!folder.path.includes('/') && folder.path !== '');
@@ -79,15 +87,19 @@ export class ListFilesTool extends BaseTool<'list_files'> {
 
             // Show folders first
             for (const folder of matchingFolders.sort((a, b) => a.path.localeCompare(b.path))) {
-                lines.push(`[DIR]  ${folder.path}/`);
+                lines.push(`[DIR]  ${sanitizeDirectoryEntry(folder.path, 300)}/`);
             }
             // Then files
             for (const file of matchingFiles.sort((a, b) => a.path.localeCompare(b.path))) {
-                lines.push(`[FILE] ${file.path}`);
+                lines.push(`[FILE] ${sanitizeDirectoryEntry(file.path, 300)}`);
             }
 
             const header = `Contents of "${rawPath || '/'}" (${matchingFolders.length} folders, ${matchingFiles.length} files${recursive ? ', recursive' : ''}):\n`;
-            callbacks.pushToolResult(header + lines.join('\n'));
+            // AUDIT 2026-07-26 M-6: file and folder NAMES are vault bytes. The
+            // counts in the header are tool-authored and stay outside.
+            callbacks.pushToolResult(
+                `${header}\n${this.formatUntrustedContent('vault', lines.join('\n'), { region: 'listing' })}`,
+            );
             callbacks.log(`Listed ${lines.length} entries in ${rawPath}`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

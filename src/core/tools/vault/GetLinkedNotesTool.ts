@@ -7,6 +7,8 @@
  */
 
 import { TFile } from 'obsidian';
+import { isDeniedPath } from './denyZoneFilter';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -58,7 +60,11 @@ export class GetLinkedNotesTool extends BaseTool<'get_linked_notes'> {
             if (!file) throw new Error(`File not found: ${path}`);
             if (!(file instanceof TFile)) throw new Error(`Path is not a file: ${path}`);
 
-            const lines: string[] = [`<linked_notes path="${path}">`];
+            // AUDIT 2026-07-26 M-6: note paths and unresolved link TEXT are vault
+            // bytes, and the hand-rolled wrapper escaped neither the attribute nor
+            // the body. One list row per entry, so a newline in a link cannot
+            // forge an extra row either.
+            const lines: string[] = [];
 
             // Forward links
             if (direction === 'both' || direction === 'forward') {
@@ -67,18 +73,24 @@ export class GetLinkedNotesTool extends BaseTool<'get_linked_notes'> {
                 const embeds = cache?.embeds ?? [];
 
                 const forwardPaths = new Set<string>();
-                [...links, ...embeds].forEach((lc) => {
+                for (const lc of [...links, ...embeds]) {
                     const resolved = this.app.metadataCache.getFirstLinkpathDest(lc.link, path);
                     if (resolved) {
+                        // AUDIT 2026-07-26 M-7: a link that resolves INTO the deny
+                        // zone names a note the user hid. Dropped before the count
+                        // below, or the number reports how many are hidden.
+                        if (isDeniedPath(this.plugin, resolved.path)) continue;
                         forwardPaths.add(resolved.path);
                     } else {
-                        forwardPaths.add(`${lc.link} (unresolved)`);
+                        // UNRESOLVED links stay: the link TEXT is body content of a
+                        // note the caller may already read, not a deny-zone path.
+                        forwardPaths.add(sanitizeDirectoryEntry(`${lc.link} (unresolved)`, 200));
                     }
-                });
+                }
 
                 lines.push(`\nForward links (${forwardPaths.size}):`);
                 if (forwardPaths.size > 0) {
-                    forwardPaths.forEach((p) => lines.push(`  → ${p}`));
+                    forwardPaths.forEach((p) => lines.push(`  → ${sanitizeDirectoryEntry(p, 200)}`));
                 } else {
                     lines.push('  (none)');
                 }
@@ -106,16 +118,22 @@ export class GetLinkedNotesTool extends BaseTool<'get_linked_notes'> {
                     backlinkPaths = backlinks ? Object.keys(backlinks.data) : [];
                 }
 
+                // AUDIT 2026-07-26 M-7: applies to BOTH branches above, and
+                // before the count -- a backlink from a hidden note is a hidden
+                // note, whether the graph store or the metadata cache found it.
+                backlinkPaths = backlinkPaths.filter((p) => !isDeniedPath(this.plugin, p));
+
                 lines.push(`\nBacklinks (${backlinkPaths.length}):`);
                 if (backlinkPaths.length > 0) {
-                    backlinkPaths.forEach((p) => lines.push(`  ← ${p}`));
+                    backlinkPaths.forEach((p) => lines.push(`  ← ${sanitizeDirectoryEntry(p, 200)}`));
                 } else {
                     lines.push('  (none)');
                 }
             }
 
-            lines.push('</linked_notes>');
-            callbacks.pushToolResult(lines.join('\n'));
+            callbacks.pushToolResult(
+                this.formatUntrustedContent('vault', lines.join('\n').trimStart(), { path, direction }),
+            );
             callbacks.log(`Linked notes for ${path}`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

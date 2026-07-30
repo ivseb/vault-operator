@@ -17,7 +17,7 @@
  * wiring step.
  */
 
-import { Component, MarkdownRenderer, MarkdownView, Menu, TFile, setIcon, type App, type WorkspaceLeaf } from 'obsidian';
+import { Component, MarkdownRenderer, MarkdownView, Menu, TFile, setIcon, type App } from 'obsidian';
 import { t } from '../../i18n';
 import { refreshOpenMarkdownViewsFor } from '../utils/refreshMarkdownView';
 import { getModelKey } from '../../types/settings';
@@ -128,17 +128,13 @@ function buildChatSidebarController(plugin: ObsidianAgentPlugin): ChatSidebarCon
             await plugin.activateView();
         },
         insertContextChip: async ({ text, notePath }) => {
-            // Light-weight wiring: invoke the existing sidebar leaf and
-            // ask it to pre-populate its composer with the selection.
-            const leaf = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR)[0] as WorkspaceLeaf | undefined;
-            if (leaf === undefined) return;
-            // The Sidebar-View does not expose a typed public API for
-            // context injection yet. We use a CustomEvent so the
-            // sidebar can listen and react without a hard import cycle.
-            const evt = new CustomEvent('vault-operator:inline-send-to-chat', {
-                detail: { text, notePath },
-            });
-            plugin.app.workspace.containerEl.dispatchEvent(evt);
+            // FEAT-55-01 (ADR-169): route to the last-focused chat leaf via
+            // the plugin's typed prepopulate method. Replaces the old
+            // CustomEvent dispatch that had NO listener (dead path) and
+            // hard-resolved leaves[0]. The plugin method resolves the active
+            // chat and calls prepopulateComposerWithContext, so no hard
+            // import of AgentSidebarView is needed here.
+            plugin.prepopulateActiveSidebarComposer({ text, notePath });
         },
     };
 }
@@ -415,7 +411,11 @@ async function buildCommandItems(
         });
     }
     if (category === 'prompts') {
-        const activeMode = plugin.settings.currentMode;
+        // FEAT-55-02 (ADR-170): use the passed per-panel mode getter (as the
+        // rest of this function already does at 433/455/464), not the global
+        // settings.currentMode scalar -- keeps the inline panel's prompt
+        // filter on its own mode.
+        const activeMode = getModeSlug();
         const prompts = (plugin.settings.customPrompts ?? []).filter(
             (p) => p.enabled !== false && (p.mode === undefined || p.mode === '' || p.mode === activeMode),
         );

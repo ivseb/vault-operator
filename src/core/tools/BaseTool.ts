@@ -192,8 +192,11 @@ const BOUNDARY_TAG_RE =
  * AUDIT 2026-07-14 M-1: `formatUntrustedContent` only escaped attribute values,
  * so a body containing `</untrusted-content>` (or any other wrapper's closing
  * tag) could pre-close the trust boundary and inject fresh instructions into
- * the trusted prompt scope. The inline-action path already defends against this
- * (`escapeForPromptBlock`); this is the same defence for every tool-result path.
+ * the trusted prompt scope. This is the defence for every tool-result path.
+ * (The comment here used to claim the inline-action path already had it; AUDIT
+ * 2026-07-26 M-6 found that `escapeForPromptBlock` was a single pass over three
+ * tag names, so it was neither reconstruction-safe nor complete. It now calls
+ * defangBoundaryTags, which is what this comment always implied.)
  * Exported for the non-BaseTool emitters (wrapVaultContentForMcp, AttachmentHandler).
  */
 /**

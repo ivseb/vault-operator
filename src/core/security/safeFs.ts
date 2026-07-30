@@ -1,11 +1,18 @@
 /**
  * safeFs -- centralised filesystem wrapper with a hard path allowlist.
  *
- * Every fs operation in the plugin must go through this module. Direct
- * `import * as fs from 'fs'` is forbidden outside this file and its tests.
- * That keeps the Obsidian-Community-Plugin-Store reviewer's audit scope
- * minimal: one file plus the allowlist setup defines the entire
- * filesystem surface of the plugin.
+ * Every fs operation in the plugin goes through this module, with a small set
+ * of reviewed exceptions (boot-window migrations that run before the allowlist
+ * exists, the shadow-git dir that is deliberately outside it, the separate MCP
+ * worker process, and the native-picker skill import). That keeps the
+ * Obsidian-Community-Plugin-Store reviewer's audit scope small: this file plus
+ * the allowlist setup plus that short list.
+ *
+ * AUDIT 2026-07-26 M-11: this header used to claim the rule held with no
+ * exceptions while nine production files reached for `fs` directly. None of
+ * them was exploitable (all hardcoded paths), but an invariant nobody checks is
+ * a comment. The exceptions are now enumerated with a reason each in
+ * __tests__/safeFsExceptions.test.ts, and a new one fails the build.
  *
  * The allowlist is built once at plugin init (see safeFs.initialize) and
  * immutable afterwards. Every read/write resolves the path lexically with

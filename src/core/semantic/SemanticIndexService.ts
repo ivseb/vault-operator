@@ -1565,6 +1565,53 @@ export class SemanticIndexService {
     // -----------------------------------------------------------------------
 
     /**
+     * PERF 2026-07-25: insertion-ordered LRU for single-text (query) embeddings.
+     * Small on purpose -- it only has to survive one send, where the same user
+     * string is embedded by search / searchSessions / searchEpisodes.
+     */
+    private static readonly QUERY_EMBED_CACHE_LIMIT = 32;
+    private readonly queryEmbedCache = new Map<string, Float32Array>();
+
+    /**
+     * PERF 2026-07-25: hard wall-clock budget for a query embedding.
+     *
+     * The indexing ladder is 4 attempts, each behind a 30 s SDK timeout, with
+     * 1+2+4 s of backoff between them -- over two minutes worst case. That is
+     * defensible while building an index in the background; it is not on the
+     * send path, where the RCA measured 75 s of host time and named this the
+     * one mechanism that could account for all of it single-handedly.
+     *
+     * A query embedding only enriches the prompt with recalled context. Both
+     * consumers (searchSessions / searchEpisodes, and MemoryRetriever on top of
+     * them) already catch and degrade to a recency fallback, so giving up early
+     * costs a little relevance and saves the user a minute of staring at a dead
+     * input box.
+     */
+    private static readonly QUERY_EMBED_BUDGET_MS = 8000;
+
+    /** Embed one query text under QUERY_EMBED_BUDGET_MS, one retry at most. */
+    private async embedQueryWithBudget(text: string, model: CustomModel): Promise<Float32Array[]> {
+        let timer = 0;
+        const budget = new Promise<never>((_, reject) => {
+            timer = window.setTimeout(
+                () => reject(new Error(
+                    `[SemanticIndex] query embedding exceeded ${SemanticIndexService.QUERY_EMBED_BUDGET_MS} ms budget; `
+                    + 'continuing without recalled context',
+                )),
+                SemanticIndexService.QUERY_EMBED_BUDGET_MS,
+            );
+        });
+        try {
+            return await Promise.race([
+                this.embedBatchViaApiWithRetry([text], model, 2),
+                budget,
+            ]);
+        } finally {
+            if (timer) window.clearTimeout(timer);
+        }
+    }
+
+    /**
      * Embed an array of texts via the configured API embedding model.
      * Sends batches of `embeddingBatchSize` texts per request (10-50x fewer API calls).
      */
@@ -1572,6 +1619,34 @@ export class SemanticIndexService {
         if (texts.length === 0) return [];
         if (!this.embeddingModel) {
             throw new Error('No embedding model configured.');
+        }
+
+        // PERF 2026-07-25 (send-latency RCA): a single send embeds the SAME user
+        // string up to three times -- search(), searchSessions() and
+        // searchEpisodes() each call embedBatch([query]) -- and every one of
+        // those is a serial remote round trip on the critical path, each with a
+        // 30 s timeout and a retry ladder behind it. Two of the three were pure
+        // duplication. Memoize single-text embeds so the first call pays and the
+        // rest are free. Only length===1 is cached: that is exactly the query
+        // shape, while indexing batches carry unique chunks that would only
+        // evict useful entries.
+        if (texts.length === 1) {
+            const key = `${this.embeddingModel.name} ${texts[0]}`;
+            const hit = this.queryEmbedCache.get(key);
+            if (hit) {
+                // Refresh recency.
+                this.queryEmbedCache.delete(key);
+                this.queryEmbedCache.set(key, hit);
+                return [hit];
+            }
+            const [vector] = await this.embedQueryWithBudget(texts[0], this.embeddingModel);
+            this.queryEmbedCache.set(key, vector);
+            while (this.queryEmbedCache.size > SemanticIndexService.QUERY_EMBED_CACHE_LIMIT) {
+                const oldest = this.queryEmbedCache.keys().next().value;
+                if (oldest === undefined) break;
+                this.queryEmbedCache.delete(oldest);
+            }
+            return [vector];
         }
 
         const results: Float32Array[] = [];

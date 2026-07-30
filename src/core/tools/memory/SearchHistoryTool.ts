@@ -12,6 +12,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 
@@ -101,8 +102,15 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
                 return;
             }
 
+            // AUDIT 2026-07-26 M-6: chat messages are untrusted bytes. The
+            // closing instruction about the link is tool-authored and is emitted
+            // by renderMarkdown inside the envelope, so it moves out below.
             const md = this.renderMarkdown(query, rows, topK);
-            callbacks.pushToolResult(md);
+            callbacks.pushToolResult(
+                this.formatUntrustedContent('history', md, { region: 'history-search' })
+                + '\n\n_When you reference any of these messages in your reply, include the '
+                + 'obsidian://vault-operator-chat link inline so the user can re-open the source chat._',
+            );
         } catch (e) {
             callbacks.pushToolResult(this.formatError(e));
         }
@@ -127,14 +135,9 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
             // a URL, not a vault-internal path. Without it Obsidian's
             // markdown renderer feeds the link to openLinkText() and the
             // ":" in the protocol scheme triggers a createFolder error.
-            lines.push(`- **${role}** in [${title}](<${link}>) -- ${date}`);
-            lines.push(`  > ${snippet}`);
+            lines.push(`- **${role}** in [${sanitizeDirectoryEntry(title, 200)}](<${link}>) -- ${date}`);
+            lines.push(`  > ${sanitizeDirectoryEntry(snippet, 400)}`);
         }
-        lines.push('');
-        lines.push(
-            '_When you reference any of these messages in your reply, include the ' +
-            'obsidian://vault-operator-chat link inline so the user can re-open the source chat._',
-        );
         return lines.join('\n');
     }
 }

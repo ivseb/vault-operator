@@ -91,7 +91,10 @@ export class SwitchModeTool extends BaseTool<'switch_agent'> {
         }
 
         callbacks.pushToolResult(
-            `<mode_switch from="${this.plugin.settings.currentMode}" to="${mode_slug}">` +
+            // FEAT-55-02 (ADR-170): the "from" mode is this run's active mode
+            // (context.mode), not the global settings.currentMode scalar --
+            // otherwise a parallel chat's mode would leak into this envelope.
+            `<mode_switch from="${context.mode}" to="${mode_slug}">` +
             `Switching to ${targetMode.name} mode. Reason: ${reason}` +
             `</mode_switch>`
         );

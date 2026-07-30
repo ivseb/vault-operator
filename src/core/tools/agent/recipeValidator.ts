@@ -74,9 +74,14 @@ export function validateParameter(
             if (!resolved.startsWith(normalizedRoot + path.sep) && resolved !== normalizedRoot) {
                 return `Path "${param.name}" escapes vault root`;
             }
-            // Reject hidden paths (dotfiles/dotdirs) except vault-output
-            if (param.type === 'vault-file' && strValue.split('/').some((s) => s.startsWith('.'))) {
-                return `Hidden paths not allowed for input files in "${param.name}"`;
+            // AUDIT 2026-07-26 M-3: the dot-segment rejection used to apply to
+            // vault-file only. A vault-output path could therefore write into
+            // `.obsidian/plugins/*/main.js` (code that runs on the next reload),
+            // into `.vault-operator/data/skills/*/scripts/*.js` (code the agent
+            // can then execute) or into `.trash`. An output path is the MORE
+            // dangerous of the two, so it gets the same rule.
+            if (strValue.split('/').some((seg) => seg.startsWith('.'))) {
+                return `Hidden paths not allowed in "${param.name}"`;
             }
             return null;
         }

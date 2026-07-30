@@ -33,8 +33,11 @@ function cp(): typeof CpModule {
  * decision and must be reviewed.
  */
 export const ALLOWED_BINARIES: Readonly<Record<string, { reason: string }>> = Object.freeze({
-    node: { reason: 'Sandbox worker process (ProcessSandboxExecutor)' },
-    'node.exe': { reason: 'Sandbox worker process on Windows' },
+    // AUDIT 2026-07-26 M-10: the reason used to name the sandbox worker
+    // process, which no longer exists. node stays because stdio MCP servers
+    // are launched with it (STDIO_ALLOWED_COMMANDS, FEAT-04-13).
+    node: { reason: 'stdio MCP servers launched via node (FEAT-04-13)' },
+    'node.exe': { reason: 'stdio MCP servers on Windows (FEAT-04-13)' },
     npx: { reason: 'stdio MCP servers launched via npx (FEAT-04-13, MVP: node/npx only)' },
     'npx.cmd': { reason: 'npx on Windows (stdio MCP servers, FEAT-04-13)' },
     which: { reason: 'Binary discovery on Unix' },

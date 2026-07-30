@@ -1026,6 +1026,43 @@ export interface ObsidianAgentSettings {
     rerankCandidates: number;
 
     // MCP Server (EPIC-014)
+    /**
+     * AUDIT 2026-07-26 M-18: when and how each grant was made, keyed by the
+     * GrantEntry id from permissionInventory.
+     *
+     * Consent that cannot be reviewed is not consent. A toggle that reads
+     * "Note edits: on" tells the user nothing about WHO turned it on; this map
+     * is what lets the permissions list say "you allowed this from a card on
+     * the 14th". Best-effort: a missing entry degrades to origin `unknown`,
+     * never to a wrong claim.
+     */
+    grantProvenance?: Record<string, { origin: 'card' | 'settings' | 'preset' | 'onboarding' | 'unknown'; at?: number }>;
+    /**
+     * AUDIT 2026-07-26 M-5: hosts the user allowed web_fetch to reach without
+     * asking again. Per host, not per URL: a grant for one page of a site is in
+     * practice a grant for the site, and pretending otherwise produces a list
+     * nobody can review.
+     */
+    webFetchAllowedHosts?: string[];
+    /**
+     * AUDIT 2026-07-26 M-8: Obsidian commands the user enabled for the agent,
+     * beyond the built-in allowlist.
+     *
+     * Entries carry the display name they had at enrolment. A command ID is not
+     * a capability: `obsidian-shellcommands:shell-command-0` is an index into a
+     * per-vault list, so whatever the user later puts in slot 0 would inherit
+     * the enrolment without the name check.
+     */
+    executeCommandAllowedIds?: Array<{ id: string; name: string; at?: number }>;
+    /**
+     * USER 2026-07-26: built-in allowlist entries the user switched OFF.
+     *
+     * The built-in tier used to be a read-only catalogue, which is a poor thing
+     * to put in a settings screen: it showed four rows nobody could act on. If
+     * someone does not want the agent exporting PDFs, there is no reason they
+     * should not be able to say so.
+     */
+    executeCommandDisabledBuiltIns?: string[];
     /** Enable the MCP Server for Claude Desktop/Code integration. */
     enableMcpServer: boolean;
     /** MCP-2: allow write tools (write_vault) over MCP. Default off -- external
@@ -1223,6 +1260,12 @@ export interface ObsidianAgentSettings {
      *  trigger in plugin.onload picks it up. */
     _layoutMigrationOptIn?: boolean;
 
+    /** History hardening phase A3 (FIX-03-20-02): one-time persistent repair
+     *  of conversations damaged by the broken drain-owner gate (full API
+     *  history, thin uiMessages). Undefined/'pending' -> the boot job runs
+     *  (idempotent, resumable); 'complete' -> skipped. */
+    _historyRepairStatus?: 'pending' | 'complete';
+
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
 
@@ -1257,7 +1300,11 @@ export interface ObsidianAgentSettings {
     chatgptOAuthIdToken: string;
     /** chatgpt-account-id from id_token claim, sent as request header. Not encrypted. */
     chatgptOAuthAccountId: string;
-    /** Email address from id_token claim, shown in settings UI. Not encrypted. */
+    /** Email address from the id_token claim, shown in the settings UI.
+     *  AUDIT 2026-07-26 (P3): encrypted at rest in BOTH persistence paths
+     *  (main.ts for the vault file, GlobalSettingsService for the global one);
+     *  it used to be plaintext in the global file, which is the copy that
+     *  travels. */
     chatgptOAuthEmail: string;
     /** Subscription plan tier. Not encrypted. */
     chatgptOAuthPlanTier: 'plus' | 'pro' | 'unknown' | '';
@@ -2030,6 +2077,10 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableVaultHealthCheck: true,
     enableReranking: true,
     rerankCandidates: 20,
+    grantProvenance: {},
+    executeCommandAllowedIds: [],
+    executeCommandDisabledBuiltIns: [],
+    webFetchAllowedHosts: [],
     enableMcpServer: false,
     mcpAllowWriteTools: false,
     enableRemoteRelay: false,

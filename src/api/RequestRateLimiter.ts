@@ -34,6 +34,32 @@ function abortError(): Error {
 
 export class RequestRateLimiter {
     private buckets = new Map<string, Bucket>();
+    // FEAT-55-04 (ADR-172): global budget-wait observer. Counts currently-
+    // parked acquisitions so the UI can show one "waiting on shared API
+    // budget" indicator across concurrent chats: fires true on 0->>0 and
+    // false on >0->0, not per individual waiter.
+    private waitObserver: ((waiting: boolean) => void) | null = null;
+    private parkedCount = 0;
+
+    /** Register (or clear with null) the single global wait observer. */
+    setWaitObserver(observer: ((waiting: boolean) => void) | null): void {
+        this.waitObserver = observer;
+    }
+
+    private enterWait(): void {
+        this.parkedCount++;
+        if (this.parkedCount === 1) {
+            try { this.waitObserver?.(true); } catch { /* observer is best-effort */ }
+        }
+    }
+
+    private leaveWait(): void {
+        if (this.parkedCount === 0) return;
+        this.parkedCount--;
+        if (this.parkedCount === 0) {
+            try { this.waitObserver?.(false); } catch { /* best-effort */ }
+        }
+    }
 
     private key(providerType: string, modelId: string): string {
         return `${providerType}::${modelId}`;
@@ -75,8 +101,21 @@ export class RequestRateLimiter {
         if (bucket) bucket.rateLimitedUntilMs = Date.now() + ADAPTIVE_COOLDOWN_MS;
     }
 
-    /** Wait until a token is available. Unconfigured keys resolve instantly. */
-    acquire(providerType: string, modelId: string, signal?: AbortSignal): Promise<void> {
+    /**
+     * Wait until a token is available. Unconfigured keys resolve instantly.
+     *
+     * FEAT-55-04 (ADR-172): the optional `notify` hooks let a caller show a
+     * "waiting on shared budget" indicator. onWait fires ONLY when the call
+     * actually parks (no token now); onResume fires when it later proceeds.
+     * An instant acquisition fires neither, so the indicator never flickers
+     * for uncontended calls.
+     */
+    acquire(
+        providerType: string,
+        modelId: string,
+        signal?: AbortSignal,
+        notify?: { onWait?: () => void; onResume?: () => void },
+    ): Promise<void> {
         const bucket = this.buckets.get(this.key(providerType, modelId));
         if (!bucket) return Promise.resolve();
         if (signal?.aborted) return Promise.reject(abortError());
@@ -87,12 +126,28 @@ export class RequestRateLimiter {
             return Promise.resolve();
         }
 
+        // Parking: signal the wait now (per-caller notify + global observer)
+        // and the resume when the promise settles (resolve OR abort).
+        try { notify?.onWait?.(); } catch { /* indicator is best-effort */ }
+        this.enterWait();
         return new Promise<void>((resolve, reject) => {
-            const waiter: Bucket['waiters'][number] = { resolve, reject, signal };
+            let settled = false;
+            const settleResume = () => {
+                if (settled) return;
+                settled = true;
+                try { notify?.onResume?.(); } catch { /* best-effort */ }
+                this.leaveWait();
+            };
+            const waiter: Bucket['waiters'][number] = {
+                resolve: () => { settleResume(); resolve(); },
+                reject,
+                signal,
+            };
             if (signal) {
                 waiter.onAbort = () => {
                     const idx = bucket.waiters.indexOf(waiter);
                     if (idx >= 0) bucket.waiters.splice(idx, 1);
+                    settleResume();
                     reject(abortError());
                 };
                 signal.addEventListener('abort', waiter.onAbort, { once: true });

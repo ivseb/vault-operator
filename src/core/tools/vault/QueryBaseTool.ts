@@ -15,6 +15,8 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { isDeniedPath } from './denyZoneFilter';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { TFile } from 'obsidian';
@@ -85,6 +87,12 @@ export class QueryBaseTool extends BaseTool<'query_base'> {
             const allFiles = this.app.vault.getMarkdownFiles();
             const matched: TFile[] = [];
             for (const f of allFiles) {
+                // AUDIT 2026-07-26 M-7: drop denied notes HERE, not at render
+                // time. `matched` feeds both the "N of M" header and the "N more
+                // not shown" line, so filtering later would still publish the
+                // size of the deny zone. Skipping before getFileCache also means
+                // denied frontmatter is never even read.
+                if (isDeniedPath(this.plugin, f.path)) continue;
                 const cache = this.app.metadataCache.getFileCache(f);
                 const fm = cache?.frontmatter ?? {};
                 if (this.matchesFilters(f, fm, filters)) {
@@ -102,28 +110,32 @@ export class QueryBaseTool extends BaseTool<'query_base'> {
 
             const displayFields = orderFields.filter((f) => f !== 'file.name').slice(0, 5);
 
-            const lines: string[] = [
-                `Query results from **${path}** (${results.length} of ${matched.length} matching notes):`,
-                '',
-            ];
+            const header = `Query results from **${path}** `
+                + `(${results.length} of ${matched.length} matching notes):`;
+            const lines: string[] = [];
             for (const f of results) {
                 const cache = this.app.metadataCache.getFileCache(f);
                 const fm = cache?.frontmatter ?? {};
-                const row = [`**${f.path}**`];
+                const row = [`**${sanitizeDirectoryEntry(f.path, 200)}**`];
                 for (const field of displayFields) {
                     const val = fm[field];
                     if (val !== undefined && val !== null) {
                         const display = Array.isArray(val) ? val.join(', ') : String(val);
-                        row.push(`${field}: ${display.slice(0, 60)}`);
+                        // AUDIT 2026-07-26 M-6: slice is a length cap, not a
+                        // sanitiser -- a frontmatter value could carry a boundary
+                        // tag or a newline and forge an extra result row.
+                        row.push(`${field}: ${sanitizeDirectoryEntry(display, 60)}`);
                     }
                 }
                 lines.push('- ' + row.join(' | '));
             }
-            if (matched.length > limit) {
-                lines.push(`\n…${matched.length - limit} more notes not shown.`);
-            }
+            const more = matched.length > limit
+                ? `\n\n...${matched.length - limit} more notes not shown.`
+                : '';
 
-            callbacks.pushToolResult(lines.join('\n'));
+            callbacks.pushToolResult(
+                `${header}\n\n${this.formatUntrustedContent('vault', lines.join('\n'), { base: path })}${more}`,
+            );
             callbacks.log(`query_base: ${path} → ${results.length} results`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

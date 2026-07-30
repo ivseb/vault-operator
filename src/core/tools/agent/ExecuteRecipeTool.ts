@@ -172,6 +172,35 @@ export class ExecuteRecipeTool extends BaseTool<'execute_recipe'> {
             tmpl.replace(/\{\{(\w+)\}\}/g, (_, name) => validatedParams[name] ?? ''),
         );
 
+        // 7b. AUDIT 2026-07-26 M-3 (CWE-863): govern the paths that are ACTUALLY
+        // handed to the process.
+        //
+        // execute_recipe sat entirely outside the path governance: its vault
+        // paths live inside a nested `params` object, and PATH_INPUT_KEYS only
+        // declares flat top-level keys, so validatePaths took its
+        // `if (!path) return allowed` fallback and IgnoreService never ran.
+        //
+        // Checking `params[...]` would not be enough either. The token the
+        // binary receives is the SUBSTITUTED template entry, and a template may
+        // wrap the value (`-o{{output}}`, `--from={{format}}`). The composed
+        // token is what reaches the filesystem, so the composed token is what
+        // gets checked -- and checking here, after every await and immediately
+        // before the spawn, also closes the window between the pipeline's own
+        // check and this one.
+        const ignoreService = this.plugin.ignoreService;
+        for (const param of recipe.parameters) {
+            if (param.type !== 'vault-file' && param.type !== 'vault-output') continue;
+            const value = validatedParams[param.name];
+            if (value === undefined || value === '') continue;
+            const isWrite = param.type === 'vault-output';
+            if (ignoreService.isIgnored(value) || (isWrite && ignoreService.isProtected(value))) {
+                callbacks.pushToolResult(this.formatError(new Error(
+                    `Recipe "${recipeId}" was refused: ${ignoreService.getDenialReason(value)}`,
+                )));
+                return;
+            }
+        }
+
         // 8. Spawn process (S-04: shell: false)
         try {
             const result = await this.spawnProcess(binaryPath, args, vaultRoot, recipe);

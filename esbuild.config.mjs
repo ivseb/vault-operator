@@ -88,8 +88,16 @@ function generateInlineAssets() {
     if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
     // ---- Workers --------------------------------------------------------
+    // AUDIT 2026-07-26 M-10: sandbox-worker.js is NOT in this list.
+    // It was the Node `vm` sandbox retired by SBX-1 (2026-07-05) because
+    // untrusted skill code escaped it to host RCE. createSandboxExecutor has
+    // returned the iframe executor on every platform ever since, but the
+    // worker was still compiled and its full source still shipped inside
+    // main.js as a string that ensureRuntimeWorker can materialise to disk.
+    // A retired escapable sandbox that is still one call away from running is
+    // not retired; it is dormant. The source is gone from the tree.
     const workers = {};
-    for (const w of ["sandbox-worker.js", "mcp-server-worker.js"]) {
+    for (const w of ["mcp-server-worker.js"]) {
         if (existsSync(w)) workers[w] = readFileSync(w, "utf-8");
     }
     if (Object.keys(workers).length === 0) {
@@ -101,7 +109,7 @@ function generateInlineAssets() {
         "",
     ];
     for (const [name, src] of Object.entries(workers)) {
-        const constName = name === "sandbox-worker.js" ? "SANDBOX_WORKER_CODE" : "MCP_WORKER_CODE";
+        const constName = name === "mcp-server-worker.js" ? "MCP_WORKER_CODE" : name;
         workerLines.push(`export const ${constName} = ${JSON.stringify(src)};`);
     }
     writeFileSync(join(outDir, "bundled-workers.ts"), workerLines.join("\n") + "\n");
@@ -715,19 +723,9 @@ const mainBuildOptions = {
     ],
 };
 
-// Sandbox worker — separate OS process (ADR-021)
-const workerContext = await esbuild.context({
-    entryPoints: ["src/core/sandbox/sandbox-worker.ts"],
-    bundle: true,
-    external: [],        // Standalone Node.js, no externals needed
-    platform: "node",
-    format: "cjs",
-    target: "es2022",
-    outfile: "sandbox-worker.js",
-    logLevel: "info",
-    sourcemap: prod ? false : "inline",
-    treeShaking: true,
-});
+// AUDIT 2026-07-26 M-10: the sandbox worker build is gone. See the note in
+// generateInlineAssets() -- the Node `vm` backend was escapable, has been
+// unreachable since SBX-1, and its source is no longer in the tree.
 
 // MCP Server worker — separate OS process (ADR-053)
 const mcpWorkerContext = await esbuild.context({
@@ -745,7 +743,6 @@ const mcpWorkerContext = await esbuild.context({
 
 if (prod) {
     // Workers first — they get inlined into main.js via generateInlineAssets
-    await workerContext.rebuild();
     await mcpWorkerContext.rebuild();
     // Emit src/_generated/bundled-*.ts files which the readers import.
     generateInlineAssets();
@@ -768,6 +765,5 @@ if (prod) {
     try { generateLocaleHashes(); } catch (e) { console.warn("[locale-packs] dev build skipped:", e.message); }
     const context = await esbuild.context(mainBuildOptions);
     await context.watch();
-    await workerContext.watch();
     await mcpWorkerContext.watch();
 }

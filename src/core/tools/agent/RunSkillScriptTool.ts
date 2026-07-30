@@ -26,6 +26,8 @@ import type ObsidianAgentPlugin from '../../../main';
 import { getSelfAuthoredSkillsDir } from '../../utils/agentFolder';
 import { RunSkillScriptCache } from '../../sandbox/RunSkillScriptCache';
 import { isSafePathSegment } from '../../utils/safePathName';
+import { classifySkillScript, verdictReason } from '../../governance/skillScriptGuard';
+import { BUNDLED_SKILLS } from '../../../_generated/bundled-skills';
 import { AstValidator } from '../../sandbox/AstValidator';
 
 export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
@@ -122,6 +124,39 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
             return;
         }
 
+        // AUDIT 2026-07-26 M-1: refuse bytes that are not the ones we shipped.
+        //
+        // The sandbox may write into skills/ (the deny zone exempts it so
+        // skill-creator can work), so an overwritten script of a bundled skill
+        // used to run under autoApproval.sandbox with no second prompt. This is
+        // classified on `source` -- the string that is compiled a few lines
+        // down -- not on a fresh read, so the verdict describes what runs.
+        //
+        // Only the tampered case is refused here. Ordinary user- and
+        // agent-authored scripts stay runnable; the approval gate handles those.
+        // A blanket ban would break the skill-creator flow the finding protects.
+        let skillMd: string | null = null;
+        try {
+            const mdPath = `${skillsDir}/${skillName}/SKILL.md`;
+            const adapter = this.plugin.app.vault.adapter;
+            skillMd = (await adapter.exists(mdPath)) ? await adapter.read(mdPath) : null;
+        } catch { skillMd = null; }
+        const verdict = classifySkillScript({
+            skillFolder: skillName,
+            fileRelPath: `scripts/${scriptName}.js`,
+            fileSource: source,
+            skillMd,
+            bundle: BUNDLED_SKILLS,
+        });
+        if (verdict.kind === 'tampered') {
+            callbacks.pushToolResult(this.formatError(new Error(
+                `Refusing to run ${skillName}/scripts/${scriptName}.js: ${verdictReason(verdict)}. `
+                + 'A skill the plugin ships runs only from the copy the plugin ships. '
+                + 'To customise it, use write_skill, which turns the skill into a local copy first.',
+            )));
+            return;
+        }
+
         // SBX-2 (defense-in-depth): reject obviously dangerous source patterns
         // before compiling/executing. The Chromium iframe sandbox is the real
         // boundary now; this is belt-and-suspenders and gives a clear error.
@@ -186,6 +221,8 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
         try {
             const result = await sandbox.execute(compiled, scriptArgs, {
                 governanceTaskId: context.taskId,
+                // FIX-24-08-04: abort the running script the moment Stop fires.
+                abortSignal: context.abortSignal,
             });
             callbacks.pushToolResult(this.formatSuccess(JSON.stringify(result, null, 2)));
             callbacks.log(`Executed skill-script: ${skillName}/${scriptName}`);

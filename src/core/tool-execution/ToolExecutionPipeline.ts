@@ -13,6 +13,12 @@
  */
 
 import type ObsidianAgentPlugin from '../../main';
+import { resolveCommandAllowance } from '../tools/agent/commandAllowlist';
+import { classifySkillScript, type SkillScriptVerdict } from '../governance/skillScriptGuard';
+import { BUNDLED_SKILLS } from '../../_generated/bundled-skills';
+import { isSafePathSegment } from '../utils/safePathName';
+import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
+import { isHostAllowed } from '../governance/webHostGrants';
 import type { ToolRegistry } from '../tools/ToolRegistry';
 import type {
     ToolUse,
@@ -352,6 +358,13 @@ export interface ContextExtensions {
      * UpdateTodoListTool reads it to verify done items reference actually-read files.
      */
     readFiles?: Set<string>;
+    /**
+     * FEAT-55-02 (ADR-170): run-scoped chat-attachment texts. Passed from
+     * the run config through to read_document / ingest_document via
+     * context.getAttachmentTexts, replacing the shared-singleton
+     * setAttachmentTexts. Undefined/empty when the run has no attachments.
+     */
+    attachmentTexts?: string[];
 }
 
 export class ToolExecutionPipeline {
@@ -813,6 +826,9 @@ export class ToolExecutionPipeline {
                 invalidateToolCache: extensions?.invalidateToolCache,
                 activateDeferredTool: extensions?.activateDeferredTool,
                 getReadFiles: extensions?.readFiles ? () => extensions.readFiles! : undefined,
+                // FEAT-55-02 (ADR-170): run-scoped attachments; empty array
+                // fallback keeps the tools' "one-turn lifetime" error path.
+                getAttachmentTexts: () => extensions?.attachmentTexts ?? [],
                 // FEAT-44-02b: the user skipped entries in the batch gate. The
                 // tool MUST honour this subset (contract in editPreview.ts).
                 approvedBatchPaths: approval.approvedPaths !== undefined
@@ -974,6 +990,10 @@ export class ToolExecutionPipeline {
         ],
         generate_canvas: [
             { key: 'source', write: false },
+            // AUDIT 2026-07-26 (P3): `files` is an explicit list of note paths
+            // in "files" mode. It was never declared, so the canvas could pull
+            // in notes from an ignored folder and render their content.
+            { key: 'files', write: false },
             { key: 'output_path', write: true },
         ],
         plan_presentation: [
@@ -992,6 +1012,20 @@ export class ToolExecutionPipeline {
         ],
         unmark_note_as_memory_source: [
             { key: 'note_path', write: true },
+        ],
+        // SEC 2026-07-25: build_meeting_note_from_sink addresses BOTH its paths
+        // via non-`path` keys, so validatePaths took the `!path -> allowed`
+        // fallback and IgnoreService never ran: neither the written note nor the
+        // sink was checked against .obsidian-agentignore, .obsidian-agentprotected
+        // or the configDir / agent-secret deny zone. The sink is not only read but
+        // REMOVED (dedup skip and normal path), so an ungoverned sink_path meant a
+        // permanent, non-trash delete of any file the caller named -- reachable via
+        // prompt injection, since the plaud id that drives the dedup branch comes
+        // from model-controlled frontmatter. Both keys are therefore write-side:
+        // isIgnored AND isProtected must hold before execute().
+        build_meeting_note_from_sink: [
+            { key: 'note_path', write: true },
+            { key: 'sink_path', write: true },
         ],
         // AUDIT 2026-07-14 BYP-1: these tools address their paths via
         // source_path/output_path/source_uri, none of which is `path`, so the
@@ -1061,7 +1095,16 @@ export class ToolExecutionPipeline {
         const keys = ToolExecutionPipeline.PATH_INPUT_KEYS[toolCall.name];
         if (keys && keys.length > 0) {
             for (const entry of keys) {
-                const raw = toolCall.input?.[entry.key];
+                // AUDIT 2026-07-26 (P3): a path key whose value is an ARRAY was
+                // silently skipped by the `typeof raw !== 'string'` guard, so
+                // generate_canvas's `files` list -- an explicit list of note
+                // paths -- never met IgnoreService at all. The declared key was
+                // in the registry and the drift test was green; the value shape
+                // was the hole. Every element is checked now, so the class is
+                // closed for any future array-valued path key too.
+                const rawValue = toolCall.input?.[entry.key];
+                const rawList: unknown[] = Array.isArray(rawValue) ? rawValue : [rawValue];
+                for (const raw of rawList) {
                 if (typeof raw !== 'string' || raw.length === 0) continue;
                 // BYP-1: ingest_triage addresses vault notes as `vault://path`.
                 // Strip the scheme so the deny-zone check sees the real path;
@@ -1082,6 +1125,7 @@ export class ToolExecutionPipeline {
                     if (entry.write && isWrite && ignoreService.isProtected(value)) {
                         return { allowed: false, reason: ignoreService.getDenialReason(value) };
                     }
+                }
                 }
             }
             return { allowed: true };
@@ -1163,6 +1207,21 @@ export class ToolExecutionPipeline {
     }
 
     /**
+     * AUDIT 2026-07-26 M-5: is this a fetch of a host the user put on the list?
+     *
+     * Only `web_fetch` carries a URL; web_search and the rest of the `web` class
+     * are unaffected and keep asking under the blanket flag. Reads the URL from
+     * the same input key the tool does, so the check cannot drift from what
+     * actually gets fetched.
+     */
+    private isAllowedWebHost(toolCall: ToolUse): boolean {
+        if (toolCall.name !== 'web_fetch') return false;
+        const raw: unknown = toolCall.input?.url;
+        if (typeof raw !== 'string') return false;
+        return isHostAllowed(this.plugin.settings.webFetchAllowedHosts, raw);
+    }
+
+    /**
      * FEAT-44-02a: the session-scope set lives on the PLUGIN instance (never
      * persisted, dies on reload), so every pipeline sees the same grants without
      * explicit sharing. Optional-typed because legacy test stubs construct the
@@ -1233,11 +1292,80 @@ export class ToolExecutionPipeline {
     ]);
 
     /** Whether a run/session scope grant must NOT cover this specific call. */
+    /**
+     * AUDIT 2026-07-26 M-1: sandbox-class calls whose code comes out of the
+     * vault, and therefore has to be judged on its bytes.
+     *
+     * `run_skill_script` loads scripts/<x>.js from the skill workspace, and
+     * every `custom_*` tool runs a code module from the same place. Both folders
+     * are writable by sandboxed code. `evaluate_expression` is the third
+     * sandbox-class tool and is NOT here: its code arrives in the tool call
+     * itself, where the ordinary approval path already shows it.
+     */
+    private isVaultAuthoredSandboxCall(toolCall: ToolUse): boolean {
+        return toolCall.name === 'run_skill_script'
+            || toolCall.name.startsWith(DYNAMIC_TOOL_PREFIX);
+    }
+
+    /**
+     * Read the code this call would run and classify it against the shipped
+     * copy. Any failure classifies as unverified, never as verified.
+     */
+    private async classifySandboxCall(toolCall: ToolUse): Promise<SkillScriptVerdict> {
+        // Code modules: the plugin ships none (no `code-compiled/` entry exists
+        // in BUNDLED_SKILLS, pinned by a test), so a custom_* tool is always
+        // agent- or user-authored code loaded from the vault. It can never be
+        // plugin-verified, and saying so here is cheaper and more honest than
+        // resolving the owning skill just to reach the same answer.
+        if (toolCall.name.startsWith(DYNAMIC_TOOL_PREFIX)) {
+            return { kind: 'unverified', detail: 'unmanaged' };
+        }
+
+        const rawSkill = toolCall.input?.skill_name;
+        const rawScript = toolCall.input?.script_name;
+        if (typeof rawSkill !== 'string' || typeof rawScript !== 'string') {
+            return { kind: 'unverified', detail: 'bad-name' };
+        }
+        // Trim exactly as the tool does, so the gate and the executor can never
+        // address different files.
+        const skillName = rawSkill.trim();
+        const scriptName = rawScript.trim();
+        if (!isSafePathSegment(skillName) || !isSafePathSegment(scriptName)) {
+            return { kind: 'unverified', detail: 'bad-name' };
+        }
+
+        const skillsDir = getSelfAuthoredSkillsDir(this.plugin);
+        const adapter = this.plugin.app.vault.adapter;
+        const readOrNull = async (path: string): Promise<string | null> => {
+            try {
+                return (await adapter.exists(path)) ? await adapter.read(path) : null;
+            } catch {
+                return null;
+            }
+        };
+        return classifySkillScript({
+            skillFolder: skillName,
+            fileRelPath: `scripts/${scriptName}.js`,
+            fileSource: await readOrNull(`${skillsDir}/${skillName}/scripts/${scriptName}.js`),
+            skillMd: await readOrNull(`${skillsDir}/${skillName}/SKILL.md`),
+            bundle: BUNDLED_SKILLS,
+        });
+    }
+
     private isScopeGrantExempt(toolCall: ToolUse): boolean {
         if (ToolExecutionPipeline.SCOPE_GRANT_EXEMPT_TOOLS.has(toolCall.name)) return true;
         if (toolCall.name === 'vault_health_check') {
             const action = typeof toolCall.input?.action === 'string' ? toolCall.input.action : 'check';
             return ToolExecutionPipeline.VAULT_HEALTH_REPAIR_ACTIONS.has(action);
+        }
+        // AUDIT 2026-07-26 (P3): a use_mcp_tool call carrying sink_to_path does
+        // not just call an external tool, it CREATES A VAULT FILE holding the
+        // full external response. Its effect class is `mcp`, so a run- or
+        // session-scope grant given for an ordinary MCP call would have covered
+        // the write too. Same reasoning as the bulk tools already listed: the
+        // blast radius of this one call is not what the grant was given for.
+        if (toolCall.name === 'use_mcp_tool' && typeof toolCall.input?.sink_to_path === 'string') {
+            return true;
         }
         return false;
     }
@@ -1266,6 +1394,62 @@ export class ToolExecutionPipeline {
         // mutate nothing, and gating them would make the plugin unusable.
         if (this.isParanoidMode() && effect !== 'read' && effect !== 'ui') {
             return await this.askOrDeny(toolCall, tool, extensions, effect);
+        }
+
+        // AUDIT 2026-07-26 M-1: sandbox-class code is approved on its BYTES, not
+        // on its name.
+        //
+        // Both sandbox sinks load code out of the skill workspace, which
+        // sandboxed code may itself write (the deny zone exempts skills/ so
+        // skill-creator works): run_skill_script reads scripts/<x>.js, and a
+        // custom_* tool runs a code module. Only code that is byte-identical to
+        // what the plugin ships may ride autoApproval.sandbox or a banked
+        // `sandbox` grant. Everything else asks, every time.
+        //
+        // Placed with the paranoid branch, ABOVE the grant lookup and the
+        // settings branch, because a grant banked for one script must not cover
+        // a different one. The grant key is narrowed to the content hash below
+        // so approving a script once does not silently cover the next version.
+        if (effect === 'sandbox' && this.isVaultAuthoredSandboxCall(toolCall)) {
+            const verdict = await this.classifySandboxCall(toolCall);
+            if (verdict.kind !== 'plugin-verified') {
+                // A bound headless policy would otherwise route this straight
+                // back into its own consent set. A standing consent granted for
+                // an effect class is not consent for arbitrary vault-authored
+                // code, so refuse outright rather than delegate.
+                if (this.headlessApprovalPolicy) {
+                    return {
+                        decision: 'rejected',
+                        reason: 'Code from the vault that is not the copy shipped with the plugin '
+                            + 'cannot run without a person approving it.',
+                    };
+                }
+                return await this.askOrDeny(toolCall, tool, extensions, effect);
+            }
+        }
+
+        // AUDIT 2026-07-26 M-8: pre-deny a command the tool will refuse anyway.
+        // Without this the user gets a card reading "Execute command: <id>",
+        // clicks Allow, and the tool refuses -- a card that promises something
+        // the system will not honour teaches people that the cards are noise.
+        // A pre-deny only removes an approval opportunity; it can never grant.
+        if (toolCall.name === 'execute_command') {
+            const rawId = toolCall.input?.command_id;
+            const id = typeof rawId === 'string' ? rawId : '';
+            const known = this.plugin.app.commands?.commands?.[id];
+            const allowance = resolveCommandAllowance(
+                id,
+                this.plugin.settings.executeCommandAllowedIds,
+                known?.name,
+                this.plugin.settings.executeCommandDisabledBuiltIns,
+            );
+            if (allowance === 'denied') {
+                return {
+                    decision: 'rejected',
+                    reason: `Command "${id}" is not enabled for the agent. `
+                        + 'Add it under Settings > Agents > Permissions if you want it.',
+                };
+            }
         }
 
         const policy = EFFECT_POLICY[effect];
@@ -1345,6 +1529,20 @@ export class ToolExecutionPipeline {
                 : cfg.pluginApiRead === true;
         }
 
+        // AUDIT 2026-07-26 (P3): sink_to_path turns an MCP call into a vault
+        // write. Auto-approving it under the `mcp` flag alone means a user who
+        // allowed MCP tool calls silently also allowed file creation at an
+        // agent-chosen path. Require BOTH flags, so the write side is covered by
+        // the switch that actually governs writes.
+        if (effect === 'mcp' && typeof toolCall.input?.sink_to_path === 'string') {
+            if (cfg.vaultChanges !== true) return false;
+        }
+
+        // AUDIT 2026-07-26 M-5: a fetch of an allowed host needs no card, even
+        // with the blanket `web` flag off. This is what makes per-host consent
+        // usable: without it the only persistent yes is "any site, forever".
+        if (effect === 'web' && this.isAllowedWebHost(toolCall)) return true;
+
         if (key === null || cfg[key] !== true) return false;
 
         // AUDIT-034 L-17: the general skills toggle only covers skills from a
@@ -1373,6 +1571,21 @@ export class ToolExecutionPipeline {
         effect: ToolEffect | 'unclassified',
     ): Promise<ApprovalResult> {
         if (!extensions?.onApprovalRequired) {
+            // AUDIT 2026-07-26 M-14: paranoid mode outranks a standing headless
+            // consent. Its own description promises that every effect except
+            // read/ui asks "regardless of the toggles, presets, and any grants
+            // given for a run or session" -- but the paranoid branch routes here,
+            // and here a bound headless policy used to answer 'auto'. So the
+            // brake was off exactly where nobody is watching: an inbound MCP
+            // caller writing vault files and long-term memory. "Always ask" with
+            // no one to ask can only mean deny.
+            if (this.isParanoidMode() && effect !== 'read' && effect !== 'ui') {
+                console.warn(
+                    `[Pipeline] Paranoid mode: denying headless ${toolCall.name} (${effect}) -- `
+                    + 'no interactive approver, and a standing consent cannot stand in for one.',
+                );
+                return { decision: 'rejected', reason: 'Paranoid mode is on: a headless caller cannot be granted this action.' };
+            }
             // FIX-44-46: a headless caller may carry an explicit standing-
             // consent policy. Without one, the missing callback still means
             // deny (ADR-05, fail-closed) -- never auto.

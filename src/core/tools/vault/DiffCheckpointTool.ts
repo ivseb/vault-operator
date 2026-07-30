@@ -103,7 +103,8 @@ export class DiffCheckpointTool extends BaseTool<'diff_checkpoint'> {
                 ? `${body.slice(0, MAX_DIFF_CHARS)}\n... (truncated, use read_checkpoint for full content)`
                 : body;
 
-            callbacks.pushToolResult(this.formatContent(out, {
+            // A diff is note content with markers, so the same reasoning applies.
+            callbacks.pushToolResult(this.formatUntrustedContent('vault-checkpoint', out, {
                 oid: commitOid,
                 taskId: cp.taskId,
                 ...(path ? { path } : {}),

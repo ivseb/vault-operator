@@ -82,6 +82,12 @@ const VAULT_OPERATOR_IGNORE_WORDS = [
     // to "APIS" / "PDFS" via the acronyms list or to "apis" / "pdfs" via
     // the lowercase pass.
     'APIs', 'PDFs', 'MBs', 'KBs', 'GBs',
+    // FEAT-04-10/13: MCP transport + client copy. Protocol/product names and
+    // UI labels referenced inside help strings; lowercasing them would break
+    // the on-screen reference. (All bot-passed at 3.3.1.)
+    'Streamable', 'Cursor', 'Arguments', 'Referenced', 'Enable',
+    // Emphasis word used in the freshness-scan copy ("your WHOLE vault").
+    'WHOLE',
 ];
 
 // Regex patterns whose matching strings are exempt from sentence-case
@@ -109,6 +115,26 @@ const VAULT_OPERATOR_IGNORE_REGEX = [
     // "notion.com (verified domain)", "You need an access token ...").
     '^verified domain$',
     '^an access token or API key from this provider$',
+    // FEAT-04-13: MCP connector TYPE identifiers -- literal transport ids,
+    // intentionally lowercase (they are wire values, not prose).
+    '^stdio \\(local program\\)$',
+    '^streamable-http \\(remote\\)$',
+    '^sse \\(remote\\)$',
+    // Deliberate-lowercase status/permission labels shown as-is.
+    '^write$',
+    '^uncertain$',
+    '^fairly sure$',
+    '^confident$',
+    // Grammatically-correct multi-sentence help copy + one label that the
+    // rule misclassifies (it flags the capital that opens the second
+    // sentence, or the first token of a short label). All bot-passed at
+    // 3.3.1; exempted here rather than degrading the on-screen text.
+    '^Nothing in this severity\\. Switch',
+    '^Runs only while Obsidian is open\\. Plain http',
+    '^In your client: pick Streamable HTTP',
+    '^Some clients cannot use the HTTP option',
+    '^Put tokens and secrets here, never in Arguments',
+    '^Weekly budget \\(USD\\)$',
 ];
 
 export default tseslint.config(

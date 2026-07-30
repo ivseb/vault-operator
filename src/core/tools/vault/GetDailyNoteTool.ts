@@ -61,11 +61,11 @@ export class GetDailyNoteTool extends BaseTool<'get_daily_note'> {
 
             if (!file) {
                 if (!create) {
+                    // AUDIT 2026-07-26 M-6: no vault bytes in this branch, so no
+                    // envelope is needed -- and a wrapper around tool-authored text
+                    // only teaches the model to trust the tag less.
                     callbacks.pushToolResult(
-                        `<daily_note date="${dateStr}">\n` +
-                        `Note not found at: ${path}\n` +
-                        `Use create=true to create it.\n` +
-                        `</daily_note>`
+                        `Daily note not found at: ${path}. Use create=true to create it.`,
                     );
                     return;
                 }
@@ -89,8 +89,9 @@ export class GetDailyNoteTool extends BaseTool<'get_daily_note'> {
             }
 
             const content = await this.app.vault.read(file);
+            // AUDIT 2026-07-26 M-6: the whole note body went in raw.
             callbacks.pushToolResult(
-                `<daily_note date="${dateStr}" path="${path}">\n${content}\n</daily_note>`
+                this.formatUntrustedContent('vault', content, { path, date: dateStr }),
             );
             callbacks.log(`Read daily note: ${path}`);
         } catch (error) {

@@ -41,16 +41,8 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
     readonly name = 'read_document' as const;
     readonly isWriteOperation = false;
 
-    /** Parsed text from chat attachments, set by AgentSidebarView before task execution */
-    private attachmentTexts: string[] = [];
-
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
-    }
-
-    /** Called by AgentSidebarView to pass parsed attachment texts for the current turn */
-    setAttachmentTexts(texts: string[]): void {
-        this.attachmentTexts = texts;
     }
 
     getDefinition(): ToolDefinition {
@@ -114,14 +106,18 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
                 format = result.format;
                 totalPageCount = result.pageCount;
             } else if (attachment_index !== undefined && attachment_index >= 0) {
+                // FEAT-55-02 (ADR-170): run-scoped attachments from the context,
+                // not a shared instance field -- two parallel chats never share
+                // or wipe each other's attachments.
+                const attachmentTexts = context.getAttachmentTexts?.() ?? [];
                 // Read from stored attachment text
-                if (attachment_index >= this.attachmentTexts.length) {
+                if (attachment_index >= attachmentTexts.length) {
                     // BUG-029 (Issue #312): Chat-Attachments leben nur einen Turn.
                     // Bei attachmentTexts.length === 0 ist die Datei garantiert
                     // weg -- der Agent darf NICHT auf gleichnamige Vault-Files
                     // ausweichen oder den Inhalt aus dem Kontext rekonstruieren.
                     // Wir geben eine actionable Meldung analog zu IngestDocumentTool.
-                    if (this.attachmentTexts.length === 0) {
+                    if (attachmentTexts.length === 0) {
                         throw new Error(
                             'No chat attachments available on this turn. The chat-attachment lifetime is one turn -- ' +
                             'the document the user uploaded earlier is no longer accessible via attachment_index. ' +
@@ -135,10 +131,10 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
                     }
                     throw new Error(
                         `Attachment index ${attachment_index} out of range. ` +
-                        `${this.attachmentTexts.length} attachment(s) available (use index 0..${this.attachmentTexts.length - 1}).`
+                        `${attachmentTexts.length} attachment(s) available (use index 0..${attachmentTexts.length - 1}).`
                     );
                 }
-                fullText = this.attachmentTexts[attachment_index];
+                fullText = attachmentTexts[attachment_index];
                 sourceName = `attachment[${attachment_index}]`;
                 format = 'attachment';
             } else {

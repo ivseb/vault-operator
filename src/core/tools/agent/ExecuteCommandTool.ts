@@ -13,6 +13,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { resolveCommandAllowance } from './commandAllowlist';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { withNoticeCapture, type CapturedNotice } from '../../utils/NoticeCapture';
@@ -74,6 +75,28 @@ export class ExecuteCommandTool extends BaseTool<'execute_command'> {
                 callbacks.pushToolResult(
                     this.formatError(new Error(`Command not found: "${commandId}".${hint}`)),
                 );
+                return;
+            }
+
+            // AUDIT 2026-07-26 M-8 (CWE-250): the allowlist gate, IN THE TOOL,
+            // before the sink. A command that is not on the list does not run
+            // whatever the approval path answered -- preset, category toggle,
+            // run/session grant, headless policy, or a person clicking Allow.
+            // The effect class answers "should the user be asked"; it cannot
+            // answer "is this third-party command safe", which is why the gate
+            // is here and TOOL_EFFECTS is untouched.
+            const allowance = resolveCommandAllowance(
+                commandId,
+                this.plugin.settings.executeCommandAllowedIds,
+                commands[commandId]?.name,
+                this.plugin.settings.executeCommandDisabledBuiltIns,
+            );
+            if (allowance === 'denied') {
+                callbacks.pushToolResult(this.formatError(new Error(
+                    `Command "${commandId}" is not enabled for the agent. `
+                    + 'Obsidian commands come from every installed plugin, so the agent runs only the '
+                    + 'ones on its list. Add it under Settings > Agents > Permissions if you want it.',
+                )));
                 return;
             }
 

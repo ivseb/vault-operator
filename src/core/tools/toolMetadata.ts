@@ -260,6 +260,22 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'For daily notes, logs, and additive entries. Avoids the read-edit cycle.',
         commonMistakes: 'Using write_file for append operations — that would overwrite existing content.',
     },
+    compute_plaud_delta: {
+        group: 'read', label: 'Plaud delta', icon: 'file-audio',
+        signature: 'compute_plaud_delta(plaud_files)',
+        description: 'Given the Plaud list_files result, return which recordings are not yet imported. Dedup by the plaud id in each note\'s resource frontmatter, scanned vault-wide over the complete metadata index (no search cap, moved notes included). Deterministic, no LLM.',
+        example: 'compute_plaud_delta([{id:"c61779...", name:"Meeting X", start_at:"2026-07-23T09:00:00", duration:1830}, ...])',
+        whenToUse: 'The delta step of plaud-meeting-delta-ingest. Use this instead of search_files: search_files is capped at 500 files / 50 hits and misses already-imported notes, which caused duplicates.',
+        commonMistakes: 'Passing only a folder subset of recordings — pass the full list_files array so the set difference is complete.',
+    },
+    build_meeting_note_from_sink: {
+        group: 'edit', label: 'Build meeting note', icon: 'file-audio',
+        signature: 'build_meeting_note_from_sink(sink_path, note_path, frontmatter?, delete_sink?)',
+        description: 'Turn a sinked Plaud get_transcript JSON into a raw meeting note natively (no sandbox write-rate or heap limit, transcript never enters the LLM). Keeps raw Speaker N labels; naming is done later by meeting-summary.',
+        example: 'build_meeting_note_from_sink("Inbox/.plaud-sink-<id>.json", "Inbox/<title>.md", {title:"...", resource:"...", timestamp:"...", type:"meeting"})',
+        whenToUse: 'Used by the plaud-meeting-delta-ingest skill to build each transcript note in a batch. Prefer this over run_skill_script for that transform: it has no 10/min write cap, so a full day of meetings ingests in one pass.',
+        commonMistakes: 'Sinking get_note (a summary) instead of get_transcript — the tool errors clearly on the wrong shape. Filling tags/moc/related here — leave them empty for meeting-summary.',
+    },
     set_block_anchors: {
         group: 'edit', label: 'Set Block Anchors', icon: 'anchor',
         signature: 'set_block_anchors(path, anchors: [{find, id}])',

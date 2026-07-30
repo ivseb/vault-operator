@@ -84,6 +84,13 @@ export class AutocompleteHandler {
          * read_document). Called by the suggest rows tagged 'Folder'.
          */
         private addVaultFolder: (folder: TFolder, opts: { recursive: boolean }) => Promise<void>,
+        /**
+         * FEAT-55-02 (ADR-170): resolves THIS view's active mode slug so the
+         * slash-source prompt filter matches the per-view mode, not the
+         * global settings.currentMode scalar. Defaults to the global scalar
+         * for callers that do not pass it (keeps existing behaviour).
+         */
+        private getActiveModeSlug: () => string = () => this.plugin.settings.currentMode,
     ) {}
 
     async handleInput(): Promise<void> {
@@ -312,7 +319,7 @@ export class AutocompleteHandler {
      * Liste und die Aufloesung nicht auseinanderlaufen koennen.
      */
     async collectSlashSources(): Promise<SlashSources> {
-        const activeMode = this.plugin.settings.currentMode;
+        const activeMode = this.getActiveModeSlug();
         const skills = (this.plugin.selfAuthoredSkillLoader?.getAllSkills() ?? [])
             .map((s) => ({ name: s.name, slug: slugifySkillName(s.name) }));
         const prompts = (this.plugin.settings.customPrompts ?? [])

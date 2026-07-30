@@ -56,6 +56,8 @@ class DynamicTool extends BaseTool {
             // restore_checkpoint.
             const result = await this.sandboxExecutor.execute(this.compiledJs, input, {
                 governanceTaskId: context.taskId,
+                // FIX-24-08-04: abort the running script the moment Stop fires.
+                abortSignal: context.abortSignal,
             });
             const output = typeof result === 'string'
                 ? result

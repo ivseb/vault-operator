@@ -26,6 +26,7 @@ import type { EditPreview } from '../editPreview';
 interface SetBlockAnchorsInput {
     path: string;
     anchors: AnchorRequest[];
+    within_section?: string;
 }
 
 /** Fail-closed cap on batch size (CWE-400, AUDIT 2026-07-08 L-1). A summary has tens of anchors, not hundreds. */
@@ -47,13 +48,22 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
                 'Pass an array of {find, id}: for each, find is a quoted passage from the note and id is a short slug or number. ' +
                 'Matching is robust to whitespace, punctuation and minor transcription differences (fuzzy), so find does not have to be byte-exact. ' +
                 'Returns which ids were set, which were not found (missed) and which were ambiguous (matched more than one place) -- use that to fix or drop the corresponding links. ' +
-                'Idempotent: an id already present in the note is left as-is. Use this instead of many edit_file calls or evaluate_expression when placing block anchors for a summary.',
+                'Idempotent: an id already present in the note is left as-is. Use this instead of many edit_file calls or evaluate_expression when placing block anchors for a summary. ' +
+                'Pass within_section to confine anchoring to one section (e.g. the transcript) so a summary written above it never captures the anchors.',
             input_schema: {
                 type: 'object',
                 properties: {
                     path: {
                         type: 'string',
                         description: 'Path to the note relative to vault root (e.g., "Inbox/Meeting.md").',
+                    },
+                    within_section: {
+                        type: 'string',
+                        description:
+                            'Optional heading text (e.g. "Transkript"). When set, anchors are placed ONLY inside that section ' +
+                            '(from its heading to the next heading of equal or higher level), so a find whose wording matches ' +
+                            'a summary written above the transcript can never anchor into that summary. If the section is not ' +
+                            'found, nothing is anchored (every id reported missed).',
                     },
                     anchors: {
                         type: 'array',
@@ -91,7 +101,7 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
      */
     async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
         try {
-            const { path, anchors } = input as unknown as SetBlockAnchorsInput;
+            const { path, anchors, within_section } = input as unknown as SetBlockAnchorsInput;
             if (!path || !Array.isArray(anchors) || anchors.length === 0) return null;
 
             const cleanPath = validateVaultRelativePath(path);
@@ -109,7 +119,7 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
                 content = await this.app.vault.read(found);
             }
 
-            const result = applyAnchors(content, anchors);
+            const result = applyAnchors(content, anchors, { restrictToSection: within_section });
             // Nothing matched: no change to show, and execute would not write
             // either. Fall back to the plain card.
             if (result.text === content) return null;
@@ -121,7 +131,7 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
     }
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
-        const { path, anchors } = input as unknown as SetBlockAnchorsInput;
+        const { path, anchors, within_section } = input as unknown as SetBlockAnchorsInput;
         const { callbacks } = context;
 
         try {
@@ -155,7 +165,7 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
                 content = await this.app.vault.read(file);
             }
 
-            const result = applyAnchors(content, anchors);
+            const result = applyAnchors(content, anchors, { restrictToSection: within_section });
 
             // Only write when the matcher actually changed something.
             if (result.text !== content) {

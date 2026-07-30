@@ -53,6 +53,20 @@ interface DeviceLocalData {
     stdioServers: Record<string, McpServerConfig>;
     /** server names trusted for spawning on THIS device. */
     trusted: string[];
+    /**
+     * AUDIT 2026-07-26 M-16: what was actually trusted, per server name.
+     *
+     * Trust used to be a bare name, so it survived any later change to the
+     * command or arguments: confirm "npx @vendor/mcp" once, and a config edited
+     * afterwards to "npx @attacker/thing" spawned under the same trust. The
+     * fingerprint pins the trust to the command line that was confirmed.
+     *
+     * Optional for migration: an entry in `trusted` without a fingerprint is a
+     * pre-fix grant. It stays valid and is upgraded in place on the next spawn
+     * (the user has been running that command already), so nobody is forced to
+     * re-confirm; from then on a change invalidates it.
+     */
+    trustedFingerprints?: Record<string, string>;
     /** Mirrors data.json: false when secrets were persisted in plaintext
      *  because the OS keychain was unavailable (diagnosability). */
     _encrypted?: boolean;
@@ -114,6 +128,10 @@ export class DeviceLocalStore {
             return {
                 stdioServers: parsed.stdioServers ?? {},
                 trusted: Array.isArray(parsed.trusted) ? parsed.trusted : [],
+                trustedFingerprints:
+                    parsed.trustedFingerprints && typeof parsed.trustedFingerprints === 'object'
+                        ? parsed.trustedFingerprints
+                        : undefined,
                 _encrypted: parsed._encrypted,
             };
         } catch {
@@ -157,28 +175,56 @@ export class DeviceLocalStore {
         const data = this.load();
         delete data.stdioServers[name];
         data.trusted = data.trusted.filter((n) => n !== name);
+        if (data.trustedFingerprints) delete data.trustedFingerprints[name];
         this.save(data);
     }
 
-    /** True if the named server has been trusted for spawning on this device. */
-    isTrusted(name: string): boolean {
-        return this.load().trusted.includes(name);
-    }
-
-    /** Grant spawn trust for the named server on this device. */
-    grantTrust(name: string): void {
+    /**
+     * True if this server is trusted for spawning on this device.
+     *
+     * AUDIT 2026-07-26 M-16: pass the fingerprint of the command line that is
+     * about to run. Trust is only honoured for the command line it was granted
+     * for; a later edit invalidates it and the user is asked again. Omitting the
+     * argument keeps the old name-only behaviour for callers that have no
+     * command in hand (e.g. rendering a list).
+     */
+    isTrusted(name: string, fingerprint?: string): boolean {
         const data = this.load();
-        if (!data.trusted.includes(name)) {
-            data.trusted.push(name);
+        if (!data.trusted.includes(name)) return false;
+        if (fingerprint === undefined) return true;
+        const known = data.trustedFingerprints?.[name];
+        if (known === undefined) {
+            // Pre-fix grant: adopt the current command line rather than forcing
+            // a re-confirmation for a server the user has been running already.
+            data.trustedFingerprints = { ...(data.trustedFingerprints ?? {}), [name]: fingerprint };
             this.save(data);
+            return true;
         }
+        return known === fingerprint;
     }
 
-    /** Revoke spawn trust for the named server on this device. */
+    /** Grant spawn trust for the named server, bound to one command line. */
+    grantTrust(name: string, fingerprint?: string): void {
+        const data = this.load();
+        if (!data.trusted.includes(name)) data.trusted.push(name);
+        if (fingerprint !== undefined) {
+            data.trustedFingerprints = { ...(data.trustedFingerprints ?? {}), [name]: fingerprint };
+        }
+        this.save(data);
+    }
+
+    /** Withdraw spawn trust while keeping the server configured. */
     revokeTrust(name: string): void {
         const data = this.load();
         data.trusted = data.trusted.filter((n) => n !== name);
+        if (data.trustedFingerprints) delete data.trustedFingerprints[name];
         this.save(data);
+    }
+
+    /** What is trusted right now, for the permissions surface. */
+    listTrusted(): Array<{ name: string; fingerprint?: string }> {
+        const data = this.load();
+        return data.trusted.map((name) => ({ name, fingerprint: data.trustedFingerprints?.[name] }));
     }
 }
 

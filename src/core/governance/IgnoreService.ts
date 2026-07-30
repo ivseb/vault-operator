@@ -13,6 +13,7 @@
 import type { Vault } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
 import { isProtectedAgentConfigPath, isAgentSecretPath } from './agentFolderGuard';
+import { foldPath } from './foldPath';
 
 export class IgnoreService {
     private vault: Vault;
@@ -45,10 +46,26 @@ export class IgnoreService {
         this.vault = vault;
         this.agentRoot = agentRoot;
         const configDir = vault.configDir;
-        this.configDirLower = configDir.toLowerCase();
+        this.configDirLower = IgnoreService.fold(configDir);
         this.alwaysBlocked = [
             '.git/',
         ];
+    }
+
+    /**
+     * AUDIT 2026-07-26 M-7: monotonic ruleset generation.
+     *
+     * The rule files are dotfiles and are NOT in Obsidian's file index, so
+     * editing them fires no vault event. Any cache built from a filtered
+     * enumeration therefore had no way to notice that the deny zone changed,
+     * and kept serving a pre-rule view for the rest of the session. Callers key
+     * their cache on this number instead of guessing from file events.
+     */
+    private generation = 0;
+
+    /** Current ruleset generation. Changes whenever the rules are (re)loaded. */
+    getGeneration(): number {
+        return this.generation;
     }
 
     /** FIX-44-24: bind (or update) the agent folder root for config protection. */
@@ -61,9 +78,28 @@ export class IgnoreService {
      * Called at plugin start and can be re-called if files change.
      */
     async load(): Promise<void> {
-        this.ignorePatterns = await this.readPatternFile('.obsidian-agentignore');
-        this.protectedPatterns = await this.readPatternFile('.obsidian-agentprotected');
-        this.loaded = true;
+        // AUDIT 2026-07-26 H-4: fail-closed on a read failure. `loaded` stays
+        // false, so isIgnored/isProtected keep denying everything instead of
+        // running with a silently empty ruleset. Both files are read before
+        // either is assigned, so a failure on the second one cannot leave the
+        // service half-configured.
+        try {
+            const ignorePatterns = await this.readPatternFile('.obsidian-agentignore');
+            const protectedPatterns = await this.readPatternFile('.obsidian-agentprotected');
+            this.ignorePatterns = ignorePatterns;
+            this.protectedPatterns = protectedPatterns;
+            this.loaded = true;
+            // Bumped AFTER the rules are in place, so a cache that reads the
+            // generation and then rebuilds cannot capture the old ruleset.
+            this.generation += 1;
+        } catch (e) {
+            this.loaded = false;
+            console.error(
+                '[IgnoreService] Could not read the ignore/protected rules; staying fail-closed '
+                + '(every vault path is denied until this succeeds). Cause:',
+                e,
+            );
+        }
     }
 
     /**
@@ -87,7 +123,7 @@ export class IgnoreService {
         // it. Case-insensitive so a `.Obsidian/...` variant cannot slip past on
         // case-insensitive filesystems (H-3). This mirrors the sandbox bridge,
         // which already blocks configDir symmetrically.
-        const lower = normalPath.toLowerCase();
+        const lower = IgnoreService.fold(normalPath);
         if (lower === this.configDirLower || lower.startsWith(`${this.configDirLower}/`)) {
             return true;
         }
@@ -97,9 +133,14 @@ export class IgnoreService {
         // skills/, skill-data/ and tmp/ stay accessible.
         if (isAgentSecretPath(normalPath, this.agentRoot)) return true;
 
-        // Always-blocked paths
+        // Always-blocked paths.
+        // AUDIT 2026-07-26 (P3 follow-up): this compared RAW strings while the
+        // configDir zone right above it folded. `.Git/` therefore walked past a
+        // deny entry that `.git/` hit, on exactly the filesystems where both
+        // name the same directory.
         for (const blocked of this.alwaysBlocked) {
-            if (normalPath === blocked || normalPath.startsWith(blocked)) return true;
+            const b = IgnoreService.fold(blocked);
+            if (lower === b || lower.startsWith(b)) return true;
         }
 
         // User-defined ignore patterns
@@ -114,9 +155,19 @@ export class IgnoreService {
         if (!this.loaded) return true; // fail-closed: protect all until rules are loaded
         const normalPath = this.normalize(path);
 
-        // Always-protected governance files
+        // AUDIT 2026-07-26: the same fail-closed traversal guard isIgnored has.
+        // Its absence here meant a `..` path was readable-blocked but not
+        // write-blocked, i.e. the weaker check governed the more dangerous op.
+        if (normalPath.split('/').some((seg) => seg === '..')) return true;
+
+        // Always-protected governance files.
+        // AUDIT 2026-07-26 (P3 follow-up): an exact, unfolded comparison. These
+        // two files ARE the user's deny rules, so a case- or NFD-variant spelling
+        // let a tool rewrite the rules that govern it -- the worst possible thing
+        // to leave case-sensitive.
+        const foldedPath = IgnoreService.fold(normalPath);
         for (const p of IgnoreService.ALWAYS_PROTECTED) {
-            if (normalPath === p) return true;
+            if (foldedPath === IgnoreService.fold(p)) return true;
         }
 
         // FIX-44-24: the agent's own config zone is never writable by a tool.
@@ -157,23 +208,67 @@ export class IgnoreService {
     // Private helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Read one pattern file.
+     *
+     * AUDIT 2026-07-26 H-4: this used to probe with getAbstractFileByPath and
+     * swallow every error into an empty list. Two problems, both fail-OPEN:
+     * dotfiles are not in the TFile index at all (so a present rule file read as
+     * "no rules"), and a genuine I/O failure was indistinguishable from "the
+     * user has no rules". The result was a silently empty ruleset that load()
+     * then marked as successfully loaded, dropping the user's entire deny zone
+     * for the session. Existence is now probed through the adapter (the pattern
+     * the rest of the codebase uses for hidden paths) and read errors PROPAGATE
+     * so load() can stay fail-closed.
+     */
     private async readPatternFile(filename: string): Promise<string[]> {
-        try {
-            const file = this.vault.getAbstractFileByPath(filename);
-            if (!file) return [];
-            const content = await this.vault.adapter.read(filename);
-            return content
-                .split('\n')
-                .map((line) => line.trim())
-                .filter((line) => line.length > 0 && !line.startsWith('#'));
-        } catch {
-            return [];
-        }
+        if (!(await this.vault.adapter.exists(filename))) return [];
+        const content = await this.vault.adapter.read(filename);
+        return content
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0 && !line.startsWith('#'));
     }
 
+    /**
+     * Canonicalise a vault-relative path before any governance decision.
+     *
+     * AUDIT 2026-07-26 H-2: this used to strip only a leading slash and convert
+     * backslashes, so "./" and "//" survived. A single dot-slash therefore
+     * defeated the configDir deny zone, the agent secret zone AND every user
+     * rule, for every tool without its own path guard -- the deny zone the
+     * previous audit declared absolute. Empty and "." segments are now dropped,
+     * which collapses "./", "//" and a leading "/" in one pass.
+     *
+     * ".." segments are deliberately PRESERVED so the fail-closed traversal
+     * check in isIgnored/isProtected still sees and rejects them. Collapsing
+     * them here would resolve the traversal away and hide the attack.
+     */
     private normalize(path: string): string {
-        // Remove leading slash, normalize separators
-        return path.replace(/\\/g, '/').replace(/^\//, '');
+        const segments = (path ?? '').replace(/\\/g, '/').split('/');
+        const out: string[] = [];
+        for (const seg of segments) {
+            if (seg === '' || seg === '.') continue;
+            out.push(seg);
+        }
+        return out.join('/');
+    }
+
+    /**
+     * Case- and unicode-fold for matching.
+     *
+     * AUDIT 2026-07-26 M-2 + the NFD finding: user patterns matched byte-exact
+     * and case-sensitive, so on APFS/NTFS -- where "private/x" and "Private/x"
+     * are the SAME file -- a case variant walked past a user rule, and an
+     * NFD-decomposed umlaut walked past a rule written in NFC. The built-in
+     * configDir zone was already case-insensitive, which shows the threat was
+     * understood; the user-facing rules were not.
+     *
+     * The uppercase round trip is load-bearing: NTFS/exFAT fold via uppercase,
+     * so U+0131 (dotless i) and similar only fold correctly this way.
+     */
+    private static fold(s: string): string {
+        return foldPath(s);
     }
 
     /**
@@ -191,9 +286,12 @@ export class IgnoreService {
         return false;
     }
 
-    private matchPattern(path: string, pattern: string): boolean {
-        // Normalize pattern
-        const p = pattern.replace(/\\/g, '/').replace(/^\//, '');
+    private matchPattern(rawPath: string, pattern: string): boolean {
+        // AUDIT 2026-07-26 M-2 + NFD: fold BOTH sides before matching, so a case
+        // or normalisation variant of the same file cannot slip a user rule.
+        // The pattern keeps its trailing slash (it is syntax, not a character).
+        const path = IgnoreService.fold(rawPath);
+        const p = IgnoreService.fold(pattern.replace(/\\/g, '/').replace(/^\//, ''));
 
         // Directory pattern: "folder/" matches "folder/anything"
         if (p.endsWith('/')) {

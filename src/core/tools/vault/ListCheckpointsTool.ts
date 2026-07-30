@@ -126,12 +126,15 @@ export class ListCheckpointsTool extends BaseTool<'list_checkpoints'> {
                 ? limited.map((cp) => renderVerbose(cp)).join('\n\n')
                 : limited.map((cp) => renderCompact(cp)).join('\n');
 
-            const header = `# ${limited.length} checkpoint(s)${path ? ` for ${path}` : ''}${taskId ? ` in ${taskId}` : ''}\n`;
+            // AUDIT 2026-07-26 M-6: renderCompact/renderVerbose interpolate note
+            // paths and checkpoint labels, and formatContent leaves the body raw.
+            // The header line is tool-authored and stays outside the envelope.
+            const header = `# ${limited.length} checkpoint(s)${path ? ` for ${path}` : ''}${taskId ? ` in ${taskId}` : ''}`;
             callbacks.pushToolResult(
-                this.formatContent(`${header}${rendered}`, {
+                `${header}\n${this.formatUntrustedContent('vault-checkpoint', rendered, {
                     count: String(limited.length),
                     scanned: String(checkpoints.length),
-                }),
+                })}`,
             );
             callbacks.log(`list_checkpoints: ${limited.length} results`);
         } catch (error) {

@@ -17,9 +17,19 @@ export class ModeService {
     private plugin: ObsidianAgentPlugin;
     /** Global modes loaded from ~/.obsidian-agent/modes.json */
     private globalModes: ModeConfig[] = [];
+    /**
+     * FEAT-55-02 (ADR-170): the active mode is owned PER ModeService
+     * instance (i.e. per chat view / inline panel), not read from the
+     * single global settings.currentMode scalar. Seeded from the global
+     * default at construction so a fresh chat inherits it; a switch in one
+     * chat never changes another's mode. The global scalar stays the
+     * fresh-chat seed and the ModesTab config value.
+     */
+    private activeModeSlug: string;
 
     constructor(plugin: ObsidianAgentPlugin) {
         this.plugin = plugin;
+        this.activeModeSlug = plugin.settings.currentMode;
     }
 
     /** Lazy access — toolRegistry may not exist during early plugin init. */
@@ -78,8 +88,8 @@ export class ModeService {
 
     /** Get the currently active mode; falls back to 'agent' if the saved slug no longer exists */
     getActiveMode(): ModeConfig {
-        const slug = this.plugin.settings.currentMode;
-        return this.getMode(slug) ?? BUILT_IN_MODES.find((m) => m.slug === 'agent')!;
+        // FEAT-55-02 (ADR-170): read the per-view slug, not the global scalar.
+        return this.getMode(this.activeModeSlug) ?? BUILT_IN_MODES.find((m) => m.slug === 'agent')!;
     }
 
     /** Check whether a given slug is a valid mode */
@@ -167,11 +177,25 @@ export class ModeService {
     async switchMode(slug: string): Promise<ModeConfig | null> {
         const mode = this.getMode(slug);
         if (!mode) return null;
-        this.plugin.settings.currentMode = slug;
-        await this.plugin.saveSettings();
+        // FEAT-55-02 (ADR-170): switch THIS view's mode. The global scalar
+        // is no longer rewritten here, so a switch in one chat cannot bleed
+        // into another. saveSettings is unnecessary (no persisted change);
+        // per-view mode is session-scoped and re-seeds from the global
+        // default on the next fresh chat.
+        this.activeModeSlug = slug;
         // The forced-workflow chip is keyed per agent; both chat surfaces
         // re-render via the hub (IMP-02-12-01).
         this.plugin.forcedWorkflowHub.notify();
         return mode;
+    }
+
+    /**
+     * FEAT-55-02 (ADR-170): the active mode slug owned by this view. Used
+     * by call sites that previously read plugin.settings.currentMode
+     * directly (model-key resolution, tool picker, autocomplete, the
+     * switch_mode envelope) so they see this view's mode, not the global.
+     */
+    getActiveModeSlug(): string {
+        return this.activeModeSlug;
     }
 }

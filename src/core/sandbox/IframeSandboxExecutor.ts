@@ -10,7 +10,7 @@
  * The SandboxBridge validates all cross-boundary operations and is
  * the primary security boundary. See also: CSP meta tag in sandboxHtml.
  *
- * Mobile fallback -- on Desktop, use ProcessSandboxExecutor instead.
+ * The only backend on every platform since SBX-1.
  * See ADR-021: Sandbox OS-Level Process Isolation.
  */
 
@@ -20,6 +20,13 @@ import { SandboxBridge } from './SandboxBridge';
 import { SANDBOX_HTML } from './sandboxHtml';
 import { isFromOwnSandboxFrame } from './iframeSandboxSourceCheck';
 import { scheduleRecurring, type RecurringHandle } from '../../util/scheduleRecurring';
+
+/** FIX-24-08-04: AbortError for a sandbox execution stopped by the user. */
+function sandboxAbortError(): Error {
+    const err = new Error('Sandbox execution aborted');
+    err.name = 'AbortError';
+    return err;
+}
 
 // ---------------------------------------------------------------------------
 // Types — Typed bridge message protocol
@@ -107,7 +114,19 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
         input: Record<string, unknown>,
         options?: SandboxExecutionOptions,
     ): Promise<unknown> {
+        // FIX-24-08-04: fail fast if the run was already stopped before we
+        // even reached the sandbox.
+        if (options?.abortSignal?.aborted) {
+            throw sandboxAbortError();
+        }
         await this.ensureReady();
+        // AUDIT 2026-07-26 (P3): ensureReady can take a while during boot (it
+        // creates the iframe and waits for the handshake). A Stop pressed inside
+        // that window was not noticed, so the execution started anyway. Re-check
+        // after every await that can span the boot window.
+        if (options?.abortSignal?.aborted) {
+            throw sandboxAbortError();
+        }
         const id = this.generateId();
         // FIX-44-43: remember which task this execution runs for, keyed by the
         // execution id the iframe echoes on every bridge request.
@@ -115,6 +134,8 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
             this.execGovernance.set(id, options.governanceTaskId);
         }
 
+        const signal = options?.abortSignal;
+        let onAbort: (() => void) | undefined;
         try {
             return await new Promise<unknown>((resolve, reject) => {
                 const timeout = window.setTimeout(() => {
@@ -126,7 +147,22 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
 
                 this.pending.set(id, { resolve, reject, timeout });
 
-                // AUDIT-037 L-2: the desktop ProcessSandboxExecutor caps the worker
+                // FIX-24-08-04: on Stop, reject this call immediately and tear
+                // the iframe down so the running script cannot keep executing
+                // on the background thread (it had no abort path before, so a
+                // stopped run waited out the 30s timeout).
+                if (signal) {
+                    onAbort = () => {
+                        window.clearTimeout(timeout);
+                        this.pending.delete(id);
+                        this.execGovernance.delete(id);
+                        this.destroy();
+                        reject(sandboxAbortError());
+                    };
+                    signal.addEventListener('abort', onAbort, { once: true });
+                }
+
+                // AUDIT-037 L-2: the former desktop backend capped the worker
                 // heap at 128 MB via --max-old-space-size. The iframe path has no
                 // equivalent V8 lever, so we sample performance.memory every 500 ms
                 // and tear the iframe down once usedJSHeapSize crosses
@@ -141,6 +177,9 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
                 this.iframe?.contentWindow?.postMessage(execMsg, '*');
             });
         } finally {
+            // FIX-24-08-04: detach the abort listener so a later abort of the
+            // same signal cannot fire against a settled execution.
+            if (signal && onAbort) signal.removeEventListener('abort', onAbort);
             // FIX (heap accumulation): once this execution settled, recycle the
             // iframe if nothing else is in flight, so the next run_skill_script
             // starts on a fresh V8 heap instead of accumulating parsed strings

@@ -5,6 +5,7 @@
  */
 
 import type ObsidianAgentPlugin from '../../main';
+import { keepVisible } from '../../core/tools/vault/denyZoneFilter';
 import type { McpToolResult } from '../types';
 import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
 import { resolveExternalSourceInterface } from '../../core/memory/SourceInterface';
@@ -58,12 +59,15 @@ export async function handleGetContext(
 
     // Vault stats
     const vault = plugin.app.vault;
-    const files = vault.getMarkdownFiles();
+    // AUDIT 2026-07-26 M-7: the MCP twin of get_vault_stats. It reported the
+    // raw note and folder counts to an external client, which publishes the
+    // size of the deny zone just as the in-app tool did.
+    const files = keepVisible(plugin, vault.getMarkdownFiles(), (f) => f.path);
     const graphStore = plugin.graphStore;
     sections.push([
         '--- Vault Stats ---',
         `Notes: ${files.length}`,
-        `Folders: ${vault.getAllFolders().length}`,
+        `Folders: ${keepVisible(plugin, vault.getAllFolders(), (f) => f.path).length}`,
         `Graph edges: ${graphStore?.getEdgeCount() ?? 0}`,
         `Graph tags: ${graphStore?.getTagCount() ?? 0}`,
         `Semantic index: ${plugin.semanticIndex?.isIndexed ? 'built' : 'not built'}`,

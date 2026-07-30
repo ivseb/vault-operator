@@ -6,6 +6,7 @@
  */
 
 import type { Vault } from 'obsidian';
+import { generateShortId } from './utils/generateShortId';
 
 export interface HistoryMessage {
     role: 'user' | 'assistant';
@@ -27,7 +28,11 @@ export class ChatHistoryService {
 
         await this.ensureFolder();
 
-        const id = new Date().toISOString().replace(/[:.]/g, '-');
+        // FEAT-55-03 (ADR-171): collision-free id. The old second-granularity
+        // ISO id collided when two saves happened in the same second. Dormant
+        // today (chatHistoryFolder emptied by FEAT-29-01) but hardened before
+        // any re-enable, per the ADR-171 note.
+        const id = generateShortId();
         const firstUser = messages.find((m) => m.role === 'user');
         const title = firstUser ? firstUser.content.slice(0, 60) : 'Conversation';
 

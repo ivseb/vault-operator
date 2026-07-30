@@ -34,6 +34,9 @@ const ALLOWED_KEYS = new Set([
     'createdAt',
     'successCount',
     'type',
+    // FIX-03-20-02 (title aspect): deterministic chat-title template,
+    // e.g. `chatTitle: "Plaud {date}"`.
+    'chatTitle',
 ]);
 
 function parseFrontmatter(content) {

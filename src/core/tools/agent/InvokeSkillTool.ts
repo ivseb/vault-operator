@@ -28,6 +28,7 @@ import { BaseTool, defangBoundaryTags, sanitizeDirectoryEntry } from '../BaseToo
 import type { ToolDefinition, ToolExecutionContext, ToolName } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { SelfAuthoredSkill } from '../../skills/SelfAuthoredSkillLoader';
+import { isSkillEnabled } from '../../skills/skillToggleGate';
 import { isSafePathSegment } from '../../utils/safePathName';
 import {
     CompositionCycleError,
@@ -181,6 +182,16 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             return;
         }
         const skill = skillLoader.getSkill(skillName);
+        // AUDIT 2026-07-26 M-17: resolution is by name, so a model that
+        // remembered a skill name from an earlier turn could still start a skill
+        // the user had switched off. Check before the provenance gate: a
+        // switched-off skill must not even raise an approval prompt.
+        if (skill && !isSkillEnabled(this.plugin.settings.manualSkillToggles, { filePath: skill.filePath, name: skill.name })) {
+            callbacks.pushToolResult(this.formatError(new Error(
+                `Skill "${sanitizeDirectoryEntry(skillName, 80)}" is switched off in settings and cannot be started.`,
+            )));
+            return;
+        }
         if (!skill) {
             callbacks.pushToolResult(this.formatError(
                 new Error(`Skill not found: ${sanitizeDirectoryEntry(skillName, 80)}. Use read_skill or check the SKILLS directory in the system prompt.`),
@@ -445,9 +456,31 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
 }
 
 /**
- * Test-only helper. Lets vitest reset the per-session approval cache
- * between cases without exposing the Set as a writable export.
+ * Drop the trust-on-first-use approvals for imported skills.
+ *
+ * AUDIT 2026-07-26 M-13: this used to be test-only, which is why the kill
+ * switch could not reach it. Approving an imported skill is a real consent --
+ * it silences the provenance prompt for the rest of the session -- and the
+ * inventory called it "the most literal instance of the user's complaint: an
+ * explicit consent click that leaves no trace and cannot be taken back".
+ * "Reset permissions to default-deny" now clears it, and the permissions
+ * surface will list what is currently trusted.
  */
-export function _resetImportedSkillApprovalsForTest(): void {
+export function clearImportedSkillTrust(): void {
     sessionApprovedImportedSkills.clear();
+}
+
+/** Names currently trusted for this session (for the permissions surface). */
+export function listTrustedImportedSkills(): string[] {
+    return [...sessionApprovedImportedSkills].sort();
+}
+
+/** Withdraw one imported skill's session trust, for the permissions surface. */
+export function revokeImportedSkillTrust(name: string): void {
+    sessionApprovedImportedSkills.delete(name);
+}
+
+/** @deprecated Use clearImportedSkillTrust(); kept so existing tests keep working. */
+export function _resetImportedSkillApprovalsForTest(): void {
+    clearImportedSkillTrust();
 }

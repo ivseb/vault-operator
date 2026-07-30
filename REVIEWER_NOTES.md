@@ -296,19 +296,18 @@ against a build-time pinned constant
 are persisted on first download (TOFU) in `dev-env/package-hashes.json`
 and re-checked on every subsequent load.
 
-`new Function(...)` appears in plugin source in four well-scoped places:
+`new Function(...)` appears in plugin source in three well-scoped places
+(the former fourth site, the `vm.runInNewContext` Node worker, was removed
+at SBX-1 and no longer exists in the source or the shipped bundle):
 
-1. [src/core/sandbox/sandbox-worker.ts:112](src/core/sandbox/sandbox-worker.ts#L112)
-   -- inside `vm.runInNewContext`; the constructed function inherits the
-   vm-realm scope (no `process`, no `require`).
-2. [src/core/sandbox/sandboxHtml.ts:74](src/core/sandbox/sandboxHtml.ts#L74)
+1. [src/core/sandbox/sandboxHtml.ts](src/core/sandbox/sandboxHtml.ts)
    -- inside the iframe runtime, executing the LLM-supplied code after
    the regex deny-list and esbuild transform have run.
-3. [src/core/sandbox/EsbuildWasmManager.ts:238](src/core/sandbox/EsbuildWasmManager.ts#L238)
+2. [src/core/sandbox/EsbuildWasmManager.ts](src/core/sandbox/EsbuildWasmManager.ts)
    -- loads the SHA-256-verified esbuild-wasm CommonJS bundle, via the
    indirect form `Object.getPrototypeOf(function(){}).constructor` so the
    literal does not appear in the file.
-4. [src/core/assets/BundleLoader.ts:128](src/core/assets/BundleLoader.ts#L128)
+3. [src/core/assets/BundleLoader.ts](src/core/assets/BundleLoader.ts)
    -- loads SHA-256-verified optional asset bundles (e.g. office, pdfjs),
    same indirect form, same trust argument (hash-verified before
    loading).
@@ -321,34 +320,32 @@ and re-checked on every subsequent load.
                         |                             |
    chat input  -------->|  AgentTask + tool registry  |
                         |                             |
-                        +--+----------------------+---+
-                           |                      |
-            +--------------+                      +------------+
-            |                                                  |
-            v                                                  v
-  +-------------------+                               +---------------------+
-  |  iframe sandbox   |                               |  ProcessSandbox     |
-  |  (Chromium SOP +  |                               |  Executor           |
-  |   in-process)     |                               |  (Node child proc)  |
-  |                   |                               |                     |
-  |  vault + http via |                               |  vm.createContext + |
-  |  postMessage      |                               |  vm.runInNewContext |
-  |                   |                               |  (isolated V8 realm)|
-  +-------------------+                               +---------------------+
-            |                                                  |
-            v                                                  v
-       Chromium SOP                                  Process isolation
-                                                     (own PID, no IPC
-                                                      except stdio bridge)
+                        +--------------+--------------+
+                                       |
+                                       v
+                        +-----------------------------+
+                        |       iframe sandbox        |
+                        |  (Chromium SOP, in-process, |
+                        |   sandbox="allow-scripts",  |
+                        |   CSP default-src 'none')   |
+                        |                             |
+                        |  vault + http via postMessage|
+                        +--------------+--------------+
+                                       |
+                                       v
+                                 Chromium SOP
 ```
 
-Both sandboxes share the parent-side `SandboxBridge` and expose the same
-two bridge proxies to user code: `ctx.vault` and `ctx.requestUrl` (both
-`Object.freeze()`-d). The pre-compile regex deny-list (`AstValidator`,
-patterns listed under "Dynamic code execution" above) is applied to the
-user source in both paths. Per-write size limits, per-minute rate limits,
-and the circuit breaker live in `SandboxBridge` and apply to both sandboxes
-identically.
+Since SBX-1 there is exactly ONE sandbox: the Chromium iframe. The former
+desktop `ProcessSandboxExecutor` (a Node child process running
+`vm.runInNewContext`) was removed after a confirmed vm escape and is absent
+from the source and the shipped bundle. The parent-side `SandboxBridge`
+governs the single sandbox and exposes two bridge proxies to user code:
+`ctx.vault` and `ctx.requestUrl` (both `Object.freeze()`-d). The pre-compile
+regex deny-list (`AstValidator`, patterns listed under "Dynamic code
+execution" above) is applied to the user source before dispatch. Per-write
+size limits, per-minute rate limits, and the circuit breaker live in
+`SandboxBridge`.
 
 ## Audit history
 
@@ -362,6 +359,10 @@ identically.
 | AUDIT-006 | 2026-04-02 | MCP token encryption hardening | Green |
 | AUDIT-007 | 2026-04-09 | Knowledge maintenance epic delta | Green |
 | AUDIT-008 | 2026-04-11 | Ingest workflow delta | Green |
+| AUDIT-2026-07-23 | 2026-07-23 | stdio MCP client (FEAT-04-13 / ADR-168) delta | Green (Low) |
+| AUDIT-2026-07-26 | 2026-07-26 | Full-codebase (guards: skillScriptGuard, denyZoneFilter, commandAllowlist) | Green (High resolved to Low) |
+| AUDIT-2026-07-27 | 2026-07-27 | Full-codebase | Green (Low) |
+| AUDIT-2026-07-29 | 2026-07-29 | Full-codebase (this audit; M-1 openExternal scheme fixed) | Green (Low) |
 | AUDIT-009 | 2026-04-12 | Plugin-source self-development | Green |
 | AUDIT-027 | 2026-05-16 | EPIC-26 advisor-pattern + provider-only setup | Green (after H-1 plaintext credential fix) |
 | AUDIT-028 | 2026-05-16 | v2.11.2 delta (FIX-28 safeFs hang) | Green |

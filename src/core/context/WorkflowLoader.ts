@@ -10,6 +10,7 @@
  */
 
 import type { FileAdapter } from '../storage/types';
+import { defangBoundaryTags, escapeXmlAttribute } from '../tools/BaseTool';
 
 export interface WorkflowMeta {
     /** Path relative to FileAdapter root: "workflows/my-workflow.md" */
@@ -85,7 +86,13 @@ export class WorkflowLoader {
 
         try {
             const content = await this.fs.read(match.path);
-            return `<explicit_instructions type="${slug}">\n${content.trim()}\n</explicit_instructions>`;
+            // AUDIT 2026-07-26 M-6: this is the one wrapper that turns bytes into
+            // commands -- the prompt tells the model to execute what is inside
+            // in order. The body arrived raw, so a workflow file containing
+            // `</explicit_instructions>` could close the envelope and continue
+            // as trusted prompt. Defang the body and escape the attribute.
+            return `<explicit_instructions type="${escapeXmlAttribute(slug)}">\n`
+                + `${defangBoundaryTags(content.trim())}\n</explicit_instructions>`;
         } catch {
             return null;
         }

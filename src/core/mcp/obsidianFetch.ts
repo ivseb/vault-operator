@@ -19,6 +19,8 @@
  */
 
 import { request as httpsRequest } from 'node:https';
+import { isIP as netIsIp } from 'net';
+import { promises as dnsPromises } from 'dns';
 import { request as httpRequest } from 'node:http';
 import { isLocalHostname, isPrivateIpHostname } from '../../api/providers/providerUrlGuard';
 
@@ -33,6 +35,16 @@ const BLOCKED_MCP_HOSTNAMES = new Set([
     'metadata.google.internal',
     '169.254.169.253',
 ]);
+
+/**
+ * AUDIT 2026-07-26 (P3): OS-resolver lookup, wrapped so the guard reads as one
+ * expression. `verbatim` keeps the resolver's own ordering, which is what the
+ * network stack will use on connect.
+ */
+async function dnsLookup(hostname: string): Promise<string[]> {
+    const addrs = await dnsPromises.lookup(hostname, { all: true, verbatim: true });
+    return addrs.map((a) => a.address);
+}
 
 /** Internal opt-in header. Stripped from the outbound request before send. */
 export const MCP_ALLOW_LOCAL_HEADER = 'x-obsilo-allow-local';
@@ -106,6 +118,47 @@ export function obsidianFetch(url: string | URL, init?: RequestInit): Promise<Re
             ));
             return;
         }
+
+        // AUDIT 2026-07-26 (P3): phase 2, the OS resolver.
+        //
+        // Everything above only inspects the hostname STRING, so it catches IP
+        // literals and known local names. A DNS name that RESOLVES to a private
+        // address walked straight through -- and the MCP server URL is
+        // agent-writable (manage_mcp_server), so this is reachable, not
+        // theoretical. web_fetch already does exactly this two-phase check;
+        // this is the same defence on the MCP path.
+        //
+        // Fail-closed on a lookup failure for a non-IP hostname: a swallowed
+        // split-horizon NXDOMAIN used to let the request fall through to the
+        // network stack, which then DID resolve the internal name.
+        if (!allowLocal && !netIsIp(hostname)) {
+            void dnsLookup(hostname)
+                .then((addrs) => {
+                    if (addrs.length === 0) {
+                        reject(new Error(`MCP fetch rejected: host "${parsedUrl.host}" could not be resolved.`));
+                        return;
+                    }
+                    const priv = addrs.find((a) => isPrivateIpHostname(a));
+                    if (priv !== undefined) {
+                        reject(new Error(
+                            `MCP fetch rejected: host "${parsedUrl.host}" resolves to the private address ${priv}. `
+                            + 'Enable "allow local MCP URLs" in settings to permit it.',
+                        ));
+                        return;
+                    }
+                    send();
+                })
+                .catch(() => {
+                    reject(new Error(
+                        `MCP fetch rejected: host "${parsedUrl.host}" could not be resolved; refusing the request.`,
+                    ));
+                });
+            return;
+        }
+        send();
+        return;
+
+        function send(): void {
 
         const isHttps = parsedUrl.protocol === 'https:';
         const reqFn = isHttps ? httpsRequest : httpRequest;
@@ -187,5 +240,7 @@ export function obsidianFetch(url: string | URL, init?: RequestInit): Promise<Re
         }
 
         req.end();
+        }
+
     });
 }

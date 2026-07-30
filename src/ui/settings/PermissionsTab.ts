@@ -5,11 +5,38 @@ import { addSectionHeading, addSliderInput } from './utils';
 import { PLUGIN_API_ALLOWLIST } from '../../core/tools/agent/pluginApiAllowlist';
 import { applyDestructiveStyle } from '../buttonStyle';
 import { resetToDefaultDeny } from '../../core/tools/autoApprovalGrant';
+import { clearImportedSkillTrust } from '../../core/tools/agent/InvokeSkillTool';
 import { PRESETS } from '../../core/tools/agent/UpdateSettingsTool';
+import { buildGrantedPermissionsSection, categoryProvenanceText } from './grantedPermissions';
+import { BUILT_IN_COMMAND_ALLOWLIST, listEnrolledCommands } from '../../core/tools/agent/commandAllowlist';
 
+
+/**
+ * Plain-language purpose per built-in command. An explicit table rather than a
+ * built key path: the key-usage gate can only verify static t() calls, and a
+ * key that silently falls back to its own path is worse than no text at all.
+ */
+const COMMAND_PURPOSE: Record<string, () => string> = {
+    'workspace:export-pdf': () => t('settings.permissions.commandPurposeExportPdf'),
+    'daily-notes:open': () => t('settings.permissions.commandPurposeDailyNote'),
+    'obsidian-excalidraw-plugin:excalidraw-autocreate-newtab': () => t('settings.permissions.commandPurposeExcalidraw'),
+    'dbfolder:create-new-database-folder': () => t('settings.permissions.commandPurposeDbFolder'),
+};
 
 export class PermissionsTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+
+    /**
+     * AUDIT 2026-07-26 M-18 (second pass): a toggle says WHAT is allowed but
+     * never WHO allowed it. Someone who clicked "Always allow" on a card three
+     * days ago sees a switch that is on and no sign they are the reason. The
+     * first attempt answered that with a second row in a list, which duplicated
+     * the control; the answer belongs on the control itself.
+     */
+    private withProvenance(desc: string, categoryKey: string): string {
+        const origin = categoryProvenanceText(this.plugin, categoryKey);
+        return origin === null ? desc : `${desc} (${origin})`;
+    }
 
     private buildIntroSection(containerEl: HTMLElement): void {
         // 2026-05-18: this tab grants the agent the right to act without
@@ -153,7 +180,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.noteEdits'))
-            .setDesc(t('settings.permissions.noteEditsDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.noteEditsDesc'), 'noteEdits'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.noteEdits).onChange(async (v) => {
                     this.plugin.settings.autoApproval.noteEdits = v;
@@ -164,7 +191,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.vaultChanges'))
-            .setDesc(t('settings.permissions.vaultChangesDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.vaultChangesDesc'), 'vaultChanges'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.vaultChanges).onChange(async (v) => {
                     this.plugin.settings.autoApproval.vaultChanges = v;
@@ -175,7 +202,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.webOps'))
-            .setDesc(t('settings.permissions.webOpsDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.webOpsDesc'), 'web'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.web).onChange(async (v) => {
                     this.plugin.settings.autoApproval.web = v;
@@ -186,7 +213,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.mcpCalls'))
-            .setDesc(t('settings.permissions.mcpCallsDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.mcpCallsDesc'), 'mcp'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.mcp).onChange(async (v) => {
                     this.plugin.settings.autoApproval.mcp = v;
@@ -196,7 +223,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.subtasks'))
-            .setDesc(t('settings.permissions.subtasksDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.subtasksDesc'), 'subtasks'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.subtasks).onChange(async (v) => {
                     this.plugin.settings.autoApproval.subtasks = v;
@@ -206,7 +233,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.pluginSkills'))
-            .setDesc(t('settings.permissions.pluginSkillsDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.pluginSkillsDesc'), 'skills'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.skills).onChange(async (v) => {
                     this.plugin.settings.autoApproval.skills = v;
@@ -222,7 +249,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.pluginApiReads'))
-            .setDesc(t('settings.permissions.pluginApiReadsDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.pluginApiReadsDesc'), 'pluginApiRead'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.pluginApiRead ?? true).onChange(async (v) => {
                     this.plugin.settings.autoApproval.pluginApiRead = v;
@@ -232,7 +259,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.pluginApiWrites'))
-            .setDesc(t('settings.permissions.pluginApiWritesDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.pluginApiWritesDesc'), 'pluginApiWrite'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.pluginApiWrite ?? false).onChange(async (v) => {
                     this.plugin.settings.autoApproval.pluginApiWrite = v;
@@ -248,7 +275,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.recipes'))
-            .setDesc(t('settings.permissions.recipesDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.recipesDesc'), 'recipes'))
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.autoApproval.recipes ?? false).onChange(async (v) => {
                     this.plugin.settings.autoApproval.recipes = v;
@@ -264,7 +291,7 @@ export class PermissionsTab {
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.sandbox'))
-            .setDesc(t('settings.permissions.sandboxDesc'))
+            .setDesc(this.withProvenance(t('settings.permissions.sandboxDesc'), 'sandbox'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.autoApproval.sandbox ?? false).onChange(async (v) => {
                     if (v) {
@@ -284,6 +311,17 @@ export class PermissionsTab {
 
         // Apply the initial disabled state (after every control exists).
         refreshCategoryDisabled();
+
+        this.buildCommandAllowlistSection(containerEl);
+
+        // AUDIT 2026-07-26 M-18 (second pass): the granted-permissions list
+        // sits at the END, and holds only the SPECIFIC grants -- the ones with
+        // no toggle anywhere. The categories above are not repeated in it: one
+        // piece of state rendered as two controls reads as two pieces of state,
+        // so taking one back looked broken even when it worked. Where a
+        // category came from is shown on its own toggle instead (see the
+        // provenance suffix on the descriptions above).
+        buildGrantedPermissionsSection(this.plugin, containerEl, this.rerender);
     }
 
     /**
@@ -324,6 +362,100 @@ export class PermissionsTab {
      * (a) "Reset to default-deny": one click (plus confirm) back to the
      *     restrictive preset, revoking all run- and session-scope grants.
      */
+    /**
+     * AUDIT 2026-07-26 M-8: enrolment for Obsidian commands.
+     *
+     * `execute_command` now runs only what is on its list, so there has to be a
+     * way to put something on it -- otherwise the fix is a feature removal.
+     *
+     * Enrolment lives HERE and not on an approval card, deliberately. The list
+     * is the capability boundary, so letting one card click (on a command id the
+     * agent itself chose) add an arbitrary third-party command forever would
+     * reduce the allowlist to a one-time prompt. Taking one back happens in the
+     * granted-permissions list at the bottom of this tab.
+     */
+    private buildCommandAllowlistSection(containerEl: HTMLElement): void {
+        addSectionHeading(
+            containerEl,
+            t('settings.permissions.headingCommands'),
+            { body: t('settings.permissions.sectionCommandsInfo') },
+        );
+
+        const registered = this.plugin.app.commands?.commands ?? {};
+        const enrolled = listEnrolledCommands(this.plugin.settings.executeCommandAllowedIds);
+        const enrolledIds = new Set(enrolled.map((e) => e.id));
+
+        // USER 2026-07-26: this used to be a read-only catalogue, which is a poor
+        // thing to put in a settings screen -- four rows nobody could act on,
+        // explained in developer language. Each one is a toggle now: if someone
+        // does not want the agent exporting PDFs, there is no reason they should
+        // not be able to say so. The text says what the command DOES, not why
+        // the codebase shipped it enabled.
+        const disabled = new Set(this.plugin.settings.executeCommandDisabledBuiltIns ?? []);
+        const shipped = containerEl.createEl('details', { cls: 'agent-permissions-catalog' });
+        shipped.createEl('summary', {
+            text: t('settings.permissions.commandsBuiltIn', {
+                on: String(BUILT_IN_COMMAND_ALLOWLIST.length - disabled.size),
+                total: String(BUILT_IN_COMMAND_ALLOWLIST.length),
+            }),
+        });
+        shipped.createDiv({
+            cls: 'setting-item-description',
+            text: t('settings.permissions.commandsBuiltInDesc'),
+        });
+        for (const entry of BUILT_IN_COMMAND_ALLOWLIST) {
+            const registeredName = registered[entry.id]?.name;
+            new Setting(shipped)
+                .setName(registeredName ?? entry.id)
+                .setDesc(COMMAND_PURPOSE[entry.id]?.() ?? entry.reason)
+                .addToggle((tg) => tg
+                    .setValue(!disabled.has(entry.id))
+                    .onChange(async (on) => {
+                        const next = new Set(this.plugin.settings.executeCommandDisabledBuiltIns ?? []);
+                        if (on) next.delete(entry.id); else next.add(entry.id);
+                        this.plugin.settings.executeCommandDisabledBuiltIns = [...next];
+                        await this.plugin.saveSettings();
+                    }));
+        }
+
+        // Everything registered in THIS vault that is not already allowed.
+        const candidates = Object.entries(registered)
+            .filter(([id]) => !enrolledIds.has(id) && !BUILT_IN_COMMAND_ALLOWLIST.some((c) => c.id === id))
+            .map(([id, cmd]) => ({ id, name: (cmd as { name?: string }).name ?? id }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        let chosen = candidates[0]?.id ?? '';
+        const add = new Setting(containerEl)
+            .setName(t('settings.permissions.commandsAdd'))
+            .setDesc(t('settings.permissions.commandsAddDesc'));
+        add.addDropdown((dd) => {
+            if (candidates.length === 0) {
+                dd.addOption('', t('settings.permissions.commandsNone'));
+                dd.setDisabled(true);
+                return;
+            }
+            for (const c of candidates) dd.addOption(c.id, `${c.name} (${c.id})`);
+            dd.setValue(chosen).onChange((v) => { chosen = v; });
+        });
+        add.addButton((btn) => {
+            btn.setButtonText(t('settings.permissions.commandsAllow')).onClick(async () => {
+                if (!chosen) return;
+                const name = registered[chosen]?.name ?? '';
+                const list = listEnrolledCommands(this.plugin.settings.executeCommandAllowedIds);
+                if (!list.some((e) => e.id === chosen)) {
+                    // The NAME is recorded on purpose: a command id is an index
+                    // for some plugins, so the name is what makes a later swap
+                    // detectable.
+                    list.push({ id: chosen, name, at: Date.now() });
+                }
+                this.plugin.settings.executeCommandAllowedIds = list;
+                await this.plugin.saveSettings();
+                new Notice(t('settings.permissions.commandsAllowed', { name: name || chosen }));
+                this.rerender();
+            });
+        });
+    }
+
     private buildKillSwitchSection(containerEl: HTMLElement): void {
         addSectionHeading(
             containerEl,
@@ -355,7 +487,11 @@ export class PermissionsTab {
                             t('settings.permissions.resetConfirmAccept'),
                         );
                         if (!ok) return;
-                        resetToDefaultDeny(this.plugin, PRESETS.restrictive);
+                        // AUDIT 2026-07-26 M-13: the reset now also clears the
+                        // consents that live outside settings.autoApproval --
+                        // inbound MCP write access, promoted plugin-API methods
+                        // and their counts, and imported-skill trust.
+                        resetToDefaultDeny(this.plugin, PRESETS.restrictive, clearImportedSkillTrust);
                         await this.plugin.saveSettings();
                         new Notice(t('settings.permissions.resetDone'));
                         // Re-render so every toggle shows its post-reset state.

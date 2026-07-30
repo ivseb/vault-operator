@@ -11,6 +11,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import { extractZip, ExtractZipError, type ExtractZipAdapter } from '../../utils/extractZip';
 import type { BatchEditPreview } from '../editPreview';
@@ -53,6 +54,11 @@ export class ExtractZipTool extends BaseTool<'extract_zip'> {
         if (typeof params.zip_path !== 'string' || params.zip_path.length === 0) return null;
         if (typeof params.target_folder !== 'string' || params.target_folder.length === 0) return null;
         try {
+            // AUDIT 2026-07-26 H-1: the same governance filter execute() uses, so
+            // the approval card lists exactly what will be written. Without it the
+            // card would advertise entries that are then silently skipped, and a
+            // deny-zone path would appear in the preview as if it were allowed.
+            const ignore = this.plugin.ignoreService;
             const plan = await extractZip({
                 adapter: this.zipAdapter(),
                 zipPath: params.zip_path,
@@ -61,6 +67,7 @@ export class ExtractZipTool extends BaseTool<'extract_zip'> {
                 stripRootFolder: params.strip_root_folder,
                 maxUncompressedBytes: params.max_uncompressed_bytes,
                 dryRun: true,
+                entryFilter: (absPath) => !ignore.isIgnored(absPath) && !ignore.isProtected(absPath),
             });
             if (plan.writtenFiles.length === 0) return null;
             const overwrittenSet = new Set(plan.overwrittenFiles);
@@ -139,6 +146,17 @@ export class ExtractZipTool extends BaseTool<'extract_zip'> {
             // as skipped in the result below.
             const approved = context.approvedBatchPaths;
 
+            // AUDIT 2026-07-26 H-1, defense in depth: the COMPOSED entry paths
+            // are not tool inputs, so ToolExecutionPipeline.validatePaths never
+            // sees them -- it only ever governs zip_path and target_folder. The
+            // primary fix is normaliseTarget rejecting "." segments, but a
+            // single future normalisation slip would otherwise re-open the whole
+            // deny zone. Run every composed path through IgnoreService here too:
+            // a governed entry is reported as skipped, never written.
+            const ignore = this.plugin.ignoreService;
+            const governed = (absPath: string): boolean =>
+                !ignore.isIgnored(absPath) && !ignore.isProtected(absPath);
+
             const result = await extractZip({
                 adapter: this.zipAdapter(),
                 zipPath: params.zip_path,
@@ -146,22 +164,31 @@ export class ExtractZipTool extends BaseTool<'extract_zip'> {
                 overwrite: params.overwrite,
                 stripRootFolder: params.strip_root_folder,
                 maxUncompressedBytes: params.max_uncompressed_bytes,
-                entryFilter: approved !== undefined ? (absPath) => approved.has(absPath) : undefined,
+                entryFilter: approved !== undefined
+                    ? (absPath) => approved.has(absPath) && governed(absPath)
+                    : governed,
             });
 
+            // AUDIT 2026-07-26 M-6: entry names come out of the archive, so they
+            // are the most attacker-controlled bytes any tool emits. Counts and
+            // the caller's own arguments are trusted and stay in the header.
+            const clean = (v: string): string => sanitizeDirectoryEntry(v, 300);
             const stripNote = result.strippedRoot
-                ? ` (stripped root folder "${result.strippedRoot}")`
+                ? ` (stripped root folder "${clean(result.strippedRoot)}")`
                 : '';
-            const skipNote = result.skippedEntries.length > 0
-                ? `\nSkipped (existing, use overwrite=true to replace): ${result.skippedEntries.join(', ')}`
-                : '';
+            const header =
+                `Extracted ${result.writtenFiles.length} file(s) `
+                + `from ${params.zip_path} into ${params.target_folder}${stripNote}.`;
+            const body = [
+                `Files: ${result.writtenFiles.map(clean).join(', ')}`,
+                ...(result.skippedEntries.length > 0
+                    ? [`Skipped (existing, use overwrite=true to replace): ${result.skippedEntries.map(clean).join(', ')}`]
+                    : []),
+            ].join('\n');
 
-            const message =
-                `Extracted ${result.writtenFiles.length} file(s) ` +
-                `from ${params.zip_path} into ${params.target_folder}${stripNote}.\n` +
-                `Files: ${result.writtenFiles.join(', ')}${skipNote}`;
-
-            callbacks.pushToolResult(this.formatSuccess(message));
+            callbacks.pushToolResult(
+                `${header}\n${this.formatUntrustedContent('archive', body, { region: 'extracted-entries' })}`,
+            );
             callbacks.log(`extract_zip: ${params.zip_path} → ${params.target_folder} (${result.writtenFiles.length} written, ${result.skippedEntries.length} skipped)`);
         } catch (error) {
             if (error instanceof ExtractZipError) {

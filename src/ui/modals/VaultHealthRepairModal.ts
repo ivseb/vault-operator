@@ -12,6 +12,7 @@
 import { Modal, Notice, setIcon, Platform, TFile, getLanguage, Setting } from 'obsidian';
 import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
+import { generateShortId } from '../../core/utils/generateShortId';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../viewTypes';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
@@ -1680,7 +1681,8 @@ export class VaultHealthRepairModal extends Modal {
 
         // Checkpoint
         progress.setText(t('modal.vaultHealth.creatingCheckpoint'));
-        const taskId = `health-repair-${Date.now()}`;
+        // FEAT-55-03 (ADR-171): collision-free id keying the checkpoint list.
+        const taskId = generateShortId('health-repair');
         // ADR-165: Checkpoint == approvte Schreibmenge (FIX-19-01-13:
         // die Deckelung passierte schon vor der Plan-Ansicht).
         const approvedByAction = {

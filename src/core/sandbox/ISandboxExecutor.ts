@@ -2,7 +2,8 @@
  * ISandboxExecutor
  *
  * Strategy interface for sandbox code execution backends.
- * Desktop: ProcessSandboxExecutor (OS-level child_process.fork())
+ * Every platform: IframeSandboxExecutor (Chromium opaque-origin iframe).
+ * The former desktop backend was removed by SBX-1 / AUDIT M-10.
  * Mobile:  IframeSandboxExecutor (iframe sandbox="allow-scripts")
  *
  * Part of ADR-021: Sandbox OS-Level Process Isolation.
@@ -29,6 +30,14 @@ export interface SandboxExecutionOptions {
      * snapshotted.
      */
     governanceTaskId?: string;
+    /**
+     * FIX-24-08-04: abort a running script the moment the user stops the run.
+     * Without it a stopped run waited out the 30s execution timeout (Stop
+     * "worked" but drained slowly). On abort the executor rejects the
+     * in-flight call with an AbortError and tears the sandbox down so the
+     * script cannot keep running on the background thread.
+     */
+    abortSignal?: AbortSignal;
 }
 
 export interface ISandboxExecutor {

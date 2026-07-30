@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile, TFolder } from 'obsidian';
+import { isDeniedPath, keepVisible } from '../core/tools/vault/denyZoneFilter';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
 import {
@@ -54,6 +55,7 @@ import { resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import { wireApprovalTimeout } from './sidebar/approvalTimeout';
+import { resolveSourceTarget, openExternalUrl } from './sidebar/sourceLinks';
 import { resolveRunStateButtons } from './sidebar/runStateButtons';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
@@ -69,6 +71,9 @@ import { OnboardingService } from '../core/memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../core/onboarding-status';
 import { ContextTracker } from '../core/context/ContextTracker';
 import { loadableSkills } from '../core/context/SkillsManager';
+import { stampProvenance } from '../core/governance/permissionInventory';
+import { allowHost, hostKeyOf } from '../core/governance/webHostGrants';
+import { enabledSelfAuthoredNames } from '../core/skills/skillToggleGate';
 import { TaskMonitor } from './sidebar/TaskMonitor';
 import { CondensationFeedback } from './sidebar/CondensationFeedback';
 import { SuggestionBanner } from './sidebar/SuggestionBanner';
@@ -81,6 +86,17 @@ import { t, getActiveLocale } from '../i18n';
 import DOMPurify from 'dompurify';
 import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 import { buildHealthCheckOptions } from '../core/knowledge/VaultHealthService';
+import { generateShortId } from '../core/utils/generateShortId';
+import { findRelatedConversations } from '../core/history/relatedConversations';
+import { selectResumeSnapshot } from './sidebar/selectResumeSnapshot';
+import { pickTabTitle, TITLE_SETTLES_AFTER } from './sidebar/deriveTabTitle';
+import { isUnnamedTitle } from '../core/history/ConversationStore';
+import { resolveSkillChatTitle } from '../core/skills/resolveSkillChatTitle';
+import { resolveRunTeardown } from './sidebar/runOwnership';
+import { repairUiMessages } from '../core/history/repairUiMessages';
+import { computeEditResendCut } from '../core/history/editResendCut';
+import { neutraliseRemoteResources } from './sidebar/neutraliseRemoteResources';
+import { ChatSession } from './sidebar/ChatSession';
 
 // IMP-19-01-03: Konstante lebt in viewTypes.ts; Import fuer den eigenen
 // Gebrauch, Re-Export haelt alle bestehenden Importe stabil.
@@ -133,7 +149,12 @@ const TOOL_STEPS_SANITIZE_CONFIG = {
 export class AgentSidebarView extends ItemView {
     plugin: ObsidianAgentPlugin;
     private modeService!: ModeService;
-    private chatContainer: HTMLElement | null = null;
+    // Phase A: the messages container is per-session (each tab has its own).
+    // Accessor delegates to the active ChatSession (declared below).
+    private get chatContainer(): HTMLElement | null { return this.activeSession.chatContainer; }
+    private set chatContainer(v: HTMLElement | null) { this.activeSession.chatContainer = v; }
+    /** FEAT-55-01 Phase C: parent of all per-session chat-messages containers. */
+    private chatWrapper: HTMLElement | null = null;
     private inputArea: HTMLElement | null = null;
     private textarea: HTMLTextAreaElement | null = null;
     // Coalesces auto-resize into one rAF so a burst of input events measures
@@ -143,101 +164,101 @@ export class AgentSidebarView extends ItemView {
     // Note: modeButton was removed in FEAT-26-05; chat-header has no mode UI anymore.
     private modelButton: HTMLButtonElement | null = null;
     /**
-     * EPIC-26 / FEAT-26-05: per-turn chat-header override.
-     * null  -> Auto (advisor pattern, tier-resolved main loop)
-     * string -> explicit model id on the active provider (advisor off for this turn)
-     * Reset to null when the active provider changes.
+     * FEAT-55-01 in-view-tabs (Phase A): the per-chat state lives on a
+     * ChatSession instance. With one session today this is behaviour-neutral
+     * (activeSession is constant); Phase B swaps which session is active. The
+     * getter/setter pairs below keep the ~143 `this.<field>` call sites
+     * unchanged while the STORAGE moves into the session -- and binding a run
+     * to a session INSTANCE (not this.activeSession) is what lets a
+     * background run keep writing into its own tab (FIX-01-01-02 avoidance).
+     *
+     * Phase B: several sessions coexist as in-view tabs. `sessions` holds
+     * them, `activeSessionIndex` selects the visible one, and `activeSession`
+     * resolves to it so the field accessors above still work. The tab strip
+     * (buildTabStrip) switches the index; a background run keeps writing into
+     * its own ChatSession even while another tab is active.
      */
-    private chatModelOverride: string | null = null;
-    /**
-     * Per-conversation extended-thinking override (issue #44).
-     * 'follow' -> use the active model's own thinkingEnabled (default, no change)
-     * 'on'/'off' -> force thinking on/off for this conversation only.
-     * Lives alongside chatModelOverride; reset to 'follow' on a fresh chat.
-     */
-    private chatThinkingOverride: ThinkingOverride = DEFAULT_THINKING_OVERRIDE;
-    /**
-     * Per-conversation reasoning-effort override.
-     * 'auto' -> send no effort field (default, byte-identical to today).
-     * A native level -> request that effort level. Threaded on every
-     * model-resolution path the thinking override uses (chat-pin, mode,
-     * default-active), so it works in auto mode too. Applied to the main-loop
-     * model only; router tier-swaps to the budget helper or frontier do not
-     * carry it, the same accepted limitation as the thinking override.
-     * Lives alongside chatModelOverride; reset to 'auto' on a fresh chat.
-     */
-    private chatEffortOverride: EffortOverride = DEFAULT_EFFORT_OVERRIDE;
+    private sessions: ChatSession[] = [new ChatSession()];
+    private activeSessionIndex = 0;
+    private tabStripEl: HTMLElement | null = null;
+    private get activeSession(): ChatSession { return this.sessions[this.activeSessionIndex]; }
+
+    /** History hardening A3: conversation ids currently open in a tab. The
+     *  boot repair job skips these -- their RAM copy is already load-repaired
+     *  and persists with the next regular save. */
+    getOpenConversationIds(): string[] {
+        return this.sessions
+            .map((s) => s.activeConversationId)
+            .filter((id): id is string => id !== null);
+    }
+
+    /** History hardening A3: repaint the History list after the boot repair
+     *  corrected messageCounts (no-op while the panel is closed). */
+    refreshHistoryPanel(): void {
+        this.historyPanel?.refresh();
+    }
+
+    // EPIC-26 / FEAT-26-05: per-turn chat-header override (null -> Auto).
+    private get chatModelOverride(): string | null { return this.activeSession.chatModelOverride; }
+    private set chatModelOverride(v: string | null) { this.activeSession.chatModelOverride = v; }
+    // Per-conversation extended-thinking override (issue #44).
+    private get chatThinkingOverride(): ThinkingOverride { return this.activeSession.chatThinkingOverride; }
+    private set chatThinkingOverride(v: ThinkingOverride) { this.activeSession.chatThinkingOverride = v; }
+    // Per-conversation reasoning-effort override.
+    private get chatEffortOverride(): EffortOverride { return this.activeSession.chatEffortOverride; }
+    private set chatEffortOverride(v: EffortOverride) { this.activeSession.chatEffortOverride = v; }
     /** EPIC-26 / FEAT-26-05: searchable popover for picking the chat-header model. */
     private chatModelPicker: ChatModelPickerPopover | null = null;
     private sendButton: HTMLElement | null = null;
     private stopButton: HTMLElement | null = null;
     private contextBadgeContainer: HTMLElement | null = null;
 
-    // Feature 1: Persistent conversation history (survives across messages)
-    private conversationHistory: MessageParam[] = [];
-    /**
-     * IMP-41-03-01: inflight snapshot armed for the next send. Set by the
-     * boot recovery banner's Resume button; consumed (and cleared) at the
-     * execute() call so the loop continues with the snapshot's state and
-     * full history instead of starting fresh.
-     */
-    private pendingResume: import('../core/agent/InflightStore').InflightSnapshot | null = null;
-    // Chat History: active conversation tracking + UI messages for persistence
-    private activeConversationId: string | null = null;
-    /** FIX-03-20-01: race-free lazy id creation when the store initializes late. */
-    private readonly lazyConversationId = new LazyConversationId();
-    private uiMessages: UiMessage[] = [];
+    // Feature 1: Persistent conversation history (survives across messages).
+    // Phase A: storage on the active ChatSession (see activeSession above).
+    private get conversationHistory(): MessageParam[] { return this.activeSession.conversationHistory; }
+    private set conversationHistory(v: MessageParam[]) { this.activeSession.conversationHistory = v; }
+    // IMP-41-03-01: inflight snapshot armed for the next send by the Resume card.
+    private get pendingResume(): import('../core/agent/InflightStore').InflightSnapshot | null { return this.activeSession.pendingResume; }
+    private set pendingResume(v: import('../core/agent/InflightStore').InflightSnapshot | null) { this.activeSession.pendingResume = v; }
+    // Chat History: active conversation tracking + UI messages for persistence.
+    private get activeConversationId(): string | null { return this.activeSession.activeConversationId; }
+    private set activeConversationId(v: string | null) { this.activeSession.activeConversationId = v; }
+    /** FIX-03-20-01: race-free lazy id creation; delegates to the session. */
+    private get lazyConversationId(): LazyConversationId { return this.activeSession.lazyConversationId; }
+    private get uiMessages(): UiMessage[] { return this.activeSession.uiMessages; }
+    private set uiMessages(v: UiMessage[]) { this.activeSession.uiMessages = v; }
     private historyPanel: HistoryPanel | null = null;
 
-    // Feature 3: AbortController for cancelling in-flight requests
-    private currentAbortController: AbortController | null = null;
-    /**
-     * FIX-24-08-03: signal of the most recently started run. Unlike
-     * `currentAbortController` this is NOT nulled by handleStop, so
-     * approval cards surfacing from a draining task bind an already-
-     * aborted signal (immediate rejection) instead of undefined
-     * (10-minute wall-clock hang).
-     */
-    private lastRunAbortSignal: AbortSignal | null = null;
-    /**
-     * IMP-24-08-04: per-run hook that swaps the Working spinner for a
-     * "Stopping" row the moment Stop is pressed. Without it the spinner
-     * keeps spinning until the stopped run drains to its next abort
-     * checkpoint, which reads as "Stop did nothing".
-     */
-    private currentStopFeedback: (() => void) | null = null;
-    /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
-    private taskDraining = false;
-    private taskDrainingTimer = 0;
-    /**
-     * Issue 3 Wave B: teardown-ownership token for a stopped, still-draining
-     * run. handleStop records the aborted controller here; the run's late
-     * onComplete/onError use it to decide whether it still owns the view's
-     * shared state (drain-end, Resume card, uiMessages, save). A new send
-     * during draining nulls this token to DETACH the old run: the old run
-     * then matches neither currentAbortController (new run's) nor
-     * drainingController (null), so it does only local DOM cleanup and can
-     * never write into the newer conversation (the FIX-01-01-02 data-loss
-     * class). Distinguishes "Stop then wait -> Resume" from "Stop then send".
-     */
-    private drainingController: AbortController | null = null;
-
-    /**
-     * Issue 1: while an ask_followup_question card is open the agent loop is
-     * paused waiting on this resolver. The card is shown mid-run (the task is
-     * still "running"), so a Send from the MAIN chat input would otherwise be
-     * queued as a steering message and the question would hang forever. When
-     * set, handleSendMessage routes the typed text here to answer the question
-     * instead. Nulled the moment the question resolves (any path).
-     */
-    private pendingQuestionResolve: ((answer: string) => void) | null = null;
-
-    // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
-    // queue up while a task is running and get drained by AgentTask at the
-    // start of the next iteration via consumeSteeringMessages. The bubbleEl
-    // reference lets the sidebar flip the UI from "queued" to
-    // "delivered at iteration N" the moment AgentTask consumes the entry.
-    private steeringQueue: Array<{ text: string; bubbleEl: HTMLElement }> = [];
+    // Feature 3: AbortController for cancelling in-flight requests.
+    // Phase A: run-state storage on the active ChatSession. Binding a run to
+    // the session INSTANCE (not this.activeSession, which shifts on tab
+    // switch) is the Phase-C mechanism that keeps a background run writing
+    // into its own tab -- the FIX-01-01-02 data-loss guard.
+    private get currentAbortController(): AbortController | null { return this.activeSession.currentAbortController; }
+    private set currentAbortController(v: AbortController | null) { this.activeSession.currentAbortController = v; }
+    // FIX-24-08-03: signal of the most recently started run (not nulled by Stop).
+    private get lastRunAbortSignal(): AbortSignal | null { return this.activeSession.lastRunAbortSignal; }
+    private set lastRunAbortSignal(v: AbortSignal | null) { this.activeSession.lastRunAbortSignal = v; }
+    // IMP-24-08-04: per-run hook swapping the Working spinner for "Stopping".
+    private get currentStopFeedback(): (() => void) | null { return this.activeSession.currentStopFeedback; }
+    private set currentStopFeedback(v: (() => void) | null) { this.activeSession.currentStopFeedback = v; }
+    // GUARD-L1: true between Stop and the aborted loop's onComplete/onError.
+    private get taskDraining(): boolean { return this.activeSession.taskDraining; }
+    private set taskDraining(v: boolean) { this.activeSession.taskDraining = v; }
+    private get taskDrainingTimer(): number { return this.activeSession.taskDrainingTimer; }
+    private set taskDrainingTimer(v: number) { this.activeSession.taskDrainingTimer = v; }
+    // Issue 3 Wave B: teardown-ownership token for a stopped, draining run.
+    // Distinguishes "Stop then wait -> Resume" from "Stop then send" and
+    // prevents a late onComplete writing into a newer conversation (FIX-01-01-02).
+    private get drainingController(): AbortController | null { return this.activeSession.drainingController; }
+    private set drainingController(v: AbortController | null) { this.activeSession.drainingController = v; }
+    // Issue 1: routes the next typed text to an open ask_followup_question.
+    private get pendingQuestionResolve(): ((answer: string) => void) | null { return this.activeSession.pendingQuestionResolve; }
+    private set pendingQuestionResolve(v: ((answer: string) => void) | null) { this.activeSession.pendingQuestionResolve = v; }
+    // FEAT-24-08 / ADR-114 Steering-Hook: mid-run user messages queued for the
+    // next loop iteration (consumed via consumeSteeringMessages).
+    private get steeringQueue(): Array<{ text: string; bubbleEl: HTMLElement }> { return this.activeSession.steeringQueue; }
+    private set steeringQueue(v: Array<{ text: string; bubbleEl: HTMLElement }>) { this.activeSession.steeringQueue = v; }
 
     // Context: tracks whether user dismissed the auto-injected file for this turn
     private userDismissedContext = false;
@@ -248,23 +269,27 @@ export class AgentSidebarView extends ItemView {
     // shown at most once per sidebar-view lifetime (in addition to the
     // persistent frontmatterOperatorHintDismissed setting).
     private frontmatterOperatorHintShownThisSession = false;
-    // Last user message text — used by "Regenerate" action
-    private lastUserMessage = '';
-    // Last known active MarkdownView — tracked because clicking sidebar loses getActiveViewOfType
+    // Last user message text, used by "Regenerate" action (per session).
+    private get lastUserMessage(): string { return this.activeSession.lastUserMessage; }
+    private set lastUserMessage(v: string) { this.activeSession.lastUserMessage = v; }
+    // Last known active MarkdownView, tracked because clicking the sidebar loses
+    // getActiveViewOfType. View-level (about the editor, not the chat session).
     private lastMarkdownView: MarkdownView | null = null;
-    // Hidden message flag — when true, skip user bubble rendering but still send to LLM
-    private nextMessageHidden = false;
+    // Hidden message flag: skip the user bubble but still send to the LLM.
+    private get nextMessageHidden(): boolean { return this.activeSession.nextMessageHidden; }
+    private set nextMessageHidden(v: boolean) { this.activeSession.nextMessageHidden = v; }
     // Onboarding key-setup state machine (chat-based flow, no LLM needed)
     private onboarding: OnboardingFlow | null = null;
 
     // Health badge (FEATURE-1901)
     private healthBadge: HTMLElement | null = null;
     // Browser-style chat navigation: linear stack of conversation IDs the user
-    // visited via arrow nav. navIndex = position in the stack; entries beyond
-    // the index are the forward history (truncated when a fresh chat is loaded
-    // from outside the back/forward path). null sentinel = "new/empty chat".
-    private navStack: Array<string | null> = [];
-    private navIndex = -1;
+    // visited via arrow nav (per session, so each tab keeps its own history).
+    // null sentinel = "new/empty chat".
+    private get navStack(): Array<string | null> { return this.activeSession.navStack; }
+    private set navStack(v: Array<string | null>) { this.activeSession.navStack = v; }
+    private get navIndex(): number { return this.activeSession.navIndex; }
+    private set navIndex(v: number) { this.activeSession.navIndex = v; }
     private navBackBtn: HTMLButtonElement | null = null;
     private navForwardBtn: HTMLButtonElement | null = null;
     // Tool picker (pocket-knife button)
@@ -315,6 +340,46 @@ export class AgentSidebarView extends ItemView {
 
     getIcon(): string {
         return 'square-slash';
+    }
+
+    /**
+     * FEAT-55-01 (ADR-169): persist this leaf's active conversation into the
+     * workspace layout so a chat tab reopens with its content after a
+     * restart. Obsidian serializes the returned object and hands it back to
+     * setState on the next layout restore.
+     */
+    getState(): Record<string, unknown> {
+        const base = super.getState() as Record<string, unknown>;
+        // USER 2026-07-26: "beim reload oder restart einen frischen zeigen,
+        // alte chats kann man sich ueber die history holen."
+        //
+        // FEAT-55-01 Phase D persisted every open tab, so a restart came back
+        // with however many tabs happened to be open -- three, in practice,
+        // with no way to tell why. Tabs are for the work in front of you;
+        // History is the archive, and it is one click away. Nothing is lost by
+        // starting clean, and the previous behaviour made the restart feel like
+        // it had a memory nobody asked for.
+        //
+        // The key is deliberately omitted rather than written as an empty list,
+        // so an older layout that still carries tab ids also opens fresh.
+        return {
+            ...base,
+            sessionConversationIds: undefined,
+            activeSessionIndex: undefined,
+            conversationId: undefined,
+        };
+    }
+
+    async setState(state: unknown, result: unknown): Promise<void> {
+        await super.setState(state as never, result as never);
+        // USER 2026-07-26: a restart opens a fresh chat. The saved layout is
+        // read but deliberately not acted on -- a vault that still carries tab
+        // ids from before this change must also open clean, and deleting the
+        // keys from getState alone would not achieve that. Old chats are one
+        // click away in History, which is where an archive belongs.
+        //
+        // Deep links are unaffected: obsidian://vault-operator-chat goes through
+        // openChatById, not through setState.
     }
 
     async onOpen(): Promise<void> {
@@ -380,6 +445,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         this.buildHeader(container);
+        this.buildTabStrip(container);
         this.buildChatContainer(container);
         this.buildSuggestionBanner(container);
         this.buildChatInput(container);
@@ -420,10 +486,17 @@ export class AgentSidebarView extends ItemView {
             );
         });
 
+        // FEAT-55-01 (ADR-169): per-leaf conversation persistence. On layout
+        // restore Obsidian calls setState with this leaf's saved
+        // conversationId; reload it so a chat tab survives a restart with its
+        // content instead of opening empty. Falls back to the welcome message
+        // when there is nothing to restore (or the id is stale).
         this.showWelcomeMessage();
-        // IMP-41-03-01: offer recovery for tasks interrupted by a crash or
-        // reload. Non-blocking; skips silently when the store is not ready.
-        void this.maybeOfferInflightResume();
+        // FEAT-55-01 (ADR-169, user decision 2026-07-25): a fresh chat no
+        // longer shows a global "a task was interrupted" resume card. Resume
+        // belongs to the SPECIFIC conversation: it surfaces inside that chat
+        // when the user opens it from History (loadConversation), not as an
+        // info banner in a new/empty chat.
         // Language-pack install-prompt: renders the same consent card as
         // tool-triggered asset installs, so a non-English user gets a
         // visible chat card instead of a small notice that is easy to
@@ -439,15 +512,27 @@ export class AgentSidebarView extends ItemView {
      * conversation, sends a resume note through the normal send path) or
      * Discard (clears the snapshot). Fail-closed: any error only logs.
      */
-    private async maybeOfferInflightResume(): Promise<void> {
+    private async maybeOfferInflightResume(
+        conversationId?: string,
+        // FEAT-55-01 (isolation fix): render the resume card into the run's
+        // own container when a background run offers it post-abort. History /
+        // boot callers default to the active tab.
+        container?: HTMLElement | null,
+    ): Promise<void> {
         try {
             const store = this.plugin.inflightStore;
-            if (!store || !this.chatContainer) return;
+            const target = container ?? this.chatContainer;
+            if (!store || !target) return;
             const recoverable = await store.listRecoverable();
-            if (recoverable.length === 0) return;
-            const snapshot = recoverable[0];
+            // FEAT-55-01 (ADR-169, user decision 2026-07-25): resume is
+            // conversation-scoped. With a conversationId (from loadConversation
+            // / History, or the post-Stop active chat) only that chat's
+            // snapshot is offered -- never a global banner in an unrelated/new
+            // chat. selectResumeSnapshot also honours the per-taskId claim guard.
+            const snapshot = selectResumeSnapshot(recoverable, conversationId, this.plugin.inflightResumeClaims);
+            if (!snapshot) return;
 
-            const row = this.chatContainer.createDiv('tool-approval-row');
+            const row = target.createDiv('tool-approval-row');
             const iconSpan = row.createSpan('tool-approval-icon');
             setIcon(iconSpan, 'history');
             row.createSpan('tool-approval-text').setText(
@@ -478,6 +563,8 @@ export class AgentSidebarView extends ItemView {
                     }
                     this.pendingResume = snapshot;
                     await store.clear(snapshot.taskId);
+                    // FEAT-55-01: resumed -> the snapshot is consumed, drop the tag.
+                    void this.plugin.refreshInterruptedConversations();
                     if (this.textarea) {
                         this.textarea.value = '[System] The previous task was interrupted. '
                             + 'Resume from where you left off using the conversation so far; '
@@ -488,18 +575,85 @@ export class AgentSidebarView extends ItemView {
             });
             discardBtn.addEventListener('click', () => {
                 row.remove();
-                void store.clear(snapshot.taskId);
+                void store.clear(snapshot.taskId).then(() => {
+                    // FEAT-55-01: the snapshot is gone -> drop the History tag.
+                    void this.plugin.refreshInterruptedConversations();
+                });
             });
         } catch (e) {
             console.warn('[InflightResume] banner failed (non-fatal):', e instanceof Error ? e.message : e);
         }
     }
 
+    /**
+     * Fallback for a conversation whose store file is missing but that still
+     * has an interrupted-task snapshot (live bug 2026-07-25). The store index
+     * lists the id, but store.load returned null -- the task was interrupted
+     * around the first save. Rather than dead-ending with "Could not load
+     * conversation", adopt the id on the active tab and surface its resume
+     * card, so the boot notice / History click still reaches the resume the
+     * user was after. The snapshot history is only replayed into the loop on
+     * Resume (via pendingResume), so the empty chat is expected until then.
+     *
+     * Returns true when a resume card was offered, false otherwise (caller
+     * then shows the load-failed notice).
+     */
+    private async tryOfferResumeForMissingConversation(id: string): Promise<boolean> {
+        try {
+            const inflight = this.plugin.inflightStore;
+            if (!inflight || !this.chatContainer) return false;
+            const recoverable = await inflight.listRecoverable();
+            const snapshot = selectResumeSnapshot(recoverable, id, this.plugin.inflightResumeClaims);
+            if (!snapshot) return false;
+
+            // Re-check after the awaits (DELTA-0707B-L1): a run started from the
+            // composer meanwhile must not have its history swapped underneath it.
+            if (this.refuseWhileTaskRuns()) return true;
+
+            // Adopt the id on the active tab with an empty history (the file is
+            // gone; the snapshot fills the loop's history on Resume). Save the
+            // outgoing conversation first, exactly like loadConversation does.
+            this.saveCurrentConversation();
+            this.conversationHistory = [];
+            this.uiMessages = [];
+            this.activeConversationId = id;
+            this.lazyConversationId.reset();
+            this.activeSession.tabTitle = null;
+        // The session-held tab title belongs to the OUTGOING chat.
+        this.activeSession.tabTitle = null;
+            this.attachments.clear();
+            void this.attachments.consumeFullDocTexts();
+            this.chatContainer.empty();
+            this.historyPanel?.setActiveId(id);
+            this.updateContextBadge();
+
+            await this.maybeOfferInflightResume(id);
+            return true;
+        } catch (e) {
+            console.warn('[InflightResume] missing-file fallback failed (non-fatal):',
+                e instanceof Error ? e.message : e);
+            return false;
+        }
+    }
+
     onClose(): Promise<void> {
-        this.currentAbortController?.abort();
-        // Guard every call: onClose may run before onOpen completed if plugin init failed upstream
-        try { this.saveCurrentConversation(); } catch { /* non-fatal */ }
-        try { this.enqueueMemoryExtraction(); } catch { /* non-fatal */ }
+        // FEAT-55-01 (post-merge verification 2026-07-25): the view holds N
+        // tabs, not one. This used to abort and save only the ACTIVE session, so
+        // closing the sidebar with several tabs open left every background run
+        // going and every background conversation unsaved. Walk them all.
+        // Guard every call: onClose may run before onOpen completed if plugin
+        // init failed upstream.
+        // History hardening phase B: snapshot BEFORE aborting. The save
+        // snapshots synchronously; aborting first gains nothing and made the
+        // intent ambiguous. A run's late onComplete still enqueues a richer
+        // save behind this one (FIFO per-file queue). App-quit stays
+        // fire-and-forget (Electron limit) -- the incremental send-time saves
+        // shrink that window to at most the currently streaming answer.
+        for (const session of this.sessions) {
+            try { this.saveCurrentConversation(session); } catch { /* non-fatal */ }
+            try { session.currentAbortController?.abort(); } catch { /* non-fatal */ }
+            try { this.enqueueMemoryExtraction(session); } catch { /* non-fatal */ }
+        }
         this.attachments?.clear();
         // The popovers render into document.body and hold window-level
         // listeners; without this they outlive the view (leak + floating
@@ -569,13 +723,17 @@ export class AgentSidebarView extends ItemView {
         // history panel. The header had a duplicate star toggle that confused
         // the visual language of "filled = in memory" -- removed.
 
-        // New Chat button — clears conversation history
+        // New Chat button (FEAT-55-01): opens a NEW in-view chat tab inside
+        // this sidebar (openInViewTab), so the user can start a second chat
+        // while a task runs in the current one. Previously it cleared the
+        // session and refused while a task ran; now it always opens a parallel
+        // tab. User decision 2026-07-25: tabs live inside the sidebar.
         const newChatBtn = headerRight.createEl('button', {
             cls: 'header-button',
             attr: { 'aria-label': t('ui.sidebar.newChat') },
         });
         setIcon(newChatBtn.createSpan('toolbar-icon'), 'message-square-plus');
-        newChatBtn.addEventListener('click', () => this.clearConversation());
+        newChatBtn.addEventListener('click', () => { this.openInViewTab(); });
 
         // Browser-style back/forward through recently opened chats. Sit on
         // the far right of the header so the arrow cluster doesn't compete
@@ -598,18 +756,310 @@ export class AgentSidebarView extends ItemView {
         this.updateNavButtons();
     }
 
+    // =====================================================================
+    // FEAT-55-01 in-view tabs (Phase B): a tab strip INSIDE the sidebar view
+    // switching between ChatSessions. New chat = new tab; x closes a tab.
+    // Only the active session's messages are rendered; a background run keeps
+    // writing into its own session and its tab shows a running indicator.
+    // =====================================================================
+
+    /** Build the tab strip container (between header and chat), then render it. */
+    private buildTabStrip(container: HTMLElement): void {
+        this.tabStripEl = container.createDiv('vo-tab-strip');
+        this.renderTabStrip();
+    }
+
+    /** (Re)render the tab buttons from the current sessions + active index. */
+    private renderTabStrip(): void {
+        const strip = this.tabStripEl;
+        if (!strip) return;
+        // PERF 2026-07-25: record what this paint covers so the run-state path
+        // (which fires on every keystroke) can skip a redundant rebuild.
+        this.lastTabStripSignature = this.tabStripSignature();
+        strip.empty();
+        // User decision 2026-07-25: the strip shows from the FIRST chat on.
+        // Hiding it at one chat made a second tab pop out of nowhere on New
+        // Chat, which read as "suddenly 2 tabs".
+        strip.removeClass('agent-u-hidden');
+
+        this.sessions.forEach((session, i) => {
+            const isActive = i === this.activeSessionIndex;
+            const tab = strip.createDiv(`vo-tab${isActive ? ' vo-tab-active' : ''}`);
+            // Running indicator: a dot when this session has an in-flight run.
+            if (session.isBusy) tab.createSpan('vo-tab-running-dot');
+            const title = this.sessionTabTitle(session, i);
+            tab.createSpan({ cls: 'vo-tab-title', text: title, attr: { title } });
+            tab.addEventListener('click', () => this.switchToSession(i));
+            // Close button (x). Guarded when the session has a running task.
+            const close = tab.createSpan({ cls: 'vo-tab-close', attr: { 'aria-label': t('ui.tab.close') } });
+            setIcon(close, 'x');
+            close.addEventListener('click', (e) => {
+                e.stopPropagation(); // do not also switch to the tab
+                void this.closeSession(i);
+            });
+        });
+
+        // "+" new-tab button.
+        const add = strip.createDiv({ cls: 'vo-tab-add', attr: { 'aria-label': t('plugin.commandNewChat') } });
+        setIcon(add, 'plus');
+        add.addEventListener('click', () => this.openInViewTab());
+    }
+
+    /**
+     * A short tab label: a truncated form of the active conversation's title,
+     * else "New conversation". User feedback 2026-07-25: fresh tabs read
+     * "New conversation" (not "New chat {N}"); the real title shows up
+     * truncated once it exists. index is unused now but kept so callers that
+     * pass the tab position stay stable.
+     */
+    /**
+     * USER 2026-07-26: "sobald der Intent klar ist, soll der Intent als
+     * Tab-Titel angezeigt werden."
+     *
+     * Precedence, and the order matters:
+     *   1. a REAL store title -- the semantic (LLM) name, or a rename. This
+     *      upgrades the intent line once the run has produced something better.
+     *   2. the intent derived from the first message, held on the session so it
+     *      appears the moment the user hits send. A fresh tab has no
+     *      conversation id yet, so a store-only lookup showed the placeholder
+     *      for the whole first exchange.
+     *   3. the placeholder.
+     */
+    private sessionTabTitle(session: ChatSession, _index: number): string {
+        if (session.activeConversationId) {
+            const meta = this.plugin.conversationStore?.list().find((c) => c.id === session.activeConversationId);
+            if (meta?.title && !isUnnamedTitle(meta.title)) return this.truncateTabTitle(meta.title);
+        }
+        if (session.tabTitle) return this.truncateTabTitle(session.tabTitle);
+        return t('ui.sidebar.newChat');
+    }
+
+    /**
+     * FEAT-55-01: give the chat a name the moment the first message is sent.
+     *
+     * Only fills the untouched default, so it never clobbers a fallback already
+     * laid down, the semantic (titleSource 'auto') title, or a user rename. The
+     * task-end block and finalizeConversation still run and still upgrade this
+     * to the LLM title; this only closes the window in which a tab had no name
+     * at all -- including runs that are stopped or fail, which never reach the
+     * task-end path.
+     */
+    private nameChatFromFirstMessage(session: ChatSession): void {
+        // USER 2026-07-26: the opening messages may still change the title. A
+        // first message is often a throwaway ("moin", "kurze frage") and the
+        // real intent lands in the next one. pickTabTitle owns that rule; here
+        // we only stop asking once the chat has settled, so a long
+        // conversation never renames itself under the user.
+        const userTexts = session.uiMessages
+            .filter((m) => m.role === 'user')
+            .map((m) => m.text ?? '');
+        if (userTexts.length > TITLE_SETTLES_AFTER) return;
+
+        const title = pickTabTitle(userTexts);
+        if (!title || title === session.tabTitle) return;
+
+        // The session gets it immediately. This used to require an existing
+        // conversation id, which a fresh tab does not have -- the id is minted
+        // lazily during this very send -- so the tab kept showing the
+        // placeholder through the whole first exchange.
+        session.tabTitle = title;
+        this.renderTabStrip();
+
+        // And the store gets it too, when there is something to write to, so
+        // History and a later reload agree with the tab.
+        const store = this.plugin.conversationStore;
+        const convId = session.activeConversationId;
+        if (store && convId) {
+            const meta = store.list().find((c) => c.id === convId);
+            // A real title (semantic, or a rename) is never overwritten.
+            if (meta && !isUnnamedTitle(meta.title)) return;
+            void store.updateMeta(convId, { title }).catch(() => { /* naming is best effort */ });
+            this.historyPanel?.refresh();
+        }
+    }
+
+    /** Clip a conversation title to a tab-sized label (word-boundary aware). */
+    private truncateTabTitle(title: string): string {
+        const MAX = 24;
+        const trimmed = title.trim();
+        if (trimmed.length <= MAX) return trimmed;
+        const cut = trimmed.slice(0, MAX);
+        const lastSpace = cut.lastIndexOf(' ');
+        const base = lastSpace > MAX / 2 ? cut.slice(0, lastSpace) : cut;
+        return base.trimEnd() + '…';
+    }
+
+    /**
+     * FEAT-55-01: open a new in-view chat tab (fresh session) and switch to
+     * it. This is what the New Chat button and the new-chat command call now.
+     */
+    openInViewTab(): void {
+        const session = new ChatSession();
+        this.sessions.push(session);
+        this.activeSessionIndex = this.sessions.length - 1;
+        this.renderTabStrip();
+        // The fresh session gets its own (empty) container, shown by
+        // showActiveSessionContainer below.
+        this.ensureSessionContainer(this.activeSession);
+        this.showActiveSessionContainer();
+        this.showWelcomeMessage();
+        this.updateContextBadge();
+        this.updateNavButtons();
+        this.textarea?.focus();
+    }
+
+    /**
+     * FEAT-55-01 Phase C: lazily create a session's own chat-messages
+     * container inside chatWrapper. Each session keeps its DOM, so a
+     * background run keeps streaming into its (hidden) container and is
+     * intact when the user returns -- no empty+rebuild that would drop a
+     * mid-stream element.
+     */
+    private ensureSessionContainer(session: ChatSession): HTMLElement | null {
+        if (session.chatContainer) return session.chatContainer;
+        if (!this.chatWrapper) return null;
+        const el = this.chatWrapper.createDiv('chat-messages');
+        session.chatContainer = el;
+        return el;
+    }
+
+    /** Show the active session's container, hide the others. */
+    private showActiveSessionContainer(): void {
+        for (const s of this.sessions) {
+            if (!s.chatContainer) continue;
+            s.chatContainer.toggleClass('agent-u-hidden', s !== this.activeSession);
+        }
+        // Defence in depth (live bug 2026-07-25): a `.chat-messages` child of
+        // the wrapper that no session owns is dead DOM from a replaced session
+        // list. Because each container is height:100% in an overflow-hidden
+        // wrapper, one visible orphan pushes every real container below the
+        // fold (the "empty window" failure). Sweep them out.
+        if (this.chatWrapper) {
+            const owned = new Set(this.sessions.map((s) => s.chatContainer));
+            for (const el of Array.from(this.chatWrapper.querySelectorAll(':scope > .chat-messages'))) {
+                if (!owned.has(el as HTMLElement)) el.remove();
+            }
+        }
+    }
+
+    /** Switch the visible tab to session `index` (show/hide, no rebuild). */
+    private switchToSession(index: number): void {
+        if (index === this.activeSessionIndex || index < 0 || index >= this.sessions.length) return;
+        this.activeSessionIndex = index;
+        this.ensureSessionContainer(this.activeSession);
+        this.showActiveSessionContainer();
+        // A never-shown session still needs its initial paint (welcome or
+        // reloaded messages) done once.
+        this.paintSessionIfEmpty(this.activeSession);
+        this.renderTabStrip();
+        this.updateContextBadge();
+        this.updateNavButtons();
+    }
+
+    /** First-paint a session's container from its uiMessages (once). */
+    private paintSessionIfEmpty(session: ChatSession): void {
+        const el = session.chatContainer;
+        if (!el || el.childElementCount > 0) return;
+        if (session.uiMessages.length === 0) {
+            this.showWelcomeMessage();
+            return;
+        }
+        const assistantPairs: { msg: UiMessage; el: HTMLElement }[] = [];
+        for (const msg of session.uiMessages) {
+            if (msg.role === 'user') {
+                this.addUserMessage(msg.text);
+            } else {
+                const mel = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText);
+                if (mel) assistantPairs.push({ msg, el: mel });
+            }
+        }
+        void this.rehydrateCheckpointMarkers(assistantPairs);
+    }
+
+    /**
+     * Close the tab at `index`. A running session is not force-killed: the
+     * user is asked whether to stop it first (the run otherwise keeps going
+     * in the background and closing would orphan it). The last remaining tab
+     * is never closed -- it is cleared to a fresh chat instead.
+     */
+    private async closeSession(index: number): Promise<void> {
+        const session = this.sessions[index];
+        if (!session) return;
+        if (session.isBusy) {
+            const stop = await confirmModal(this.app, {
+                title: t('ui.tab.closeRunningTitle'),
+                message: t('ui.tab.closeRunningBody'),
+                confirmLabel: t('ui.tab.closeRunningStop'),
+                destructive: true,
+            });
+            if (!stop) return;
+            // History hardening phase B (R12): snapshot before aborting, same
+            // rule as onClose -- the save below captures the pre-abort state.
+            this.saveCurrentConversation(session);
+            session.currentAbortController?.abort();
+        }
+        // FEAT-55-01 (post-merge verification 2026-07-25): closing a tab ENDS
+        // that conversation, so it gets the same teardown any other conversation
+        // end gets. Before this, closeSession just dropped the session: the
+        // pending chat-frontmatter links were lost (finalizeConversation step 2
+        // is their only in-session writer, ADR-022), no semantic title was ever
+        // generated for that chat, and its memory extraction never ran. The old
+        // single-view code reached all of this via clearConversation /
+        // loadConversation; the tab paths bypassed it.
+        this.saveCurrentConversation(session);
+        try { this.enqueueMemoryExtraction(session); } catch { /* non-fatal */ }
+        if (session.activeConversationId) {
+            const msgs = [...session.uiMessages];
+            void this.finalizeConversation(session.activeConversationId, msgs);
+        }
+
+        // Remove this session's DOM container from the wrapper.
+        session.chatContainer?.remove();
+        session.chatContainer = null;
+        if (this.sessions.length === 1) {
+            // Never leave zero tabs: reset the sole tab to a fresh chat.
+            this.sessions[0] = new ChatSession();
+            this.activeSessionIndex = 0;
+            this.ensureSessionContainer(this.activeSession);
+            this.showActiveSessionContainer();
+            this.showWelcomeMessage();
+            this.renderTabStrip();
+            this.updateContextBadge();
+            this.updateNavButtons();
+            return;
+        }
+        this.sessions.splice(index, 1);
+        // Keep the active index valid and pointing at a sensible neighbour.
+        if (this.activeSessionIndex >= this.sessions.length) {
+            this.activeSessionIndex = this.sessions.length - 1;
+        } else if (index < this.activeSessionIndex) {
+            this.activeSessionIndex--;
+        }
+        this.ensureSessionContainer(this.activeSession);
+        this.showActiveSessionContainer();
+        this.paintSessionIfEmpty(this.activeSession);
+        this.renderTabStrip();
+        this.updateContextBadge();
+        this.updateNavButtons();
+    }
+
     private buildChatContainer(container: HTMLElement): void {
         // Chat container is wrapped in a relative parent so the history panel can overlay it
         const chatWrapper = container.createDiv('chat-wrapper');
+        this.chatWrapper = chatWrapper;
 
-        this.chatContainer = chatWrapper.createDiv('chat-messages');
+        // FEAT-55-01 Phase C: one chat-messages container PER session, all
+        // children of chatWrapper. Switching tabs shows/hides containers
+        // instead of empty+rebuild, so a background run keeps streaming live
+        // into its own (hidden) container and is intact on return.
+        this.ensureSessionContainer(this.activeSession);
 
         // History panel (absolute overlay inside the wrapper)
         const store = this.plugin.conversationStore;
         if (store) {
             this.historyPanel = new HistoryPanel(
                 store,
-                (id) => { void this.loadConversation(id); },
+                (id) => { void this.openConversationInTab(id); },
                 (id) => { void this.deleteConversation(id); },
                 (convId, title) => { void this.stampChatLinkToActiveFile(convId, title); },
                 this.activeConversationId,
@@ -618,6 +1068,8 @@ export class AgentSidebarView extends ItemView {
                 (id) => this.plugin.countMemoryFactsForConversation(id) > 0,
                 (id, currentTitle) => this.renameHistoryConversation(id, currentTitle),
                 (id, title) => this.confirmPendingConversation(id, title),
+                // FEAT-55-01: tag interrupted conversations in History.
+                (id) => this.plugin.interruptedConversationIds.has(id),
             );
             this.historyPanel.mount(chatWrapper);
         }
@@ -635,7 +1087,7 @@ export class AgentSidebarView extends ItemView {
         if (!store || !chatWrapper) return;
         this.historyPanel = new HistoryPanel(
             store,
-            (id) => { void this.loadConversation(id); },
+            (id) => { void this.openConversationInTab(id); },
             (id) => { void this.deleteConversation(id); },
             (convId, title) => { void this.stampChatLinkToActiveFile(convId, title); },
             this.activeConversationId,
@@ -643,6 +1095,9 @@ export class AgentSidebarView extends ItemView {
             (id, title) => this.removeHistoryConversationFromMemory(id, title),
             (id) => this.plugin.countMemoryFactsForConversation(id) > 0,
             (id, currentTitle) => this.renameHistoryConversation(id, currentTitle),
+            undefined,
+            // FEAT-55-01: tag interrupted conversations in History.
+            (id) => this.plugin.interruptedConversationIds.has(id),
         );
         this.historyPanel.mount(chatWrapper);
     }
@@ -721,6 +1176,8 @@ export class AgentSidebarView extends ItemView {
             // FEAT-02-11: folder-mention. Manifest attachment (path list),
             // lazy-read via read_file / read_document.
             (folder, opts) => this.attachments.addVaultFolder(folder, opts),
+            // FEAT-55-02 (ADR-170): per-view active mode for slash-source filtering.
+            () => this.modeService.getActiveModeSlug(),
         );
 
         this.textarea.addEventListener('input', () => {
@@ -980,7 +1437,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         if (category === 'prompts') {
-            const activeMode = this.plugin.settings.currentMode;
+            const activeMode = this.modeService.getActiveModeSlug();
             const prompts = (this.plugin.settings.customPrompts ?? []).filter(
                 (p) => p.enabled !== false && (!p.mode || p.mode === activeMode),
             );
@@ -1141,7 +1598,7 @@ export class AgentSidebarView extends ItemView {
 
     /** Returns the effective model key for the current mode (mode override → global fallback) */
     private getEffectiveModelKey(): string {
-        return this.resolveEnabledModelKey(this.plugin.settings.currentMode);
+        return this.resolveEnabledModelKey(this.modeService.getActiveModeSlug());
     }
 
     private updateModelButton(): void {
@@ -1173,7 +1630,7 @@ export class AgentSidebarView extends ItemView {
             const effectiveKey = this.getEffectiveModelKey();
             const model = this.plugin.settings.activeModels.find((m) => getModelKey(m) === effectiveKey);
             label = model ? (model.displayName ?? model.name) : t('ui.sidebar.noModel');
-            const hasModeOverride = !!this.plugin.settings.modeModelKeys?.[this.plugin.settings.currentMode];
+            const hasModeOverride = !!this.plugin.settings.modeModelKeys?.[this.modeService.getActiveModeSlug()];
             title = hasModeOverride ? t('ui.sidebar.modeOverride', { label }) : label;
         }
         this.modelButton.createSpan('model-label').setText(label);
@@ -1222,7 +1679,7 @@ export class AgentSidebarView extends ItemView {
 
         const enabled = this.plugin.settings.activeModels.filter((m) => m.enabled);
         const menu = new Menu();
-        const modeSlug = this.plugin.settings.currentMode;
+        const modeSlug = this.modeService.getActiveModeSlug();
         const modeOverrideKey = this.plugin.settings.modeModelKeys?.[modeSlug] ?? '';
         const globalKey = this.plugin.settings.activeModelKey;
         const effectiveKey = modeOverrideKey || globalKey;
@@ -1603,7 +2060,7 @@ export class AgentSidebarView extends ItemView {
     private updateWebToggleButton(): void {
         if (!this.webToggleButton) return;
         // Only show when the active mode supports web tools
-        const mode = this.modeService.getMode(this.plugin.settings.currentMode);
+        const mode = this.modeService.getActiveMode();
         const modeHasWeb = mode?.toolGroups?.includes('web') ?? false;
         this.webToggleButton.classList.toggle('agent-u-hidden', !modeHasWeb);
         // Visual state: active (highlighted) or inactive (ghost)
@@ -1637,6 +2094,16 @@ export class AgentSidebarView extends ItemView {
         // 3,653-file vault sorted the full list by mtime on every send-
         // click. The cache is invalidated by vault.on('create' | 'delete'
         // | 'rename' | 'modify') -- see ensureVaultContextWatcher() below.
+        // AUDIT 2026-07-26 M-7: the cache is invalidated by vault events, but
+        // .obsidian-agentignore is a dotfile and is NOT in Obsidian's file
+        // index, so editing the deny rules fires nothing. A cached context built
+        // before a rule was added would keep leaking for the rest of the
+        // session. Key the cache on the ruleset generation as well.
+        const rulesetGeneration = this.plugin.ignoreService.getGeneration();
+        if (this.vaultContextCacheGeneration !== rulesetGeneration) {
+            this.vaultContextCache = null;
+            this.vaultContextCacheGeneration = rulesetGeneration;
+        }
         if (this.vaultContextCache !== null) return this.vaultContextCache;
         this.ensureVaultContextWatcher();
         try {
@@ -1645,8 +2112,12 @@ export class AgentSidebarView extends ItemView {
             const rootFiles: string[] = [];
 
             for (const child of root.children) {
+                // AUDIT 2026-07-26 M-7: this block goes into every user message,
+                // so it was the widest of the enumeration leaks. `startsWith('.')`
+                // hides dotfolders, not the user's deny zone.
+                if (isDeniedPath(this.plugin, child.path)) continue;
                 if ('children' in child) {
-                    // It's a folder — skip hidden/system dirs
+                    // It's a folder, skip hidden/system dirs
                     const name = child.name;
                     if (!name.startsWith('.')) folders.push(name);
                 } else {
@@ -1654,7 +2125,7 @@ export class AgentSidebarView extends ItemView {
                 }
             }
 
-            const allMd = this.app.vault.getMarkdownFiles();
+            const allMd = keepVisible(this.plugin, this.app.vault.getMarkdownFiles(), (f) => f.path);
             const noteCount = allMd.length;
 
             // 5 most recently modified notes (path only)
@@ -1663,11 +2134,19 @@ export class AgentSidebarView extends ItemView {
                 .slice(0, 5)
                 .map((f) => f.path);
 
+            // AUDIT 2026-07-26 M-6: folder, file and note names are vault bytes
+            // and this block goes into EVERY user message. `vault_context` is one
+            // of the boundary tags the security prompt names as untrusted, so a
+            // note called `x</vault_context>...` used to escape the envelope on
+            // every turn -- and the result is cached, so one bad name persisted.
+            // sanitizeDirectoryEntry defangs and flattens to one row, which also
+            // stops a newline in a name forging an extra line.
+            const clean = (v: string): string => sanitizeDirectoryEntry(v, 200);
             const lines: string[] = ['<vault_context>'];
             lines.push(`Notes: ${noteCount}`);
-            if (folders.length > 0) lines.push(`Top-level folders: ${folders.join(', ')}`);
-            if (rootFiles.length > 0) lines.push(`Root files: ${rootFiles.join(', ')}`);
-            if (recent.length > 0) lines.push(`Recently modified: ${recent.join(', ')}`);
+            if (folders.length > 0) lines.push(`Top-level folders: ${folders.map(clean).join(', ')}`);
+            if (rootFiles.length > 0) lines.push(`Root files: ${rootFiles.map(clean).join(', ')}`);
+            if (recent.length > 0) lines.push(`Recently modified: ${recent.map(clean).join(', ')}`);
             lines.push('</vault_context>');
             const out = lines.join('\n');
             this.vaultContextCache = out;
@@ -1678,6 +2157,7 @@ export class AgentSidebarView extends ItemView {
     }
 
     private vaultContextCache: string | null = null;
+    private vaultContextCacheGeneration = -1;
     private vaultContextWatcherInstalled = false;
     private ensureVaultContextWatcher(): void {
         if (this.vaultContextWatcherInstalled) return;
@@ -1714,10 +2194,13 @@ export class AgentSidebarView extends ItemView {
             ? userSkills.filter(s => toggles[s.path] !== false)
             : userSkills;
 
-        const selfAuthoredBlock = selfLoader?.getMetadataSummary() ?? '';
-        const selfAuthoredNames = new Set(
-            (selfLoader?.getAllSkills() ?? []).map(s => s.name),
-        );
+        // AUDIT 2026-07-26 M-17: see skillToggleGate -- the self-authored block
+        // bypassed the switches entirely (different key than `s.path`).
+        const selfSkills = selfLoader?.getAllSkills() ?? [];
+        const selfAuthoredBlock = selfLoader?.getMetadataSummary(
+            enabledSelfAuthoredNames(toggles, selfSkills),
+        ) ?? '';
+        const selfAuthoredNames = new Set(selfSkills.map(s => s.name));
 
         const userLines = filteredUserSkills
             .filter(s => !selfAuthoredNames.has(s.name))
@@ -1939,7 +2422,36 @@ export class AgentSidebarView extends ItemView {
     /**
      * Feature 1+3: Handle sending a message with persistent history and cancellation
      */
+    /**
+     * History hardening phase D (FIX-03-20-07): thin wrapper so the
+     * send-in-flight window flag can never stick. The busy gate only becomes
+     * real when the run controller exists (~400 lines and 3 awaits after the
+     * early checks); two quick sends both passed it and started parallel runs
+     * on one session. The inner body sets sendInFlight after the early-return
+     * branches; this finally clears it on EVERY exit, including throws from
+     * the pre-run awaits.
+     */
     private async handleSendMessage(): Promise<void> {
+        // Deliberately NOT named mySession: the run-binding pin
+        // (sendPathSessionBinding.test.ts) guards the single mySession const
+        // inside the inner body; this outer binding only scopes the flag.
+        const sendSession = this.activeSession;
+        // Review F2: a unique token per invocation. Only the invocation that
+        // actually armed the flag (in the inner body, past the early returns)
+        // may clear it. Clearing unconditionally let a refused second send drop
+        // an in-flight first send's flag, reopening the parallel-run window.
+        const sendToken = {};
+        try {
+            await this.handleSendMessageInner(sendToken);
+        } finally {
+            if (sendSession.sendInFlightOwner === sendToken) {
+                sendSession.sendInFlight = false;
+                sendSession.sendInFlightOwner = null;
+            }
+        }
+    }
+
+    private async handleSendMessageInner(sendToken: object): Promise<void> {
         if (!this.textarea) return;
 
         const text = this.textarea.value.trim();
@@ -1964,6 +2476,15 @@ export class AgentSidebarView extends ItemView {
         // start a new turn. Attachments are not supported in steering mode
         // (corrections are short text-only nudges); they stay queued for the
         // next real turn.
+        // History hardening phase D (FIX-03-20-07): a second send while the
+        // first is still between its early checks and its run controller
+        // would pass the busy gate and start a parallel run on this session
+        // (its steering entry would then be silently discarded at run start).
+        // Refuse it visibly instead.
+        if (!this.currentAbortController && this.activeSession.sendInFlight) {
+            new Notice(t('notice.sendPreparing'));
+            return;
+        }
         if (this.currentAbortController) {
             if (!text) return;
             // Render the steering bubble in "pending" state and keep a
@@ -1972,6 +2493,10 @@ export class AgentSidebarView extends ItemView {
             const bubbleEl = this.addSteeringMessage(text);
             this.steeringQueue.push({ text, bubbleEl });
             this.uiMessages.push({ role: 'user', text, ts: new Date().toISOString() });
+            // History hardening phase B: every uiMessages push gets a save
+            // point. Before, only task end persisted -- a crash/reload during
+            // the run lost every steering bubble.
+            this.saveCurrentConversation();
             this.textarea.value = '';
             this.autoResizeTextarea();
             this.refreshRunStateButtons();
@@ -1996,6 +2521,13 @@ export class AgentSidebarView extends ItemView {
         //      touches no shared view state (gated below).
         // Runs BEFORE the first await and before any push, so the old run
         // draining across later awaits already sees the detached old array.
+        // History hardening phase D (FIX-03-20-07): the busy window opens
+        // here -- past every early return, before the first await. Review F2:
+        // record the owning token too, so only THIS invocation's wrapper
+        // finally clears the flag (a refused later send must not clear it).
+        this.activeSession.sendInFlight = true;
+        this.activeSession.sendInFlightOwner = sendToken;
+
         if (this.taskDraining) {
             this.conversationHistory = sanitizeHistoryForApi(
                 JSON.parse(JSON.stringify(this.conversationHistory)) as MessageParam[],
@@ -2015,32 +2547,54 @@ export class AgentSidebarView extends ItemView {
         const isHidden = this.nextMessageHidden;
         this.nextMessageHidden = false;
 
-        this.lastUserMessage = text;
+        // FEAT-55-01 (Fix 2, 2026-07-25): bind this send to the session it
+        // started in, BEFORE the first await. The pre-run assembly awaits
+        // (conversation create, slash resolution, skill directory, embedding)
+        // give the user time to switch tabs; the `this.` accessors delegate to
+        // this.activeSession, which SHIFTS on a tab switch. Pinning mySession
+        // (and its DOM container) here and routing every per-session read/write
+        // through it keeps the user message, the conversation id, the run
+        // controller, and the execute() config on the ORIGINATING chat instead
+        // of leaking into whatever tab is active when an await resolves.
+        const mySession = this.activeSession;
+        const myContainer = mySession.chatContainer;
+
+        mySession.lastUserMessage = text;
 
         // Create a new conversation on first message (if history enabled)
         // FIX-03-20-01: routed through the lazy ensurer so save paths that
         // run before/after this share the same memoized create.
-        if (!this.activeConversationId && this.plugin.conversationStore) {
-            const ensured = this.ensureConversationId();
+        if (!mySession.activeConversationId && this.plugin.conversationStore) {
+            const ensured = this.ensureConversationId(mySession);
             if (ensured) await ensured;
             // If the nav stack top is the "fresh-chat" sentinel (null), upgrade
             // it to this just-created conversation id. That keeps back/forward
             // consistent: visiting a fresh chat counts as one stack entry,
             // not two ("empty" plus its concrete id).
             if (
-                this.navStack.length > 0
-                && this.navIndex === this.navStack.length - 1
-                && this.navStack[this.navIndex] === null
+                mySession.navStack.length > 0
+                && mySession.navIndex === mySession.navStack.length - 1
+                && mySession.navStack[mySession.navIndex] === null
             ) {
-                this.navStack[this.navIndex] = this.activeConversationId;
+                mySession.navStack[mySession.navIndex] = mySession.activeConversationId;
                 this.updateNavButtons();
             }
         }
 
         // Track user UI message for history persistence (skip for hidden messages)
         if (!isHidden) {
-            this.uiMessages.push({ role: 'user', text, ts: new Date().toISOString() });
-
+            mySession.uiMessages.push({ role: 'user', text, ts: new Date().toISOString() });
+            // FEAT-55-01 (user request 2026-07-25): name the tab from the FIRST
+            // message, NOW, instead of waiting for the task to end. Naming only
+            // at task end left the tab reading "New conversation" for the whole
+            // run -- and permanently when the run was stopped or failed, which
+            // is exactly when several open tabs are hardest to tell apart. The
+            // semantic (LLM) title still replaces this later.
+            this.nameChatFromFirstMessage(mySession);
+            // History hardening phase B: persist the prompt at send time. The
+            // run may take minutes; before, a reload in that window lost the
+            // whole exchange (only task end saved).
+            this.saveCurrentConversation(mySession);
         }
 
         // Snapshot attachments, clear the chip bar, render user bubble with previews
@@ -2050,7 +2604,7 @@ export class AgentSidebarView extends ItemView {
             const activeFileForBubble = (this.plugin.settings.autoAddActiveFileContext && !this.userDismissedContext)
                 ? this.app.workspace.getActiveFile()
                 : null;
-            this.addUserMessage(text, attachments, activeFileForBubble);
+            this.addUserMessage(text, attachments, activeFileForBubble, myContainer);
         }
         this.textarea.value = '';
         this.autoResizeTextarea();
@@ -2117,6 +2671,41 @@ export class AgentSidebarView extends ItemView {
                     ];
                     if (rest) parts.push('', rest);
                     expandedText = parts.join('\n') + activeFileTail;
+                    // FIX-03-20-02: a skill may declare a deterministic chat
+                    // title (chatTitle frontmatter, e.g. "Plaud {date}"). Set it
+                    // NOW, not at task end: the task-end title block reads
+                    // mySession.activeConversationId synchronously, but on a fresh
+                    // chat that id is still being minted async (ensureConversationId
+                    // adopts it in a .then), so the whole block -- and the title --
+                    // was skipped on the first long run. Setting it here shows the
+                    // tab at once and persists as an 'auto' title as soon as the id
+                    // resolves, which also stops the task-end LLM titler from
+                    // overwriting it. Identical-intent skill runs (e.g. /plaud-...)
+                    // stay distinguishable in History.
+                    if (matchedSkill.chatTitle) {
+                        const skillTitle = resolveSkillChatTitle(matchedSkill.chatTitle, new Date());
+                        mySession.tabTitle = skillTitle;
+                        this.renderTabStrip();
+                        const ensured = this.ensureConversationId(mySession);
+                        if (ensured) {
+                            void ensured
+                                .then((convId) => this.plugin.conversationStore?.updateMeta(
+                                    convId, { title: skillTitle, titleSource: 'auto' },
+                                ))
+                                .then(() => {
+                                    this.historyPanel?.refresh();
+                                    // The conversation id + store title landed async,
+                                    // after the send-time strip paint. Once
+                                    // activeConversationId is set, sessionTabTitle reads
+                                    // the store title, so the strip must be repainted or
+                                    // the tab only catches up on the next tab switch
+                                    // (exactly the "title appears when I switch tabs"
+                                    // report). renderTabStrip has no signature guard.
+                                    this.renderTabStrip();
+                                })
+                                .catch(() => { /* naming is best effort */ });
+                        }
+                    }
                 }
             } else if (entry?.kind === 'prompt') {
                 const prompt = (this.plugin.settings.customPrompts ?? []).find(
@@ -2179,7 +2768,7 @@ export class AgentSidebarView extends ItemView {
         // so a contradictory Thinking=Off + Effort pair can no longer be
         // expressed and no coherence collapse is needed: the thinking override
         // passes through untouched. The thinking resolution itself is unchanged.
-        const effectiveThinkingOverride = this.chatThinkingOverride;
+        const effectiveThinkingOverride = mySession.chatThinkingOverride;
         const thinkingIsExplicit = isExplicitThinkingOverride(effectiveThinkingOverride);
         // Apply the per-conversation thinking override to a model before it is
         // built. In 'follow' mode the model's own value is kept unchanged.
@@ -2209,9 +2798,9 @@ export class AgentSidebarView extends ItemView {
         // the same resolved model (thinking + pin-only effort included).
         const pinnedModel = buildPinnedCustomModel(
             activeProvider,
-            this.chatModelOverride,
+            mySession.chatModelOverride,
             effectiveThinkingOverride,
-            this.chatEffortOverride,
+            mySession.chatEffortOverride,
         );
         if (pinnedModel) {
             try {
@@ -2309,24 +2898,29 @@ export class AgentSidebarView extends ItemView {
         // `lastRunAbortSignal` survives handleStop's nulling so approval
         // cards created by a draining task still bind an (aborted) signal
         // instead of undefined.
-        this.currentAbortController = new AbortController();
-        const myController = this.currentAbortController;
-        this.lastRunAbortSignal = myController.signal;
+        // FEAT-55-01 (Fix 2): the controller lives on the run's OWN session
+        // (mySession, pinned before the first await), not this.activeSession
+        // -- the pre-run awaits above may have shifted the active tab, and the
+        // completion closures must clean up the originating chat's controller
+        // regardless of which tab is active when they fire.
+        mySession.currentAbortController = new AbortController();
+        const myController = mySession.currentAbortController;
+        mySession.lastRunAbortSignal = myController.signal;
         // FEAT-24-08 Steering: clear any stale entries before a new task
         // starts so leftover mid-run messages from a previous run cannot
         // leak into a fresh conversation. Any pending bubbles that never
         // got drained (e.g. typed during the very last iteration before
         // attempt_completion fired) are flipped to "discarded" so the user
         // can see they were not applied.
-        for (const entry of this.steeringQueue) {
+        for (const entry of mySession.steeringQueue) {
             this.markSteeringDiscarded(entry.bubbleEl);
         }
-        this.steeringQueue = [];
+        mySession.steeringQueue = [];
         this.setRunningState(true);
 
         // Prepare streaming message elements (thinking → tools → response text → footer)
         // `let` so onQuestion can create fresh elements for each onboarding turn.
-        let { messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl();
+        let { messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl(myContainer);
         let accumulatedText = '';       // text accumulated during/after tool phase
         let accumulatedToolContent = '';  // content written by file-writing tools (for task extraction)
         let accumulatedThinking = '';   // full thinking text for collapse/expand
@@ -2347,7 +2941,10 @@ export class AgentSidebarView extends ItemView {
         const scheduleScroll = () => {
             if (scrollPending) return;
             scrollPending = true;
-            window.requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
+            // FEAT-55-01 (Fix 2): scroll the run's own container, not the
+            // active one -- a background run streaming into a hidden tab must
+            // not yank the visible tab's scroll position.
+            window.requestAnimationFrame(() => { scrollPending = false; myContainer?.scrollTo({ top: myContainer.scrollHeight }); });
         };
 
         // Issue #48.3: incremental Q&A markdown render. Previously Q&A text was
@@ -2498,7 +3095,10 @@ export class AgentSidebarView extends ItemView {
             }
         };
 
-        const taskId = `task-${Date.now()}`;
+        // FEAT-55-03 (ADR-171): collision-free run id. `task-${Date.now()}`
+        // collided when two chats started a run in the same millisecond, and
+        // this id keys the inflight store, checkpoint list, and newfiles marker.
+        const taskId = generateShortId('task');
         let taskWriteCount = 0;
         let hasRenderedCheckpoints = false;
         // FIX-44-44: true once any write landed WITHOUT an individual diff
@@ -2513,13 +3113,23 @@ export class AgentSidebarView extends ItemView {
         // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
         // Working spinner for a Stopping row; the drain-end removeLoading
         // (which always clears .tool-computing-row) cleans it up again.
-        this.currentStopFeedback = () => {
+        // FEAT-55-01 (isolation fix): store on the run's OWN session, not the
+        // active-tab accessor -- a tab switch during the pre-run awaits could
+        // otherwise assign this run's stop-feedback to the wrong session
+        // (the onComplete clear already uses mySession, so this closes the
+        // assign/clear asymmetry).
+        mySession.currentStopFeedback = () => {
             removeLoading();
             const host = stepsBodyEl ?? toolsEl;
             host.querySelector('.tool-computing-row')?.remove();
             const row = host.createDiv('tool-computing-row');
             setIcon(row.createSpan('tool-computing-icon'), 'loader');
-            row.createSpan('tool-computing-text').setText(t('ui.sidebar.stopping'));
+            // FEAT-55-01 (user decision 2026-07-25): say WHAT the stop is
+            // waiting on. The drain runs to the next abort checkpoint (a
+            // running tool/step), so the row explains the gap instead of a
+            // bare "Stopping" that looks stuck. The row stays until the
+            // drain-end removeLoading clears it and the Resume card appears.
+            row.createSpan('tool-computing-text').setText(t('ui.sidebar.stoppingWaiting'));
         };
         let lastTodoItems: import('../core/tools/agent/UpdateTodoListTool').TodoItem[] = [];
 
@@ -2535,17 +3145,15 @@ export class AgentSidebarView extends ItemView {
             this.contextTracker.updateContextWindow(contextWindow, maxTokens);
         }
 
-        // Pass full (un-truncated) document texts to IngestDocumentTool and ReadDocumentTool
-        // and synchronize the tool state every send pass (also with []), so attachments
-        // from a prior turn cannot leak into a new turn that has none. ADR-112 / FIX-19-28-05.
+        // FEAT-55-02 (ADR-170): full (un-truncated) document texts travel
+        // run-scoped through the task's RunConfig (attachmentTexts below),
+        // NOT via setAttachmentTexts on the shared tool singletons. This
+        // stops a parallel chat's send (also with []) from wiping this run's
+        // attachments mid-read. Consumed once here; empty when none, which
+        // keeps the tools' one-turn-lifetime error. ADR-112 / FIX-19-28-05.
+        let runAttachmentTexts: string[] = [];
         try {
-            const docTexts = this.attachments.consumeFullDocTexts();
-            for (const toolName of ['ingest_document', 'read_document'] as const) {
-                const tool = this.plugin.toolRegistry.getTool(toolName);
-                if (tool && typeof (tool as unknown as Record<string, unknown>).setAttachmentTexts === 'function') {
-                    (tool as unknown as { setAttachmentTexts(t: string[]): void }).setAttachmentTexts(docTexts);
-                }
-            }
+            runAttachmentTexts = this.attachments.consumeFullDocTexts();
         } catch { /* non-critical -- tools will fall back to source_path */ }
 
         // ADR-090 / FEATURE-1804: cost display + telemetry persistence run
@@ -2562,7 +3170,7 @@ export class AgentSidebarView extends ItemView {
             getFooterEl: () => footerEl,
             getEffectiveModelKey: () => this.getEffectiveModelKey(),
             promptPreview: typeof messageToSend === 'string' ? messageToSend.slice(0, 200) : '<multimodal>',
-            mode: this.plugin.settings.currentMode,
+            mode: this.modeService.getActiveModeSlug(),
             contextTracker: this.contextTracker ?? undefined,
         });
 
@@ -2878,7 +3486,7 @@ export class AgentSidebarView extends ItemView {
                 },
                 onTodoUpdate: (items) => {
                     lastTodoItems = items;
-                    this.renderTodoBox(toolsEl, items);
+                    this.renderTodoBox(toolsEl, items, myContainer);
                 },
                 onContextCondensed: (prevTokens?: number, newTokens?: number) => {
                     // Show condensation feedback with token reduction
@@ -2920,9 +3528,16 @@ export class AgentSidebarView extends ItemView {
                 // so the user can see exactly when their correction landed
                 // in the conversation history.
                 consumeSteeringMessages: (iteration: number) => {
-                    if (this.steeringQueue.length === 0) return [];
-                    const drained = this.steeringQueue;
-                    this.steeringQueue = [];
+                    // FEAT-55-01 (isolation fix): drain THIS run's own queue,
+                    // not this.steeringQueue (the active tab's). AgentLoopEngine
+                    // pushes the returned texts straight into the calling run's
+                    // history, so reading the active tab would inject a steering
+                    // message typed for another chat into this run's transcript
+                    // (cross-tab write, FIX-01-01-02 class). mySession is pinned
+                    // in this closure before the first await.
+                    if (mySession.steeringQueue.length === 0) return [];
+                    const drained = mySession.steeringQueue;
+                    mySession.steeringQueue = [];
                     const texts: string[] = [];
                     for (const entry of drained) {
                         texts.push(entry.text);
@@ -2931,10 +3546,12 @@ export class AgentSidebarView extends ItemView {
                     return texts;
                 },
                 onModeSwitch: (newModeSlug) => {
-                    // Explicitly sync settings before refreshing the button.
-                    // ModeService.switchMode() sets this synchronously; we
-                    // still update settings here as a safety net.
-                    this.plugin.settings.currentMode = newModeSlug;
+                    // FEAT-55-02 (ADR-170): the mid-loop switch_mode already
+                    // updated THIS view's ModeService (AgentTask calls
+                    // this.modeService.switchMode before this callback). We no
+                    // longer write plugin.settings.currentMode here -- that
+                    // global write was the cross-chat bleed: it changed every
+                    // other chat's mode. This callback is now UI-only.
                     new Notice(t('notice.modeSwitched', { mode: this.getModeDisplayName(newModeSlug) }));
                     // Forced workflow is keyed per agent, so switching agents
                     // may change which one is active -- refresh the chip (IMP-02-02-01).
@@ -2979,7 +3596,8 @@ export class AgentSidebarView extends ItemView {
                         // Finalize current assistant message
                         messageEl.removeClass('message-streaming');
                         if (accumulatedText) {
-                            this.uiMessages.push({
+                            // FEAT-55-01 Phase C: run-bound session, not this.active.
+                            mySession.uiMessages.push({
                                 role: 'assistant',
                                 text: accumulatedText,
                                 ts: new Date().toISOString(),
@@ -2996,11 +3614,22 @@ export class AgentSidebarView extends ItemView {
                             // just persisted; the next turn starts empty.
                             turnCheckpoints = [];
                         }
-                        // Render user answer as a regular chat message
-                        this.addUserMessage(answer);
-                        this.uiMessages.push({ role: 'user', text: answer, ts: new Date().toISOString() });
+                        // Render user answer as a regular chat message into the
+                        // run's own container (isolation fix), not the active tab.
+                        this.addUserMessage(answer, [], null, myContainer);
+                        // Review F4: mark this bubble as a followup answer, not
+                        // an independent send. It enters the API history as a
+                        // tool_result, so computeEditResendCut must not count it
+                        // as a real user turn (otherwise edit+resend stays
+                        // disabled for every conversation that used a followup).
+                        mySession.uiMessages.push({ role: 'user', text: answer, ts: new Date().toISOString(), isFollowupAnswer: true });
+                        // History hardening phase B: one save point covers both
+                        // pushes of this exchange (question flush + typed
+                        // answer). Long skill runs with followups used to lose
+                        // everything up to here on reload.
+                        this.saveCurrentConversation(mySession);
                         // Create fresh assistant message element for the next response
-                        ({ messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl());
+                        ({ messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl(myContainer));
                         // Reset per-turn state
                         accumulatedText = '';
                         accumulatedThinking = '';
@@ -3028,20 +3657,20 @@ export class AgentSidebarView extends ItemView {
                         scheduleScroll();
                         resolve(answer);
                     };
-                    this.showQuestionCard(question, options, wrappedResolve);
+                    this.showQuestionCard(question, options, wrappedResolve, myContainer, mySession);
                 },
                 onApprovalRequired: async (toolName, input, preview, batch) => {
-                    return this.showApprovalCard(toolName, input, preview, batch);
+                    return this.showApprovalCard(toolName, input, preview, batch, myContainer, mySession);
                 },
                 onOptionalAssetRequired: async (spec, toolName) => {
-                    return this.showInstallPromptCard(spec, toolName);
+                    return this.showInstallPromptCard(spec, toolName, myContainer);
                 },
                 onAttemptCompletion: () => {
                     // Auto-complete any unfinished todo items — agent often skips
                     // a final update_todo_list call before attempt_completion
                     if (lastTodoItems.length > 0) {
                         const allDone = lastTodoItems.map((i) => ({ ...i, status: 'done' as const }));
-                        this.renderTodoBox(toolsEl, allDone);
+                        this.renderTodoBox(toolsEl, allDone, myContainer);
                     }
                     scheduleScroll();
                 },
@@ -3080,7 +3709,7 @@ export class AgentSidebarView extends ItemView {
                     // Auto-complete todos on natural task end (mirrors onAttemptCompletion)
                     if (lastTodoItems.length > 0) {
                         const allDone = lastTodoItems.map((i) => ({ ...i, status: 'done' as const }));
-                        this.renderTodoBox(toolsEl, allDone);
+                        this.renderTodoBox(toolsEl, allDone, myContainer);
                     }
                     // Finalize the steps block: remove any trailing "Analyzing…" row,
                     // ensure the summary shows the final count + status icon, and
@@ -3182,10 +3811,25 @@ export class AgentSidebarView extends ItemView {
                     // controller. A late onComplete of a stopped, drained
                     // run must not clobber a newer run's controller (which
                     // would make that run unstoppable).
-                    if (this.currentAbortController === myController) {
-                        this.currentAbortController = null;
+                    // FEAT-55-01 (Fix 2): compare against mySession, not the
+                    // active session -- a background run completing while a
+                    // different tab is active would otherwise never null its
+                    // own controller (stuck tab dot) and skip its save.
+                    // FIX-03-20-02: resolve ownership from the PRE-cleanup
+                    // controller state. The gate below used to be computed
+                    // AFTER this block nulled currentAbortController, so its
+                    // live-run disjunct was dead and EVERY cleanly finishing
+                    // run skipped the assistant-uiMessage push + save + title
+                    // (files kept the full API history but only the user
+                    // prompts in uiMessages). handleStop already follows this
+                    // rule ("record teardown ownership BEFORE nulling").
+                    const teardown = resolveRunTeardown(
+                        mySession.currentAbortController, mySession.drainingController, myController,
+                    );
+                    if (teardown.wasLiveRun) {
+                        mySession.currentAbortController = null;
+                        mySession.currentStopFeedback = null;
                         this.setRunningState(false);
-                        this.currentStopFeedback = null;
                     }
                     // Issue 3 Wave B: drain-owner gate. A run owns the shared
                     // view state (drain-end, Resume card, uiMessages, save,
@@ -3194,15 +3838,16 @@ export class AgentSidebarView extends ItemView {
                     // superseded. A superseded old run matches neither and
                     // does ONLY the local DOM cleanup above/below -- it never
                     // writes into the newer conversation (FIX-01-01-02).
-                    const drainOwner = this.currentAbortController === myController
-                        || this.drainingController === myController;
+                    const drainOwner = teardown.drainOwner;
                     if (drainOwner) {
-                        this.endTaskDraining(); // GUARD-L1
+                        this.endTaskDraining(mySession); // GUARD-L1
                         // IMP-24-08-04 (stop=pause): a stopped run kept its
                         // inflight snapshot -- offer the Resume card now that
-                        // the drain is over and sends are unblocked.
+                        // the drain is over and sends are unblocked. Scoped to
+                        // THIS chat's conversation (FEAT-55-01) so it shows the
+                        // snapshot of the chat the user stopped, not a global one.
                         if (myController.signal.aborted) {
-                            void this.maybeOfferInflightResume();
+                            void this.maybeOfferInflightResume(mySession.activeConversationId ?? undefined, myContainer);
                         }
                     }
                     scheduleScroll();
@@ -3228,20 +3873,32 @@ export class AgentSidebarView extends ItemView {
                         hasRenderedCheckpoints,
                     });
                     if (surfaces.showUndoBar) {
-                        this.showUndoBar(taskId, taskWriteCount);
+                        this.showUndoBar(taskId, taskWriteCount, myContainer);
                     }
                     if (surfaces.showPostTaskReview) {
-                        void this.showPostTaskReview(taskId);
+                        void this.showPostTaskReview(taskId, mySession);
                     }
-                    // Notify when sidebar is not the active (focused) view
-                    if (this.app.workspace.getMostRecentLeaf()?.view !== this) {
-                        new Notice(t('notice.taskComplete'), 3000);
+                    // Notify when the finished run is NOT the one the user is
+                    // looking at. FEAT-55-01 (user decision 2026-07-25): with
+                    // several tabs this must be tab-based, not focus-based --
+                    // fire when the sidebar is unfocused OR the finished chat is
+                    // a background tab, and name the chat so the user knows
+                    // WHICH one completed. Suppressed only when this exact chat
+                    // is both the active tab and the focused view.
+                    const sidebarFocused = this.app.workspace.getMostRecentLeaf()?.view === this;
+                    const runIsActiveTab = mySession === this.activeSession;
+                    if (!sidebarFocused || !runIsActiveTab) {
+                        const chatName = this.sessionTabTitle(mySession, this.sessions.indexOf(mySession));
+                        new Notice(t('notice.taskCompleteInChat', { chat: chatName }), 3000);
                     }
                     // Track assistant UI message for history persistence,
                     // including a snapshot of the collapsed steps block so
                     // tool actions remain inspectable after a chat reload.
                     if (accumulatedText) {
-                        this.uiMessages.push({
+                        // FEAT-55-01 Phase C: push into the RUN's session, not
+                        // this.activeSession (a tab switch mid-run must not
+                        // move the assistant reply to the now-active tab).
+                        mySession.uiMessages.push({
                             role: 'assistant',
                             text: accumulatedText,
                             ts: new Date().toISOString(),
@@ -3255,8 +3912,8 @@ export class AgentSidebarView extends ItemView {
                                 : undefined,
                         });
                     }
-                    // Auto-save conversation to ConversationStore
-                    this.saveCurrentConversation();
+                    // Auto-save conversation to ConversationStore (run's session).
+                    this.saveCurrentConversation(mySession);
 
                     // Task Extraction Post-Processing (ADR-026, FEATURE-100)
                     const taskScanText = (accumulatedText + accumulatedToolContent).trim();
@@ -3264,15 +3921,43 @@ export class AgentSidebarView extends ItemView {
                         void this.maybeExtractTasks(taskScanText);
                     }
 
-                    // Auto-title: set fallback title for immediate history display (ADR-022)
-                    // Semantic titling happens later in finalizeConversation() on conversation end.
-                    if (this.activeConversationId && this.uiMessages.length <= 2 && this.plugin.conversationStore) {
-                        const firstUserMsg = this.uiMessages.find((m) => m.role === 'user');
-                        if (firstUserMsg) {
-                            const fallback = firstUserMsg.text.slice(0, 60).replace(/\n/g, ' ').trim() || t('ui.sidebar.newConversation');
-                            void this.plugin.conversationStore.updateMeta(this.activeConversationId, { title: fallback }).catch(() => {});
-                            this.historyPanel?.refresh();
+                    // Auto-title at task end, not only when the conversation is
+                    // closed (ADR-022). Two steps: an immediate fallback (first
+                    // user message) so the tab shows something at once, then the
+                    // semantic title async, which replaces it. The old `<= 2`
+                    // message guard skipped exactly the long, multi-tool skill
+                    // runs -- that is why those tabs stayed "New Conversation".
+                    //
+                    // MERGE 2026-07-25 (fix/plaud-dedup-at-write-point x EPIC-55):
+                    // the titling logic is taken from the skill branch, but bound
+                    // to mySession instead of the active-tab accessors. A
+                    // background run finishing while another tab is active must
+                    // title ITS OWN chat, never the visible one (the cross-tab
+                    // write class FIX-01-01-02 / the in-view-tab isolation fix).
+                    if (mySession.activeConversationId && this.plugin.conversationStore) {
+                        const convId = mySession.activeConversationId;
+                        const store = this.plugin.conversationStore;
+                        const meta = store.list().find((c) => c.id === convId);
+                        // Only lay down the fallback while the title is still the
+                        // untouched default; never clobber a fallback/auto/user title.
+                        if (!meta || isUnnamedTitle(meta.title)) {
+                            const firstUserMsg = mySession.uiMessages.find((m) => m.role === 'user');
+                            if (firstUserMsg) {
+                                const fallback = firstUserMsg.text.slice(0, 60).replace(/\n/g, ' ').trim() || t('ui.sidebar.newChat');
+                                void store.updateMeta(convId, { title: fallback }).catch(() => {});
+                                this.historyPanel?.refresh();
+                                // FEAT-55-01: the tab label is read from the store
+                                // title, and the run-state re-render already fired
+                                // before this title existed -- repaint the strip so
+                                // the tab actually shows the new name.
+                                this.renderTabStrip();
+                            }
                         }
+                        // Semantic title: idempotent, no-op if one already exists
+                        // (incl. a skill-declared 'auto' title from send time) or
+                        // no titling model is configured.
+                        const msgs = [...mySession.uiMessages];
+                        void this.maybeGenerateSemanticTitle(convId, msgs).catch(() => {});
                     }
                 },
                 // Feature 5: Error display inside steps dialog
@@ -3297,17 +3982,23 @@ export class AgentSidebarView extends ItemView {
                     // Clean up streaming/running state
                     messageEl.removeClass('message-streaming');
                     // FIX-24-08-03: identity check, see onComplete.
-                    if (this.currentAbortController === myController) {
-                        this.currentAbortController = null;
+                    // FEAT-55-01 (Fix 2): compare against mySession, see onComplete.
+                    // FIX-03-20-02: same dead-disjunct as onComplete -- resolve
+                    // ownership BEFORE nulling, or an erroring live run never
+                    // ends its own drain.
+                    const errTeardown = resolveRunTeardown(
+                        mySession.currentAbortController, mySession.drainingController, myController,
+                    );
+                    if (errTeardown.wasLiveRun) {
+                        mySession.currentAbortController = null;
                         this.setRunningState(false);
                     }
                     // Issue 3 Wave B: only the drain owner (live run or the
                     // still-draining stopped run not yet superseded) ends the
                     // drain. A superseded old run erroring out must not clear
                     // the lock the new run's lifecycle owns.
-                    if (this.currentAbortController === myController
-                        || this.drainingController === myController) {
-                        this.endTaskDraining(); // GUARD-L1
+                    if (errTeardown.drainOwner) {
+                        this.endTaskDraining(mySession); // GUARD-L1
                     }
                 },
                 onTaskTelemetry: (data) => {
@@ -3400,7 +4091,7 @@ export class AgentSidebarView extends ItemView {
         // start on v2 from minute one. ContextComposer renders an empty
         // block until the user has facts; no fallback to v1.
         let memoryContext: string | undefined;
-        const isFirstMessage = this.conversationHistory.length === 0;
+        const isFirstMessage = mySession.conversationHistory.length === 0;
 
         if (
             this.plugin.settings.memory.enabled
@@ -3430,32 +4121,37 @@ export class AgentSidebarView extends ItemView {
                         return { reason, dayKey: guard.snapshot().day };
                     },
                 );
-                let userEmbedding: Float32Array | null = null;
-                if (text.trim()) {
-                    const vectors = await this.plugin.embeddingService.embed([text]);
-                    userEmbedding = vectors[0] ?? null;
-                }
                 // FEAT-03-26 (BA-25): Top-Hub-Block (Vault-Karte) optional
                 // im stabilen Prompt-Prefix. Default off, Setting-gated.
                 const topHubBlock = this.plugin.settings.vaultIngest?.topHubBlock?.enabled
                     ? this.plugin.topHubBlockMarkdown
                     : undefined;
-                const composed = composer.compose({
-                    sessionId: this.activeConversationId ?? 'transient',
-                    userMessageEmbedding: userEmbedding,
-                    topHubBlockMarkdown: topHubBlock,
-                });
-                // FEATURE-0319b: prepend the cache-stable Soul block from
-                // the agent-self profile (profile_id='_obsilo'). Two
-                // separate calls per /architecture decision A so the
-                // blocks stay independently cache-stable and ContextRanker
-                // remains profile-naive.
+                // FIX-03-19b-01: Soul-Block (embedding-frei, FEATURE-0319b) und
+                // Query-Embedding werden UNABHAENGIG zusammengesetzt. Vorher
+                // teilten embed() und der SoulView-Render einen try/catch, sodass
+                // ein 8s-Embedding-Timeout (Budget aus f1bc6154) den ganzen Block
+                // riss und der Agent seine Identitaet verlor (siezte). Jetzt
+                // degradiert ein Embedding-Fehler nur das Recall auf Recency
+                // (compose() behandelt userEmbedding=null als "Lock behalten").
                 const { SoulView } = await import('../core/memory/SoulView');
-                const soulMarkdown = new SoulView(this.plugin.memoryDB).renderMarkdown();
-                const parts: string[] = [];
-                if (soulMarkdown) parts.push(soulMarkdown);
-                if (composed.markdown) parts.push(composed.markdown);
-                if (parts.length > 0) memoryContext = parts.join('\n\n');
+                const { assembleMemoryContext } = await import('../core/memory/assembleMemoryContext');
+                const embeddingService = this.plugin.embeddingService;
+                memoryContext = await assembleMemoryContext({
+                    renderSoul: () => {
+                        const memoryDB = this.plugin.memoryDB;
+                        return memoryDB ? new SoulView(memoryDB).renderMarkdown() : '';
+                    },
+                    embedQuery: async () => {
+                        if (!text.trim() || !embeddingService) return null;
+                        const vectors = await embeddingService.embed([text]);
+                        return vectors[0] ?? null;
+                    },
+                    composeContext: (userEmbedding) => composer.compose({
+                        sessionId: mySession.activeConversationId ?? 'transient',
+                        userMessageEmbedding: userEmbedding,
+                        topHubBlockMarkdown: topHubBlock,
+                    }),
+                });
             } catch (e) {
                 console.warn('[Memory] ContextComposer failed:', e);
             }
@@ -3524,17 +4220,17 @@ export class AgentSidebarView extends ItemView {
         // IMP-41-03-01: an armed resume snapshot replaces the working history
         // with the (more complete) inflight copy and hands the loop its
         // persisted state. One-shot: consumed here, cleared immediately.
-        const resumeSnapshot = this.pendingResume;
-        this.pendingResume = null;
+        const resumeSnapshot = mySession.pendingResume;
+        mySession.pendingResume = null;
         if (resumeSnapshot) {
-            this.conversationHistory = [...resumeSnapshot.history];
+            mySession.conversationHistory = [...resumeSnapshot.history];
         }
 
         await task.execute({
             userMessage: messageToSend,
             taskId,
             initialMode: activeMode,
-            history: this.conversationHistory,
+            history: mySession.conversationHistory,
             resumeState: resumeSnapshot?.state,
             // FIX-24-08-03: bind the pinned controller, not the mutable
             // field -- awaits between controller creation and this call
@@ -3554,7 +4250,9 @@ export class AgentSidebarView extends ItemView {
             // sees what `recipesSection` was built from.
             recipeMatches: recipeMatchesForRun,
             configDir: this.app.vault.configDir,
-            conversationId: this.activeConversationId ?? undefined,
+            conversationId: mySession.activeConversationId ?? undefined,
+            // FEAT-55-02 (ADR-170): run-scoped chat attachments for this send.
+            attachmentTexts: runAttachmentTexts,
         });
     }
 
@@ -3645,7 +4343,36 @@ export class AgentSidebarView extends ItemView {
         const { showSend, showStop } = resolveRunStateButtons(running, hasText);
         if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', !showSend);
         if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !showStop);
+        // FEAT-55-01 (Phase C): keep the tab strip's per-session running dot in
+        // sync as runs start/stop.
+        //
+        // PERF 2026-07-25: this used to repaint unconditionally. The comment
+        // claimed the method "fires on every run-state change" -- it also fires
+        // from the textarea input handler, so the whole strip was rebuilt on
+        // EVERY KEYSTROKE, and each tab label does a conversationStore.list()
+        // lookup. Repaint only when what the strip actually shows has changed.
+        if (this.tabStripSignature() !== this.lastTabStripSignature) {
+            this.renderTabStrip();
+        }
     }
+
+    /**
+     * Busy dots + active tab + tab count: everything about the strip that the
+     * run-state path can change. Titles are NOT in here -- they are repainted
+     * by their own writers, which call renderTabStrip directly.
+     */
+    private tabStripSignature(): string {
+        // USER 2026-07-26: the titles are part of what is painted, so they are
+        // part of what "unchanged" means. Without them a caller that guards on
+        // this signature would skip the repaint that shows a new intent line --
+        // the strip would only catch up on the next unrelated change, which
+        // reads as "the title appears when I switch tabs".
+        return this.sessions.map((s, i) => `${s.isBusy ? '1' : '0'}${this.sessionTabTitle(s, i)}`).join('\u0000')
+            + `|${this.activeSessionIndex}|${this.sessions.length}`;
+    }
+
+    /** What renderTabStrip last painted; kept in sync by renderTabStrip itself. */
+    private lastTabStripSignature = '';
 
     /**
      * FIX-01-01-02: while a task runs, the loop holds THE reference to
@@ -3667,28 +4394,40 @@ export class AgentSidebarView extends ItemView {
         // so the guard also holds while a stopped task drains. A timeout
         // fallback keeps a wedged task from locking the user out forever.
         if (!this.currentAbortController && !this.taskDraining) return false;
-        new Notice(t('ui.sidebar.taskRunningNoSwitch'), 6000);
+        // FEAT-55-01 (user decision 2026-07-25): name the chat that is still
+        // running so the user knows which tab to attend to. The guard fires on
+        // the active session's own run/drain state, so that IS the running chat.
+        const chatName = this.sessionTabTitle(this.activeSession, this.activeSessionIndex);
+        new Notice(t('ui.sidebar.taskRunningNoSwitchNamed', { chat: chatName }), 6000);
         return true;
     }
 
-    /** GUARD-L1: hold the switch guard while a stopped task drains. */
-    private beginTaskDraining(): void {
-        this.taskDraining = true;
-        if (this.taskDrainingTimer) window.clearTimeout(this.taskDrainingTimer);
-        this.taskDrainingTimer = window.setTimeout(() => {
-            this.taskDraining = false;
-            this.taskDrainingTimer = 0;
+    /** GUARD-L1: hold the switch guard while a stopped task drains.
+     *
+     *  History hardening phase D (R3): the session is CAPTURED -- the old
+     *  timeout wrote through `this.` accessors and cleared whichever tab was
+     *  active 30s later. And the timeout releases ONLY the switch guard:
+     *  drainingController stays, because a legitimately slow drain (approval
+     *  wait, long tool call) must keep its ownership token or its late
+     *  onComplete skips the uiMessages push + save -- the exact loss class
+     *  FIX-03-20-02 closed. */
+    private beginTaskDraining(session: ChatSession = this.activeSession): void {
+        session.taskDraining = true;
+        if (session.taskDrainingTimer) window.clearTimeout(session.taskDrainingTimer);
+        session.taskDrainingTimer = window.setTimeout(() => {
+            session.taskDraining = false;
+            session.taskDrainingTimer = 0;
         }, 30_000);
     }
 
-    private endTaskDraining(): void {
-        this.taskDraining = false;
+    private endTaskDraining(session: ChatSession = this.activeSession): void {
+        session.taskDraining = false;
         // Issue 3 Wave B: the drain is over, so the ownership token must not
         // linger and match a future run by identity accident.
-        this.drainingController = null;
-        if (this.taskDrainingTimer) {
-            window.clearTimeout(this.taskDrainingTimer);
-            this.taskDrainingTimer = 0;
+        session.drainingController = null;
+        if (session.taskDrainingTimer) {
+            window.clearTimeout(session.taskDrainingTimer);
+            session.taskDrainingTimer = 0;
         }
     }
 
@@ -3708,7 +4447,9 @@ export class AgentSidebarView extends ItemView {
             void this.finalizeConversation(this.activeConversationId, msgs);
         }
         this.activeConversationId = null;
-        this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
+        this.lazyConversationId.reset();
+        // The session-held tab title belongs to the OUTGOING chat.
+        this.activeSession.tabTitle = null; // FIX-03-20-01: fresh chat, fresh memo
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
@@ -3718,8 +4459,6 @@ export class AgentSidebarView extends ItemView {
         this.chatThinkingOverride = DEFAULT_THINKING_OVERRIDE;
         this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
         this.updateModelButton();
-        // ADR-048: Reset session flags when starting a new conversation
-        this.plugin.sessionFlags.clear();
         this.onboarding?.reset();
         this.attachments.clear();
         // Conversation reset drops any pending fullDocTexts too (FIX-19-28-05 audit).
@@ -3742,9 +4481,11 @@ export class AgentSidebarView extends ItemView {
      * FIX-03-20-01: create the conversation id as soon as the store allows.
      * Returns null while no store exists (nothing to save against).
      */
-    private ensureConversationId(): Promise<string> | null {
-        return this.lazyConversationId.ensure(
-            this.activeConversationId,
+    private ensureConversationId(session: ChatSession = this.activeSession): Promise<string> | null {
+        // FEAT-55-01 Phase C: operate on the run''s own session, so a save
+        // triggered after a tab switch resolves/adopts the id on the right chat.
+        return session.lazyConversationId.ensure(
+            session.activeConversationId,
             this.plugin.conversationStore,
             () => {
                 const mode = this.modeService.getActiveMode().slug;
@@ -3753,31 +4494,41 @@ export class AgentSidebarView extends ItemView {
                 return { mode, model: model?.displayName ?? model?.name ?? modelKey };
             },
             (id) => {
-                // Only adopt the id if the view still has none -- the user
-                // may have switched to a loaded conversation meanwhile.
-                if (!this.activeConversationId) this.activeConversationId = id;
+                // Only adopt the id if the session still has none -- the user
+                // may have switched/loaded a conversation meanwhile.
+                if (!session.activeConversationId) session.activeConversationId = id;
             },
         );
     }
 
     /** Save the current conversation to ConversationStore (non-blocking). */
-    private saveCurrentConversation(): void {
+    private saveCurrentConversation(session: ChatSession = this.activeSession): void {
         const store = this.plugin.conversationStore;
-        if (!store || this.uiMessages.length === 0) return;
+        if (!store || session.uiMessages.length === 0) return;
         // FIX-03-20-01: a send during boot may predate store init. Create
         // the id lazily now instead of silently skipping the save (this
         // was how a completed chat could vanish from history entirely).
-        const ensured = this.ensureConversationId();
+        const ensured = this.ensureConversationId(session);
         if (!ensured) return;
-        // AUDIT-2026-07-02 L-2: snapshot BOTH arrays at call time. The id may
-        // resolve after the user switched conversations (boot-race + load);
-        // saving live this.* would then persist the newly loaded
-        // conversation's content under this save's id. Snapshots bind the
-        // payload to the conversation that was active when the save fired.
-        const messagesSnapshot = [...this.uiMessages];
-        const historySnapshot = [...this.conversationHistory];
+        // AUDIT-2026-07-02 L-2 + FEAT-55-01 Phase C: snapshot BOTH arrays at
+        // call time, from the SESSION the run belongs to (not this.activeSession,
+        // which shifts on tab switch). Binds the payload to the right chat.
+        const messagesSnapshot = [...session.uiMessages];
+        const historySnapshot = [...session.conversationHistory];
+        // History hardening phase C: a deliberate truncation (pencil edit,
+        // checkpoint delete) flags the session; the flag travels as
+        // allowShrink and is cleared once the shrink was actually written.
+        const allowShrink = session.historyTruncated;
         ensured.then(async (convId) => {
-            await store.save(convId, historySnapshot, messagesSnapshot);
+            const { written } = await store.save(convId, historySnapshot, messagesSnapshot, { allowShrink });
+            if (!written) {
+                // Refused shrink: nothing landed on disk, so the search index
+                // must not see this snapshot either (it would index content
+                // that does not exist in the file).
+                console.warn(`[History] save(${convId}) refused by shrink guard; snapshot not indexed`);
+                return;
+            }
+            if (allowShrink) session.historyTruncated = false;
             // FEATURE-0320 Phase 6: re-index history_chunks after every save.
             void this.plugin.historyIndexer?.onConversationSaved(convId, messagesSnapshot);
         }).catch((e) => console.warn('[History] Save failed:', e));
@@ -3912,22 +4663,22 @@ export class AgentSidebarView extends ItemView {
     }
 
     /** Enqueue memory extraction if the conversation meets the threshold. Fire-and-forget. */
-    private enqueueMemoryExtraction(): void {
+    private enqueueMemoryExtraction(session: ChatSession = this.activeSession): void {
         const mem = this.plugin.settings.memory;
         const queue = this.plugin.extractionQueue;
         if (!mem.enabled || !mem.autoExtractSessions || !queue) return;
-        if (!this.activeConversationId) return;
+        if (!session.activeConversationId) return;
 
         // Pinned conversations (already have facts in memory) get a
         // lower threshold of 1 -- the user explicitly opted into memory
         // for them, every new message is potentially relevant. Fresh
         // conversations still wait for the configured threshold so
         // smalltalk doesn't trigger an extraction.
-        const isPinned = this.plugin.countMemoryFactsForConversation(this.activeConversationId) > 0;
+        const isPinned = this.plugin.countMemoryFactsForConversation(session.activeConversationId) > 0;
         const threshold = isPinned ? 1 : mem.extractionThreshold;
-        if (this.uiMessages.length < threshold) return;
+        if (session.uiMessages.length < threshold) return;
 
-        const snapshot = this.snapshotForMemory();
+        const snapshot = this.snapshotForMemory(session);
         if (!snapshot) return;
         queue.enqueue(snapshot).catch((e) => console.warn('[Memory] Enqueue failed:', e));
     }
@@ -3938,13 +4689,17 @@ export class AgentSidebarView extends ItemView {
      * (Star button, mark_for_memory tool) which always run regardless of the
      * autoExtractSessions toggle and the message-threshold.
      */
-    snapshotForMemory(): { conversationId: string; messages: Array<{ role: 'user' | 'assistant'; text: string }>; title: string; queuedAt: string } | null {
-        if (!this.activeConversationId || this.uiMessages.length === 0) return null;
-        const messages = this.uiMessages.map((m) => ({ role: m.role, text: m.text }));
-        const title = this.uiMessages.find((m) => m.role === 'user')?.text.slice(0, 60).replace(/\n/g, ' ').trim()
+    snapshotForMemory(
+        // FEAT-55-01: snapshot a SPECIFIC chat. onClose has to walk every open
+        // tab, not just the visible one.
+        session: ChatSession = this.activeSession,
+    ): { conversationId: string; messages: Array<{ role: 'user' | 'assistant'; text: string }>; title: string; queuedAt: string } | null {
+        if (!session.activeConversationId || session.uiMessages.length === 0) return null;
+        const messages = session.uiMessages.map((m) => ({ role: m.role, text: m.text }));
+        const title = session.uiMessages.find((m) => m.role === 'user')?.text.slice(0, 60).replace(/\n/g, ' ').trim()
             || t('ui.sidebar.conversation');
         return {
-            conversationId: this.activeConversationId,
+            conversationId: session.activeConversationId,
             messages,
             title,
             queuedAt: new Date().toISOString(),
@@ -3986,6 +4741,65 @@ export class AgentSidebarView extends ItemView {
      * Finalize a conversation: generate semantic title, stamp frontmatter links.
      * Messages are passed in because this.uiMessages may already be cleared when this runs.
      */
+    /**
+     * Generate a semantic conversation title, once. Idempotent: skips if the
+     * user renamed it (titleSource 'user') or an auto-title already exists
+     * (titleSource 'auto'). Marks the result 'auto' so it is generated exactly
+     * once and a later finalize does not re-run the model. Callable both at
+     * task end (so the tab gets a name immediately, not only when the
+     * conversation is closed) and from finalizeConversation.
+     */
+    private async maybeGenerateSemanticTitle(
+        conversationId: string,
+        messages: Array<{ role: string; text: string }>,
+    ): Promise<void> {
+        const store = this.plugin.conversationStore;
+        if (!store) return;
+
+        const meta = store.list().find((c) => c.id === conversationId);
+        // Already has a deliberate title (auto or user) -> leave it.
+        if (meta && (meta.titleSource === 'auto' || meta.titleSource === 'user')) return;
+
+        // FEAT-24-08 Welle A: resolver falls back to active-provider fast-tier
+        // when no explicit key is set, so titling stays alive after the EPIC-26
+        // migration to provider-only config.
+        const model = this.plugin.getTitlingModel();
+        if (!model) return;
+
+        const userMsg = messages.find((m) => m.role === 'user')?.text ?? '';
+        const assistantMsg = messages.find((m) => m.role === 'assistant')?.text ?? '';
+        if (!userMsg) return;
+
+        try {
+            const api = buildApiHandlerForModel(model);
+            const stream = api.createMessage(
+                'Create a very short title (1 to 3 words, a crisp keyword label) '
+                + 'for this conversation. Capture the essence, do not summarize. '
+                + 'Output ONLY the title. No quotes, no prefix, no explanation. '
+                + 'Same language as the user.',
+                [{ role: 'user', content: `User: ${userMsg.slice(0, 300)}\nAssistant: ${assistantMsg.slice(0, 300)}` }],
+                [],
+            );
+            let title = '';
+            for await (const chunk of stream) {
+                if (chunk.type === 'text') title += chunk.text;
+            }
+            title = title.trim().replace(/^["']|["']$/g, '').replace(/\n.*/s, '');
+            if (title.length > 60) title = title.slice(0, 57) + '...';
+            if (title) {
+                console.debug(`[ChatLink] Semantic title: "${title}"`);
+                await store.updateMeta(conversationId, { title, titleSource: 'auto' });
+                this.historyPanel?.refresh();
+                // FEAT-55-01: the semantic title lands asynchronously, long after
+                // the last tab-strip render, so repaint the strip -- otherwise the
+                // tab keeps showing the first-user-message fallback.
+                this.renderTabStrip();
+            }
+        } catch (e) {
+            console.warn('[ChatLink] Semantic title generation failed (non-fatal):', e);
+        }
+    }
+
     private async finalizeConversation(
         conversationId: string,
         messages: Array<{ role: string; text: string }>,
@@ -3994,42 +4808,10 @@ export class AgentSidebarView extends ItemView {
         const store = this.plugin.conversationStore;
         if (!store) return;
 
-        // 1. Semantic titling (always, if model resolvable)
-        // FEAT-24-08 Welle A: resolver falls back to active-provider
-        // fast-tier when no explicit key is set, so titling stays alive
-        // after the EPIC-26 migration to provider-only config.
-        const model = this.plugin.getTitlingModel();
-
-        if (model) {
-            const userMsg = messages.find((m) => m.role === 'user')?.text ?? '';
-            const assistantMsg = messages.find((m) => m.role === 'assistant')?.text ?? '';
-
-            if (userMsg) {
-                try {
-                    const api = buildApiHandlerForModel(model);
-                    const stream = api.createMessage(
-                        'Create a short title (maximum 5-8 words) for this conversation. '
-                        + 'The title must capture the essence, not summarize. '
-                        + 'Output ONLY the title. No quotes, no prefix, no explanation. '
-                        + 'Same language as the user.',
-                        [{ role: 'user', content: `User: ${userMsg.slice(0, 300)}\nAssistant: ${assistantMsg.slice(0, 300)}` }],
-                        [],
-                    );
-                    let title = '';
-                    for await (const chunk of stream) {
-                        if (chunk.type === 'text') title += chunk.text;
-                    }
-                    title = title.trim().replace(/^["']|["']$/g, '').replace(/\n.*/s, '');
-                    if (title.length > 60) title = title.slice(0, 57) + '...';
-                    if (title) {
-                        console.debug(`[ChatLink] Semantic title: "${title}"`);
-                        await store.updateMeta(conversationId, { title });
-                    }
-                } catch (e) {
-                    console.warn('[ChatLink] Semantic title generation failed (non-fatal):', e);
-                }
-            }
-        }
+        // 1. Semantic titling (once, if model resolvable). Usually already done
+        // at task end; this covers conversations that ended before a task
+        // completed a full turn.
+        await this.maybeGenerateSemanticTitle(conversationId, messages);
 
         // 2. Stamp frontmatter links with final title
         if (settings.chatLinking?.enabled) {
@@ -4042,7 +4824,40 @@ export class AgentSidebarView extends ItemView {
 
     /** Public entry point for deep-link protocol handler (ADR-022, FEATURE-300). */
     loadConversationById(id: string): Promise<void> {
-        return this.loadConversation(id);
+        return this.openConversationInTab(id);
+    }
+
+    /**
+     * FEAT-55-01: open a conversation in a tab, browser-tab style. History
+     * clicks and deep-links route through here so each conversation lands in
+     * its OWN tab instead of clobbering whatever tab is active.
+     *
+     * Live bug 2026-07-25: loadConversation() has no session routing -- it
+     * always overwrites this.activeSession. With two tabs open, clicking
+     * either History row loaded that conversation into the active tab, so
+     * both rows appeared to point at the same (latest) chat. This entry point
+     * fixes that by choosing the right tab first, then loading in-place:
+     *   1. already open in some tab  -> switch to it (no reload, no clobber)
+     *   2. active tab is pristine    -> reuse it (empty + idle + no id)
+     *   3. otherwise                 -> open a fresh tab and load there
+     */
+    async openConversationInTab(id: string): Promise<void> {
+        // (1) Already open somewhere -> just surface that tab.
+        const openIdx = this.sessions.findIndex((s) => s.activeConversationId === id);
+        if (openIdx >= 0) {
+            this.switchToSession(openIdx);
+            return;
+        }
+        // (2) Reuse a pristine active tab (fresh, idle, nothing to lose);
+        // (3) else open a new tab. Either way loadConversation then fills the
+        // now-active tab, which is exactly the one we want it to write into.
+        const active = this.activeSession;
+        const pristine = !active.activeConversationId
+            && active.uiMessages.length === 0
+            && !active.isBusy
+            && !active.taskDraining;
+        if (!pristine) this.openInViewTab();
+        await this.loadConversation(id);
     }
 
     /**
@@ -4116,7 +4931,13 @@ export class AgentSidebarView extends ItemView {
 
         const data = await store.load(id);
         if (!data) {
-            new Notice(t('notice.loadConversationFailed'));
+            // Live bug 2026-07-25: the store index lists this id but its file
+            // is missing/corrupt -- the task was interrupted around the first
+            // save. Before failing, try the interrupted-task snapshot for this
+            // id so the user can still resume (what the boot notice / History
+            // click is really after) instead of dead-ending here.
+            const offered = await this.tryOfferResumeForMissingConversation(id);
+            if (!offered) new Notice(t('notice.loadConversationFailed'));
             return;
         }
         // DELTA-0707B-L1: re-check after the await -- a task started from
@@ -4135,10 +4956,25 @@ export class AgentSidebarView extends ItemView {
         }
 
         // Reset state
-        this.conversationHistory = data.messages;
-        this.uiMessages = data.uiMessages;
+        // Phase A2 (history hardening): a crash-/onClose-save can leave the
+        // stored API history ending in an open tool_use tail (question card
+        // pending, run mid-tools). Sending that verbatim 400s at the API, so
+        // sanitize on load -- same helper the drain-fork uses. uiMessages are
+        // untouched (display only).
+        this.conversationHistory = sanitizeHistoryForApi(
+            JSON.parse(JSON.stringify(data.messages)) as MessageParam[],
+        ).history;
+        // FIX-03-20-02 rescue: conversations saved while the drain-owner gate
+        // was broken carry the full API history but only the user prompts in
+        // uiMessages -- reconstruct the missing assistant answers for display.
+        // No-op for healthy conversations; the repaired trace persists with
+        // the next regular save.
+        const repairedUi = repairUiMessages(data.messages, data.uiMessages);
+        this.uiMessages = repairedUi;
         this.activeConversationId = id;
-        this.lazyConversationId.reset(); // FIX-03-20-01: drop any in-flight create
+        this.lazyConversationId.reset();
+        // The session-held tab title belongs to the OUTGOING chat.
+        this.activeSession.tabTitle = null; // FIX-03-20-01: drop any in-flight create
         this.userDismissedContext = false;
         this.attachments.clear();
         // Conversation switch drops any pending fullDocTexts too (FIX-19-28-05 audit).
@@ -4149,7 +4985,12 @@ export class AgentSidebarView extends ItemView {
         const assistantPairs: { msg: UiMessage; el: HTMLElement }[] = [];
         if (this.chatContainer) {
             this.chatContainer.empty();
-            for (const msg of data.uiMessages) {
+            // Phase A1 (history hardening): render the REPAIRED list. The
+            // first rescue deploy assigned repairUiMessages to the session but
+            // kept rendering data.uiMessages -- reconstructed answers stayed
+            // invisible and DOM<->array indices diverged for the checkpoint
+            // delete path.
+            for (const msg of repairedUi) {
                 if (msg.role === 'user') {
                     this.addUserMessage(msg.text);
                 } else {
@@ -4173,6 +5014,58 @@ export class AgentSidebarView extends ItemView {
             this.pushNav(id);
         } else {
             this.updateNavButtons();
+        }
+
+        // FEAT-55-06: read-only cross-session topic awareness. Offer earlier
+        // conversations on the same topic so the user can pick up prior work.
+        this.maybeOfferRelatedConversations(id);
+
+        // FEAT-55-01 (user decision 2026-07-25): if THIS conversation has an
+        // interrupted-task snapshot, offer resume HERE, inside the concrete
+        // chat opened from History -- not as a banner in a new/empty chat.
+        void this.maybeOfferInflightResume(id);
+    }
+
+    /**
+     * FEAT-55-06 (EPIC-55): surface earlier conversations that share this
+     * chat's topic, as a dismissible read-only suggestion. Never mutates any
+     * conversation and never injects into a running loop -- it only offers a
+     * one-click jump. Uses the local title-overlap ranker (no embeddings /
+     * no API); a later iteration can swap in the semantic index.
+     */
+    private maybeOfferRelatedConversations(currentId: string): void {
+        try {
+            if (!this.chatContainer) return;
+            const store = this.plugin.conversationStore;
+            if (!store) return;
+            const meta = store.list().find((c) => c.id === currentId);
+            if (!meta?.title) return;
+            const related = findRelatedConversations(meta.title, store.list(), { currentId, limit: 3 });
+            if (related.length === 0) return;
+
+            const row = this.chatContainer.createDiv('related-conversations-row');
+            const label = row.createSpan('related-conversations-label');
+            setIcon(label.createSpan('related-conversations-icon'), 'link');
+            label.appendText(t('ui.related.prompt'));
+            for (const rc of related) {
+                const btn = row.createEl('button', {
+                    cls: 'related-conversations-item',
+                    text: rc.title,
+                });
+                btn.addEventListener('click', () => {
+                    row.remove();
+                    // FEAT-55-01: open the related conversation in its own tab
+                    // (or switch if already open) rather than clobbering this one.
+                    void this.openConversationInTab(rc.id);
+                });
+            }
+            const dismiss = row.createEl('button', {
+                cls: 'related-conversations-dismiss',
+                text: t('ui.related.dismiss'),
+            });
+            dismiss.addEventListener('click', () => { row.remove(); });
+        } catch (e) {
+            console.debug('[Related] suggestion failed (non-fatal):', e);
         }
     }
 
@@ -4220,7 +5113,9 @@ export class AgentSidebarView extends ItemView {
         this.conversationHistory = [...state.history];
         this.uiMessages = [...state.uiMessages];
         this.activeConversationId = state.conversationId;
-        this.lazyConversationId.reset(); // FIX-03-20-01: drop any in-flight create
+        this.lazyConversationId.reset();
+        // The session-held tab title belongs to the OUTGOING chat.
+        this.activeSession.tabTitle = null; // FIX-03-20-01: drop any in-flight create
         this.userDismissedContext = false;
         this.attachments.clear();
         void this.attachments.consumeFullDocTexts();
@@ -4296,10 +5191,12 @@ export class AgentSidebarView extends ItemView {
             // loop; its next save recreates the conversation file.
             if (this.refuseWhileTaskRuns()) return;
             this.activeConversationId = null;
-            this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
+            this.lazyConversationId.reset();
+            this.activeSession.tabTitle = null;
+        // The session-held tab title belongs to the OUTGOING chat.
+        this.activeSession.tabTitle = null; // FIX-03-20-01: fresh chat, fresh memo
             this.uiMessages = [];
             this.conversationHistory = [];
-            this.plugin.sessionFlags.clear(); // ADR-048
             if (this.chatContainer) {
                 this.chatContainer.empty();
             }
@@ -4312,15 +5209,19 @@ export class AgentSidebarView extends ItemView {
      * Create the streaming message container.
      * Structure: thinkingEl → toolsEl → contentEl → footerEl
      */
-    private createStreamingMessageEl(): {
+    private createStreamingMessageEl(container?: HTMLElement | null): {
         messageEl: HTMLElement;
         thinkingEl: HTMLElement;
         toolsEl: HTMLElement;
         contentEl: HTMLElement;
         footerEl: HTMLElement;
     } {
-        if (!this.chatContainer) throw new Error('Chat container not initialized');
-        const messageEl = this.chatContainer.createDiv('message assistant-message message-streaming');
+        // FEAT-55-01 (Fix 2): a run passes its own session's container so a
+        // mid-await tab switch cannot stream into the newly active tab. Other
+        // callers fall back to the visible chat container.
+        const target = container ?? this.chatContainer;
+        if (!target) throw new Error('Chat container not initialized');
+        const messageEl = target.createDiv('message assistant-message message-streaming');
         // Reasoning/thinking section (hidden until thinking chunks arrive)
         const thinkingEl = messageEl.createDiv('thinking-block');
         thinkingEl.classList.add('agent-u-hidden');
@@ -4339,7 +5240,7 @@ export class AgentSidebarView extends ItemView {
         // Token usage + timestamp footer
         const footerEl = messageEl.createDiv('message-footer');
         footerEl.classList.add('agent-u-hidden');
-        this.chatContainer.scrollTo({ top: this.chatContainer.scrollHeight });
+        target.scrollTo({ top: target.scrollHeight });
         return { messageEl, thinkingEl, toolsEl, contentEl, footerEl };
     }
 
@@ -4498,9 +5399,18 @@ export class AgentSidebarView extends ItemView {
         footer.createSpan('steering-footer-text').setText(t('ui.sidebar.steeringDiscarded'));
     }
 
-    private addUserMessage(text: string, attachments: AttachmentItem[] = [], activeFile?: TFile | null): void {
-        if (!this.chatContainer) return;
-        const msgEl = this.chatContainer.createDiv('message user-message');
+    private addUserMessage(
+        text: string,
+        attachments: AttachmentItem[] = [],
+        activeFile?: TFile | null,
+        // FEAT-55-01 (Fix 2): render into an explicit container when a run has
+        // pinned its own session's container. Falls back to the active one for
+        // callers that render into the visible chat (History reload, Q&A answer).
+        container?: HTMLElement | null,
+    ): void {
+        const target = container ?? this.chatContainer;
+        if (!target) return;
+        const msgEl = target.createDiv('message user-message');
         // Render attachment previews above the text bubble
         const hasAttachments = attachments.length > 0 || !!activeFile;
         if (hasAttachments) {
@@ -4543,7 +5453,7 @@ export class AgentSidebarView extends ItemView {
         }
         // Action bar: copy + edit/resend
         this.addUserMessageActions(msgEl, text);
-        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        target.scrollTop = target.scrollHeight;
     }
 
     /** Add copy and edit+resend action buttons below a user message bubble. */
@@ -4565,38 +5475,37 @@ export class AgentSidebarView extends ItemView {
         // Edit and resend: put text back in textarea, remove this message + all following
         makeBtn('pencil', t('ui.sidebar.editResend'), () => {
             if (!this.textarea || !this.chatContainer) return;
+            // History hardening phase D (FIX-03-20-03): editing mid-run used
+            // to splice the LIVE arrays the running task appends to.
+            if (this.refuseWhileTaskRuns()) return;
             this.textarea.value = text;
             this.autoResizeTextarea();
             this.textarea.focus();
-            // Remove this message and everything after it
             const allMessages = Array.from(this.chatContainer.querySelectorAll('.message'));
             const idx = allMessages.indexOf(msgEl);
-            if (idx >= 0) {
-                for (let i = allMessages.length - 1; i >= idx; i--) {
-                    allMessages[i].remove();
-                }
-            }
-            // Also trim uiMessages and conversationHistory to match
-            const userMsgIndices: number[] = [];
-            this.uiMessages.forEach((m, i) => { if (m.role === 'user') userMsgIndices.push(i); });
-            // Count which user message this is in the DOM
+            if (idx < 0) return;
             const userBubblesBefore = allMessages.slice(0, idx).filter(el => el.classList.contains('user-message')).length;
-            const uiIdx = userMsgIndices[userBubblesBefore];
-            if (uiIdx !== undefined) {
-                this.uiMessages.splice(uiIdx);
+            // Compute the cut BEFORE touching the DOM: the old inline logic
+            // counted every role==='user' history entry (tool_result batches
+            // included) and cut finished turns at the first tool_result. The
+            // pure helper anchors on real user text messages and refuses when
+            // DOM and arrays disagree -- then nothing is removed, which beats
+            // a silently corrupted conversation.
+            const cut = computeEditResendCut(this.conversationHistory, this.uiMessages, userBubblesBefore);
+            if (!cut) {
+                new Notice(t('notice.editResendMisaligned'));
+                return;
             }
-            if (this.conversationHistory.length > 0) {
-                let userCount = 0;
-                for (let i = 0; i < this.conversationHistory.length; i++) {
-                    if (this.conversationHistory[i].role === 'user') {
-                        if (userCount === userBubblesBefore) {
-                            this.conversationHistory.splice(i);
-                            break;
-                        }
-                        userCount++;
-                    }
-                }
+            for (let i = allMessages.length - 1; i >= idx; i--) {
+                allMessages[i].remove();
             }
+            this.uiMessages.splice(cut.uiCutIndex);
+            this.conversationHistory.splice(cut.historyCutIndex);
+            // Deliberate truncation: flag it so the store's shrink guard lets
+            // the very next save through, and persist immediately instead of
+            // waiting for a coincidental later save.
+            this.activeSession.historyTruncated = true;
+            this.saveCurrentConversation();
         });
     }
 
@@ -4806,7 +5715,17 @@ export class AgentSidebarView extends ItemView {
         const gen = (this.renderGenerations.get(containerEl) ?? 0) + 1;
         this.renderGenerations.set(containerEl, gen);
         const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
-        await MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, this);
+        // AUDIT 2026-07-26 H-5: neutralise auto-loading remote references BEFORE
+        // rendering. Everything that reaches this method is untrusted by the
+        // project's own threat model (tool results carry vault notes, fetched
+        // pages and MCP responses; LLM output is untrusted too), and markdown
+        // image syntax turns that text into a zero-click outbound request with
+        // vault content in the query string. It has to happen on the string:
+        // an <img> starts fetching the moment its src is set, so a post-render
+        // DOM sweep would remove the element only after the request left.
+        // This is the single chokepoint -- all chat rendering goes through here.
+        const safeMarkdown = neutraliseRemoteResources(markdown);
+        await MarkdownRenderer.render(this.app, safeMarkdown, containerEl, sourcePath, this);
         if (this.renderGenerations.get(containerEl) !== gen) return;
         this.wireInternalLinks(containerEl);
     }
@@ -4839,10 +5758,24 @@ export class AgentSidebarView extends ItemView {
                 anchor.addEventListener('click', (e) => {
                     e.preventDefault();
                     const linkText = anchor.getAttribute('data-href') ?? href;
-                    void this.app.workspace.openLinkText(linkText, '', false);
+                    // A URL rendered as an internal link (e.g. [[https://...]]) would
+                    // otherwise reach openLinkText, which throws on the ":" / "/".
+                    this.openSourceTarget(resolveSourceTarget(linkText));
                 });
             }
         });
+    }
+
+    /**
+     * Open a resolved source/link target: external URLs go to the browser,
+     * vault links go through openLinkText (which throws on a URL's ":" / "/").
+     */
+    private openSourceTarget(target: ReturnType<typeof resolveSourceTarget>): void {
+        if (target.kind === 'external') {
+            openExternalUrl(target.url);
+        } else {
+            void this.app.workspace.openLinkText(target.linkText, '', false);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -5002,10 +5935,10 @@ export class AgentSidebarView extends ItemView {
 
         const titleEl = activeDocument.createElement('div');
         titleEl.className = 'source-popup-title';
-        const noteName = source.note.replace(/^\[\[|\]\]$/g, '');
-        titleEl.textContent = noteName;
+        const target = resolveSourceTarget(source.note);
+        titleEl.textContent = target.display;
         titleEl.addEventListener('click', () => {
-            void this.app.workspace.openLinkText(noteName, '', false);
+            this.openSourceTarget(target);
             popup.remove();
         });
         popup.appendChild(titleEl);
@@ -5045,10 +5978,10 @@ export class AgentSidebarView extends ItemView {
 
             const titleEl = activeDocument.createElement('span');
             titleEl.className = 'source-panel-title';
-            const noteName = source.note.replace(/^\[\[|\]\]$/g, '');
-            titleEl.textContent = noteName;
+            const target = resolveSourceTarget(source.note);
+            titleEl.textContent = target.display;
             titleEl.addEventListener('click', () => {
-                void this.app.workspace.openLinkText(noteName, '', false);
+                this.openSourceTarget(target);
                 popup.remove();
             });
             row.appendChild(titleEl);
@@ -5190,6 +6123,9 @@ export class AgentSidebarView extends ItemView {
     private renderTodoBox(
         toolsEl: HTMLElement,
         items: import('../core/tools/agent/UpdateTodoListTool').TodoItem[],
+        // FEAT-55-01 (isolation fix): scroll the run's own container, not the
+        // active tab's. Non-run callers default to the active tab.
+        container?: HTMLElement | null,
     ): void {
         const messageEl = toolsEl.closest<HTMLElement>('.assistant-message');
         if (!messageEl) return;
@@ -5238,17 +6174,25 @@ export class AgentSidebarView extends ItemView {
             row.createSpan('todo-item-text').setText(item.text);
         }
 
-        this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
+        const scrollTarget = container ?? this.chatContainer;
+        scrollTarget?.scrollTo({ top: scrollTarget.scrollHeight });
     }
 
     private showQuestionCard(
         question: string,
         options: string[] | undefined,
         resolve: (answer: string) => void,
+        // FEAT-55-01 (isolation fix): a run passes its own container + session
+        // so the question card renders in the run's tab and the pending-resolve
+        // registration lives on the run's session (a Send in the run's tab
+        // answers ITS question). Non-run callers keep the active-tab defaults.
+        container?: HTMLElement | null,
+        session: ChatSession = this.activeSession,
     ): void {
-        if (!this.chatContainer) { resolve(''); return; }
+        const target = container ?? this.chatContainer;
+        if (!target) { resolve(''); return; }
 
-        const card = this.chatContainer.createDiv('followup-list');
+        const card = target.createDiv('followup-list');
         card.createDiv('followup-heading').setText(question);
         // A resolver that answers the question exactly once, then tidies up.
         // Declared before cleanup references it; cleanup only runs later, so
@@ -5261,11 +6205,11 @@ export class AgentSidebarView extends ItemView {
         // later Send from the main input can no longer target a dismissed card.
         const cleanup = () => {
             card.remove();
-            if (this.pendingQuestionResolve === answer) this.pendingQuestionResolve = null;
+            if (session.pendingQuestionResolve === answer) session.pendingQuestionResolve = null;
         };
         // Register so a Send from the main chat input resolves THIS question
         // (combining answers via "+") instead of being queued as steering.
-        this.pendingQuestionResolve = answer;
+        session.pendingQuestionResolve = answer;
 
         if (options && options.length > 0) {
             // Mirror the [followups] prose surface: each option sends
@@ -5308,7 +6252,7 @@ export class AgentSidebarView extends ItemView {
         };
         submitBtn.addEventListener('click', submit);
         input.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') submit(); });
-        this.chatContainer.scrollTo({ top: this.chatContainer.scrollHeight });
+        target.scrollTo({ top: target.scrollHeight });
     }
 
     /**
@@ -5579,6 +6523,11 @@ export class AgentSidebarView extends ItemView {
         input: Record<string, unknown>,
         preview?: import('../core/tools/editPreview').EditPreview,
         batch?: import('../core/tools/editPreview').BatchEditPreview,
+        // FEAT-55-01 (isolation fix): a run passes its own container + session
+        // so the approval card renders in the run's tab and binds the run's
+        // abort signal, not the active tab's. Non-run callers keep the defaults.
+        container?: HTMLElement | null,
+        session: ChatSession = this.activeSession,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
         // FEAT-44-02b: a multi-file operation with real per-file diffs gets
         // the multi-entry review as its gate. Scope-only batches fall through
@@ -5600,11 +6549,12 @@ export class AgentSidebarView extends ItemView {
         }
         // Everything else uses the inline card. Rendered in chatContainer (not
         // toolsEl) so it stays visible even when .agent-steps-block is collapsed.
+        const cardTarget = container ?? this.chatContainer;
         return new Promise((resolve) => {
             // FIX-44-28: fail CLOSED, not open. If there is no chat container to
             // show the card in, we cannot have obtained consent -- approving
             // anyway would run an unconfirmed CUD action. Deny instead.
-            if (!this.chatContainer) {
+            if (!cardTarget) {
                 resolve({ decision: 'rejected', reason: 'Approval UI unavailable; operation denied.' });
                 return;
             }
@@ -5622,8 +6572,8 @@ export class AgentSidebarView extends ItemView {
                 unclassified: t('ui.approval.unclassified'),
             };
 
-            // Always render in chatContainer (like Question-Cards)
-            const row = this.chatContainer.createDiv('tool-approval-row');
+            // Always render in the run's container (like Question-Cards)
+            const row = cardTarget.createDiv('tool-approval-row');
             const iconSpan = row.createSpan('tool-approval-icon');
             setIcon(iconSpan, 'shield-alert');
             row.createSpan('tool-approval-text').setText(
@@ -5781,7 +6731,10 @@ export class AgentSidebarView extends ItemView {
                 // undefined and hang until the wall-clock timeout. The
                 // already-aborted signal fires onAbort synchronously inside
                 // wireApprovalTimeout instead.
-                abortSignal: this.lastRunAbortSignal ?? undefined,
+                // FEAT-55-01 (isolation fix): the run's OWN session signal, so
+                // a background run's approval card aborts with its run, not the
+                // active tab's.
+                abortSignal: session.lastRunAbortSignal ?? undefined,
                 onExpire: () => {
                     cleanup();
                     resolve({
@@ -5843,10 +6796,45 @@ export class AgentSidebarView extends ItemView {
                             if (!ok) return; // leave the card open, grant nothing
                         }
 
+                        // AUDIT 2026-07-26 M-5: for a web_fetch, "Always allow"
+                        // remembers THIS HOST instead of handing over the whole
+                        // web. The blanket `web` flag was the only persistent
+                        // yes on offer, so a user who wanted the agent to read
+                        // one documentation site had to grant every site.
+                        if (toolName === 'web_fetch' && typeof input['url'] === 'string') {
+                            const grantedHost = hostKeyOf(input['url']);
+                            const next = allowHost(this.plugin.settings.webFetchAllowedHosts, input['url']);
+                            if (next !== null && grantedHost !== null) {
+                                this.plugin.settings.webFetchAllowedHosts = next;
+                                // The list is sorted, so the new host is NOT the
+                                // last element -- stamp the resolved key.
+                                stampProvenance(
+                                    this.plugin.settings,
+                                    `webHost:${grantedHost}`,
+                                    { origin: 'card', at: Date.now() },
+                                );
+                                await this.plugin.saveSettings();
+                                cleanup();
+                                resolve({ decision: 'approved' });
+                                return;
+                            }
+                            // Unusable URL: fall through to the category grant
+                            // rather than silently granting nothing.
+                        }
+
                         // FIX-44-03b: flipping the master ON must not silently
                         // re-arm category flags left true by a past permissive
                         // session. grantAutoApproval clears them first.
                         grantAutoApproval(flags, permKey);
+                        // AUDIT 2026-07-26 M-18: record that THIS grant came
+                        // from a card, and when. Without it the Permissions list
+                        // shows a switch that is on with no hint that the user
+                        // is the reason -- which is why "Always allow" felt
+                        // irreversible: it was reversible, just unattributable.
+                        stampProvenance(this.plugin.settings, `autoApproval:${permKey}`, {
+                            origin: 'card',
+                            at: Date.now(),
+                        });
                         await this.plugin.saveSettings();
                         cleanup();
                         resolve({ decision: 'approved' });
@@ -5854,7 +6842,7 @@ export class AgentSidebarView extends ItemView {
                 });
             }
 
-            this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
+            cardTarget.scrollTo({ top: cardTarget.scrollHeight });
         });
     }
 
@@ -5868,9 +6856,13 @@ export class AgentSidebarView extends ItemView {
      */
     private async maybeOfferLocalePackCard(): Promise<void> {
         try {
+            // FEAT-55-04 (ADR-171): show at most once per boot across all
+            // chat leaves; N restored leaves must not each render the card.
+            if (this.plugin.localePackCardShownThisBoot) return;
             const { activeLocaleSpec, LOCALE_LABELS } = await import('../i18n/localePacks');
             const { needsLocalePack, getActiveLocale } = await import('../i18n');
             if (!needsLocalePack()) return;
+            this.plugin.localePackCardShownThisBoot = true;
             const spec = activeLocaleSpec(this.plugin);
             if (!spec) return;
             const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
@@ -5900,11 +6892,16 @@ export class AgentSidebarView extends ItemView {
     private async showInstallPromptCard(
         spec: import('../core/assets/OptionalAssetManager').AssetSpec,
         toolName: string,
+        // FEAT-55-01 (isolation fix): a run passes its own container so the
+        // install card renders in the run's tab. Boot/locale callers default
+        // to the active tab.
+        container?: HTMLElement | null,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult> {
+        const target = container ?? this.chatContainer;
         return new Promise((resolve) => {
-            if (!this.chatContainer) { resolve({ decision: 'skipped' }); return; }
+            if (!target) { resolve({ decision: 'skipped' }); return; }
 
-            const row = this.chatContainer.createDiv('tool-approval-row install-prompt-row');
+            const row = target.createDiv('tool-approval-row install-prompt-row');
 
             const iconSpan = row.createSpan('tool-approval-icon');
             setIcon(iconSpan, 'download-cloud');
@@ -5999,7 +6996,7 @@ export class AgentSidebarView extends ItemView {
                 resolve({ decision: 'skipped' });
             });
 
-            this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
+            target.scrollTo({ top: target.scrollHeight });
         });
     }
 
@@ -6134,6 +7131,9 @@ export class AgentSidebarView extends ItemView {
         marker: HTMLElement,
         optionsEl: HTMLElement,
     ): Promise<void> {
+        // History hardening phase D (R10): a restore mid-run pushes [System]
+        // messages into the live history the task is appending to.
+        if (this.refuseWhileTaskRuns()) return;
         optionsEl.querySelectorAll('button').forEach((b) => (b.disabled = true));
         optionsEl.empty();
         optionsEl.setText(t('ui.checkpoint.restoring'));
@@ -6209,6 +7209,8 @@ export class AgentSidebarView extends ItemView {
         optionsEl: HTMLElement,
         deleteChatFromHere: boolean,
     ): Promise<void> {
+        // History hardening phase D (R10): see restoreCheckpointsForward.
+        if (this.refuseWhileTaskRuns()) return;
         optionsEl.querySelectorAll('button').forEach((b) => (b.disabled = true));
         optionsEl.empty();
         optionsEl.setText(t('ui.checkpoint.restoring'));
@@ -6252,6 +7254,9 @@ export class AgentSidebarView extends ItemView {
      */
     private deleteChatFromCheckpoint(marker: HTMLElement): void {
         if (!this.chatContainer) return;
+        // History hardening phase D (FIX-03-20-04): truncating the live
+        // arrays mid-run corrupted the running task's history.
+        if (this.refuseWhileTaskRuns()) return;
 
         const assistantMsg = marker.closest('.assistant-message') ?? marker.closest('.message');
         if (!assistantMsg) return;
@@ -6290,6 +7295,10 @@ export class AgentSidebarView extends ItemView {
             }
         }
 
+        // Deliberate truncation: flag it AFTER the early returns (matching the
+        // pencil path) so a bailed-out delete never leaves the flag set for an
+        // unrelated later save to consume as a shrink-guard bypass (review F5).
+        this.activeSession.historyTruncated = true;
         this.saveCurrentConversation();
     }
 
@@ -6329,6 +7338,9 @@ export class AgentSidebarView extends ItemView {
             source: `Checkpoint ${new Date(checkpoint.timestamp).toLocaleString()}`,
             title: 'Checkpoint anzeigen',
             onRestore: async () => {
+                // History hardening phase D (R10): no [System] pushes into a
+                // history a live run is appending to.
+                if (this.refuseWhileTaskRuns()) return;
                 const result = await service.restore(checkpoint);
                 if (result && result.restored.length > 0) {
                     const restoredFiles = result.restored.join(', ');
@@ -6433,7 +7445,13 @@ export class AgentSidebarView extends ItemView {
     // Post-task review: show all changes for review/undo after agent finishes
     // -------------------------------------------------------------------------
 
-    private async showPostTaskReview(taskId: string): Promise<void> {
+    private async showPostTaskReview(
+        taskId: string,
+        // FEAT-55-01 (isolation fix): the review's "[System] ... edited N
+        // files" note must land in the RUN's conversation history, not the
+        // active tab's. Non-run callers default to the active session.
+        session: ChatSession = this.activeSession,
+    ): Promise<void> {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
@@ -6544,7 +7562,7 @@ export class AgentSidebarView extends ItemView {
         const reviewedAfter = new Map(entries.map(e => [e.path, e.after]));
         const outcome = await applyReviewDecisions(this.app, result.decisions, reviewedAfter);
         if (outcome.written.length > 0) {
-            this.conversationHistory.push({
+            session.conversationHistory.push({
                 role: 'user',
                 content: `[System] Post-task review: User edited ${outcome.written.length} file(s): ${outcome.written.join(', ')}.`,
             });
@@ -6565,9 +7583,16 @@ export class AgentSidebarView extends ItemView {
     // Undo bar (fallback when no checkpoint markers rendered)
     // -------------------------------------------------------------------------
 
-    private showUndoBar(taskId: string, writeCount: number): void {
-        if (!this.chatContainer) return;
-        const bar = this.chatContainer.createDiv('undo-bar');
+    private showUndoBar(
+        taskId: string,
+        writeCount: number,
+        // FEAT-55-01 (isolation fix): render the undo bar into the run's own
+        // container. Non-run callers default to the active tab.
+        container?: HTMLElement | null,
+    ): void {
+        const target = container ?? this.chatContainer;
+        if (!target) return;
+        const bar = target.createDiv('undo-bar');
         bar.createSpan('undo-label').setText(
             t('ui.undo.modified', { count: writeCount })
         );
@@ -6594,7 +7619,7 @@ export class AgentSidebarView extends ItemView {
                 }
             })();
         });
-        this.chatContainer.scrollTo({ top: this.chatContainer.scrollHeight });
+        target.scrollTo({ top: target.scrollHeight });
     }
 
     /**

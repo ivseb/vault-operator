@@ -30,6 +30,13 @@ import {
 // ---------------------------------------------------------------------------
 
 const VAULT_LOCAL_KEYS = new Set<string>([
+    // AUDIT 2026-07-26 M-8: which Obsidian commands the agent may run is a
+    // per-vault decision. This list is an OPT-OUT list -- anything not named
+    // here is written to the cross-vault global file -- so without this entry
+    // enrolling a command in one vault would enable it in every vault on the
+    // machine, and the permissions surface would say "this vault" while meaning
+    // something wider.
+    'executeCommandAllowedIds',
     'enableSemanticIndex',
     'embeddingModel',
     'embeddingModels',
@@ -252,6 +259,16 @@ export class GlobalSettingsService {
         if (settings.chatgptOAuthIdToken) {
             settings.chatgptOAuthIdToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken as string);
         }
+        // AUDIT 2026-07-26 (P3): the identity fields were plaintext HERE while
+        // main.ts encrypts the very same two in the vault file. The global file
+        // sits in a sync-prone directory, so it is the copy that travels -- the
+        // asymmetry protected the less exposed of the two.
+        if (settings.chatgptOAuthEmail) {
+            settings.chatgptOAuthEmail = this.safeStorage.decrypt(settings.chatgptOAuthEmail as string);
+        }
+        if (settings.chatgptOAuthAccountId) {
+            settings.chatgptOAuthAccountId = this.safeStorage.decrypt(settings.chatgptOAuthAccountId as string);
+        }
         if (settings.cloudflareApiToken) {
             settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken as string);
         }
@@ -332,6 +349,15 @@ export class GlobalSettingsService {
         }
         if (copy.chatgptOAuthIdToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthIdToken as string)) {
             copy.chatgptOAuthIdToken = this.safeStorage.encrypt(copy.chatgptOAuthIdToken as string);
+        }
+        // AUDIT 2026-07-26 (P3): mirror main.ts, which already encrypts these
+        // two in the vault file. An email address and an account id are PII in a
+        // directory the user may well be syncing.
+        if (copy.chatgptOAuthEmail && !this.safeStorage.isEncrypted(copy.chatgptOAuthEmail as string)) {
+            copy.chatgptOAuthEmail = this.safeStorage.encrypt(copy.chatgptOAuthEmail as string);
+        }
+        if (copy.chatgptOAuthAccountId && !this.safeStorage.isEncrypted(copy.chatgptOAuthAccountId as string)) {
+            copy.chatgptOAuthAccountId = this.safeStorage.encrypt(copy.chatgptOAuthAccountId as string);
         }
         if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken as string)) {
             copy.cloudflareApiToken = this.safeStorage.encrypt(copy.cloudflareApiToken as string);

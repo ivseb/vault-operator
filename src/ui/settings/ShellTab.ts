@@ -58,6 +58,16 @@ export class ShellTab {
                         .addButton((btn) =>
                             btn.setButtonText(t('settings.shell.remove')).onClick(async () => {
                                 delete this.plugin.settings.pluginApi.safeMethodOverrides[key];
+                                // AUDIT 2026-07-26 M-15: drop the promotion count too.
+                                // Auto-promotion fires when the count reaches the
+                                // threshold, and the count survived the removal --
+                                // so the very next approval of this method promoted
+                                // it straight back, and the Remove button looked
+                                // broken to the user. Revoking a grant has to revoke
+                                // the accumulator that granted it.
+                                if (this.plugin.settings.pluginApi.approvalCounts) {
+                                    delete this.plugin.settings.pluginApi.approvalCounts[key];
+                                }
                                 await this.plugin.saveSettings();
                                 this.rerender();
                             }),

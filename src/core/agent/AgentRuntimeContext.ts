@@ -26,6 +26,7 @@ import type ObsidianAgentPlugin from '../../main';
 import type { ModeConfig } from '../../types/settings';
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
 import { loadableSkills } from '../context/SkillsManager';
+import { enabledSelfAuthoredNames } from '../skills/skillToggleGate';
 import { resolveAllowedMcpServers } from '../mcp/mcpActivation';
 import { MemoryRetriever } from '../memory/MemoryRetriever';
 import { OnboardingService } from '../memory/OnboardingService';
@@ -121,7 +122,7 @@ export async function buildAgentRuntimeContext(
 /** Mirrors AgentSidebarView.buildSkillDirectory (sidebar:1268-1293). */
 async function buildSkillDirectory(plugin: ObsidianAgentPlugin): Promise<string | undefined> {
     const skillsManager = (plugin as unknown as { skillsManager?: { discoverSkills: () => Promise<Array<{ name: string; description: string; path: string; invalidReason?: string }>> } }).skillsManager;
-    const selfLoader = (plugin as unknown as { selfAuthoredSkillLoader?: { getMetadataSummary?: () => string; getAllSkills?: () => Array<{ name: string }> } }).selfAuthoredSkillLoader;
+    const selfLoader = (plugin as unknown as { selfAuthoredSkillLoader?: { getMetadataSummary?: (allowed?: ReadonlySet<string>) => string; getAllSkills?: () => Array<{ name: string; filePath?: string }> } }).selfAuthoredSkillLoader;
 
     const toggles = (plugin.settings as { manualSkillToggles?: Record<string, boolean> }).manualSkillToggles ?? {};
     // FIX-29-05-03: mirror the sidebar -- skills that fail hard validation do
@@ -133,8 +134,13 @@ async function buildSkillDirectory(plugin: ObsidianAgentPlugin): Promise<string 
         ? userSkills.filter(s => toggles[s.path] !== false)
         : userSkills;
 
-    const selfAuthoredBlock = selfLoader?.getMetadataSummary?.() ?? '';
-    const selfAuthoredNames = new Set((selfLoader?.getAllSkills?.() ?? []).map(s => s.name));
+    // AUDIT 2026-07-26 M-17: mirror the other two builders -- the self-authored
+    // block must honour the per-skill switches too.
+    const selfSkills = selfLoader?.getAllSkills?.() ?? [];
+    const selfAuthoredBlock = selfLoader?.getMetadataSummary?.(
+        enabledSelfAuthoredNames(toggles, selfSkills),
+    ) ?? '';
+    const selfAuthoredNames = new Set(selfSkills.map(s => s.name));
 
     const userLines = filteredUserSkills
         .filter(s => selfAuthoredNames.has(s.name) === false)

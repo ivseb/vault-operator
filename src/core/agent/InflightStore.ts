@@ -16,6 +16,7 @@
 import type { MessageParam } from '../../api/types';
 import type { AgentLoopState, LoopPhase } from './LoopState';
 import { createInitialLoopState } from './LoopState';
+import { PerFileWriteQueue } from '../utils/perFileWriteQueue';
 
 export const INFLIGHT_FILE = 'inflight-tasks.json';
 const DEBOUNCE_MS = 2000;
@@ -139,6 +140,10 @@ export interface InflightFs {
 export class InflightStore {
     private pending = new Map<string, InflightSnapshot>();
     private flushTimer: number | undefined;
+    // FEAT-55-03 (ADR-171): serialize every load->mutate->persist on the
+    // inflight file so two concurrent chats (or the stop/drain path racing a
+    // save) cannot interleave and lose a snapshot.
+    private readonly writeQueue = new PerFileWriteQueue();
 
     constructor(private fs: InflightFs) {}
 
@@ -169,47 +174,57 @@ export class InflightStore {
     /** Remove a task's snapshot (clean end, discard, resume consumed). */
     async clear(taskId: string): Promise<void> {
         this.pending.delete(taskId);
-        const file = await this.load();
-        if (!(taskId in file.tasks)) return;
-        delete file.tasks[taskId];
-        await this.persist(file);
+        // FEAT-55-03: serialized read-modify-write.
+        await this.writeQueue.run(INFLIGHT_FILE, async () => {
+            const file = await this.load();
+            if (!(taskId in file.tasks)) return;
+            delete file.tasks[taskId];
+            await this.persist(file);
+        });
     }
 
     /** Fresh-enough snapshots for the boot recovery banner; sweeps stale ones. */
     async listRecoverable(maxAgeMs: number = INFLIGHT_MAX_AGE_MS, now: number = Date.now()): Promise<InflightSnapshot[]> {
-        const file = await this.load();
-        const fresh: InflightSnapshot[] = [];
-        let swept = false;
-        for (const [taskId, snap] of Object.entries(file.tasks)) {
-            if (now - snap.savedAt <= maxAgeMs) {
-                fresh.push(snap);
-            } else {
-                delete file.tasks[taskId];
-                swept = true;
+        // FEAT-55-03: serialized so the stale-sweep persist does not race a
+        // concurrent flush/clear on the same file.
+        return this.writeQueue.run(INFLIGHT_FILE, async () => {
+            const file = await this.load();
+            const fresh: InflightSnapshot[] = [];
+            let swept = false;
+            for (const [taskId, snap] of Object.entries(file.tasks)) {
+                if (now - snap.savedAt <= maxAgeMs) {
+                    fresh.push(snap);
+                } else {
+                    delete file.tasks[taskId];
+                    swept = true;
+                }
             }
-        }
-        if (swept) await this.persist(file);
-        return fresh.sort((a, b) => b.savedAt - a.savedAt);
+            if (swept) await this.persist(file);
+            return fresh.sort((a, b) => b.savedAt - a.savedAt);
+        });
     }
 
     private async flush(): Promise<void> {
-        try {
-            const file = await this.load();
-            for (const [taskId, snap] of this.pending) {
-                // AUDIT-EPIC-41 M-2: never let an oversized snapshot reach
-                // disk (it would stall the next boot's synchronous parse).
-                // Dropping it only means that task cannot be resumed.
-                if (JSON.stringify(snap).length > MAX_SNAPSHOT_BYTES) {
-                    console.warn(`[InflightStore] snapshot for ${taskId} exceeds ${MAX_SNAPSHOT_BYTES} bytes; not persisting.`);
-                    continue;
+        // FEAT-55-03: serialized read-modify-write against the shared file.
+        await this.writeQueue.run(INFLIGHT_FILE, async () => {
+            try {
+                const file = await this.load();
+                for (const [taskId, snap] of this.pending) {
+                    // AUDIT-EPIC-41 M-2: never let an oversized snapshot reach
+                    // disk (it would stall the next boot's synchronous parse).
+                    // Dropping it only means that task cannot be resumed.
+                    if (JSON.stringify(snap).length > MAX_SNAPSHOT_BYTES) {
+                        console.warn(`[InflightStore] snapshot for ${taskId} exceeds ${MAX_SNAPSHOT_BYTES} bytes; not persisting.`);
+                        continue;
+                    }
+                    file.tasks[taskId] = snap;
                 }
-                file.tasks[taskId] = snap;
+                this.pending.clear();
+                await this.persist(file);
+            } catch (e) {
+                console.warn('[InflightStore] flush failed (non-fatal):', e instanceof Error ? e.message : e);
             }
-            this.pending.clear();
-            await this.persist(file);
-        } catch (e) {
-            console.warn('[InflightStore] flush failed (non-fatal):', e instanceof Error ? e.message : e);
-        }
+        });
     }
 
     private async load(): Promise<InflightFile> {

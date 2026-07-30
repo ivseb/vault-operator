@@ -152,6 +152,36 @@ export class InspectSelfTool extends BaseTool<'inspect_self'> {
     }
 }
 
+/**
+ * AUDIT 2026-07-26 H-3: redact EVERY leaf beneath a sensitive key, whatever its
+ * type, while preserving the surrounding shape.
+ *
+ * The previous implementation only handled strings, so an OBJECT under a
+ * sensitive key (settings.mcpServers[*].oauth is exactly that) fell through
+ * untouched and carried access_token, refresh_token and client_secret into the
+ * tool_result verbatim. There is no approval gate behind this: inspect_self is
+ * effect 'read', and reads are auto-approved by design.
+ *
+ * Booleans survive because a flag like `oauth.enabled` is useful signal and
+ * cannot carry a secret. Numbers do NOT survive: a `pin` is a number, and the
+ * shape alone already tells the agent that a session exists.
+ */
+function forceRedact(value: unknown, depth = 0): unknown {
+    if (depth > 5) return '<truncated>';
+    if (value === null || value === undefined) return value;
+    if (Array.isArray(value)) return value.map((v) => forceRedact(v, depth + 1));
+    if (typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+            out[k] = forceRedact(v, depth + 1);
+        }
+        return out;
+    }
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.length > 0 ? '<redacted>' : value;
+    return '<redacted>';
+}
+
 function redactSettings(obj: Record<string, unknown>, depth = 0): unknown {
     if (depth > 5) return '<truncated>';
     if (Array.isArray(obj)) {
@@ -164,7 +194,8 @@ function redactSettings(obj: Record<string, unknown>, depth = 0): unknown {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
         if (SENSITIVE_KEY_REGEX.test(key)) {
-            out[key] = typeof value === 'string' && value.length > 0 ? '<redacted>' : value;
+            // Type-independent: strings, objects, arrays and numbers alike.
+            out[key] = forceRedact(value, depth + 1);
             continue;
         }
         if (value !== null && typeof value === 'object') {
@@ -175,6 +206,9 @@ function redactSettings(obj: Record<string, unknown>, depth = 0): unknown {
     }
     return out;
 }
+
+/** Test access to the redactor; not part of the tool's runtime contract. */
+export const __testables = { redactSettings, forceRedact };
 
 function oneLine(s: string): string {
     return s.replace(/\s+/g, ' ').trim();

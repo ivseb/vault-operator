@@ -118,10 +118,7 @@ export class PlanPresentationTool extends BaseTool<'plan_presentation'> {
             // 4. Validate plan against catalog
             const warnings = this.validatePlan(plan, resolved.catalog);
 
-            // 5. Set session flag so create_pptx knows planning was done (ADR-048 gate)
-            this.plugin.sessionFlags.add('plan_presentation_completed');
-
-            // 6. Format and return
+            // 5. Format and return
             const output = this.formatPlanOutput(plan, warnings, template);
             callbacks.pushToolResult(output);
             callbacks.log(`Plan complete: ${plan.slides.length} slides, ${warnings.length} warnings`);

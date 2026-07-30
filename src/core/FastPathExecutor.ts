@@ -136,10 +136,18 @@ export class FastPathExecutor {
     /** FIX-44-33: approval + checkpoint callbacks for the current run (set in execute()). */
     private gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint' | 'onUnreviewedWrite'>;
 
+    /** FEAT-55-02 (ADR-170): run-scoped attachments for the current execute() run. */
+    private runAttachmentTexts?: string[];
+
     /** Build the extensions object for a pipeline dispatch, merging readFiles + the gate. */
     private buildExtensions(readFiles?: Set<string>): ContextExtensions | undefined {
         const ext: ContextExtensions = {};
         if (readFiles) ext.readFiles = readFiles;
+        // FEAT-55-02 (ADR-170): forward the run's attachments so a recipe step
+        // calling read_document/ingest_document sees this run's own attachments.
+        if (this.runAttachmentTexts && this.runAttachmentTexts.length > 0) {
+            ext.attachmentTexts = this.runAttachmentTexts;
+        }
         if (this.gate?.onApprovalRequired) ext.onApprovalRequired = this.gate.onApprovalRequired;
         if (this.gate?.onCheckpoint) ext.onCheckpoint = this.gate.onCheckpoint;
         // FIX-44-44: recipe writes that were not individually diff-approved
@@ -183,8 +191,12 @@ export class FastPathExecutor {
         // Without them a recipe step whose effect is not auto-approved was denied
         // fail-closed with only a console.warn, instead of asking the user.
         gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint' | 'onUnreviewedWrite'>,
+        // FEAT-55-02 (ADR-170): run-scoped attachments forwarded to recipe
+        // steps that call read_document / ingest_document.
+        attachmentTexts?: string[],
     ): Promise<FastPathResult> {
         this.gate = gate;
+        this.runAttachmentTexts = attachmentTexts;
         const failed: FastPathResult = { success: false, historyEntries: [], toolCallsExecuted: 0 };
 
         // IMP-41-02-05 / ADR-151: machine-promoted recipes run the full

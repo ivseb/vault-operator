@@ -13,10 +13,12 @@ export type ToolName =
     | 'read_document'
     | 'list_files'
     | 'search_files'
+    | 'compute_plaud_delta'
     // Vault: write
     | 'write_file'
     | 'edit_file'
     | 'append_to_file'
+    | 'build_meeting_note_from_sink'
     | 'set_block_anchors'
     | 'create_folder'
     | 'delete_file'
@@ -286,6 +288,15 @@ export interface ToolExecutionContext {
      * hallucination pattern.
      */
     getReadFiles?: () => Set<string>;
+
+    /**
+     * FEAT-55-02 (ADR-170): run-scoped chat-attachment texts for
+     * read_document / ingest_document. Replaces the per-instance
+     * setAttachmentTexts on the shared tool singletons so two parallel
+     * chats never share (or wipe) each other's attachments. Returns the
+     * attachments belonging to THIS run; empty array when none.
+     */
+    getAttachmentTexts?: () => string[];
 
     /**
      * Switch the active agent (formerly "mode"). Used by switch_agent tool.

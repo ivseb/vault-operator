@@ -127,7 +127,8 @@ export async function execute(input: Record<string, unknown>, ctx: { vault: any;
             const result: unknown = await this.sandboxExecutor.execute(
                 compiledJs,
                 { context: params.context ?? {} },
-                { governanceTaskId: context.taskId },
+                // FIX-24-08-04: abort the running script the moment Stop fires.
+                { governanceTaskId: context.taskId, abortSignal: context.abortSignal },
             );
 
             let output = typeof result === 'string'

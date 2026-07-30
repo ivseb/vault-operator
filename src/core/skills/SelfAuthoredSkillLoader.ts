@@ -80,6 +80,13 @@ export interface SelfAuthoredSkill {
     createdAt: Date;
     successCount: number;
     body: string;
+    /**
+     * FIX-03-20-02: optional frontmatter title template for the chat this skill
+     * starts (e.g. `chatTitle: "Plaud {date}"`). Deterministic and opt-in;
+     * skills without it keep the intent-/content-based title. `{date}` expands
+     * to DD-MM-YY.
+     */
+    chatTitle?: string;
     filePath: string;
     /**
      * Content sidecars in the skill folder (`scripts/`, `references/`,
@@ -168,12 +175,22 @@ export class SelfAuthoredSkillLoader {
      * and plugin-managed skills. Single layout, single loader path.
      */
     async loadAll(): Promise<void> {
-        this.skills.clear();
-        this.rejected.clear();
+        // Atomic reload: scan into a LOCAL map and swap it in only when done.
+        // The old code did `this.skills.clear()` first, so for the whole 2-3 min
+        // disk scan (iCloud, ~86 skills) getAllSkills() returned [] -- every
+        // skill, bundled/pro included, vanished from the UI and the agent until
+        // the scan finished. Building locally means a concurrent reader always
+        // sees the previous full set until the new one is ready.
+        const nextSkills = new Map<string, SelfAuthoredSkill>();
+        const nextRejected = new Map<string, RejectedSkill>();
 
-        await this.scanSkillsFrom(this.getUserSkillsDir());
+        await this.scanSkillsFrom(this.getUserSkillsDir(), nextSkills, nextRejected);
 
-        // After all skills are loaded, load cached code modules and register tools
+        // Swap the in-memory state atomically (synchronous, no await between).
+        this.skills = nextSkills;
+        this.rejected = nextRejected;
+
+        // After all skills are loaded, load cached code modules and register tools.
         for (const skill of this.skills.values()) {
             if (skill.codeModules.length > 0) {
                 await this.loadCodeModules(skill);
@@ -219,10 +236,10 @@ export class SelfAuthoredSkillLoader {
      * FIX-29-05-01: keyed by path, so re-parsing the same file (hot reload,
      * rescan) updates the entry instead of stacking duplicates.
      */
-    private recordRejection(filePath: string, reason: string): void {
+    private recordRejection(filePath: string, reason: string, rejected: Map<string, RejectedSkill> = this.rejected): void {
         console.warn(`[SelfAuthoredSkillLoader] Rejected skill at ${filePath}: ${reason}`);
         const withoutSkillMd = filePath.replace(/\/SKILL\.md$/i, '');
-        this.rejected.set(filePath, {
+        rejected.set(filePath, {
             filePath,
             folder: withoutSkillMd.slice(withoutSkillMd.lastIndexOf('/') + 1),
             reason,
@@ -249,28 +266,48 @@ export class SelfAuthoredSkillLoader {
     /**
      * Scan a single skills directory for SKILL.md files in subfolders.
      */
-    private async scanSkillsFrom(dir: string): Promise<void> {
+    private async scanSkillsFrom(
+        dir: string,
+        skills: Map<string, SelfAuthoredSkill>,
+        rejected: Map<string, RejectedSkill>,
+    ): Promise<void> {
         const adapter = this.plugin.app.vault.adapter;
         const dirExists = await adapter.exists(dir);
         if (!dirExists) return;
 
         try {
             const entries = await adapter.list(dir);
-            for (const subfolderPath of entries.folders) {
-                const skillPath = `${subfolderPath}/SKILL.md`;
-                if (await adapter.exists(skillPath)) {
-                    const content = await adapter.read(skillPath);
-                    const parsed = this.parseSkillMd(content, skillPath);
-                    if (!parsed) continue;
-                    // FIX-44-05: a trusted-tier `source:` claim is only honoured
-                    // when the provenance manifest confirms the plugin materialized
-                    // this exact SKILL.md; otherwise it drops to 'user'.
-                    parsed.source = await this.resolveSkillSource(parsed.source, subfolderPath, content);
-                    // FEATURE-2201: populate inventory from scripts/, references/,
-                    // assets/, and sub-role *.skill.md files next to SKILL.md.
-                    parsed.inventory = await this.loadSkillInventory(subfolderPath, parsed.isCoordinator);
-                    this.skills.set(parsed.name, parsed);
-                }
+            // Scan each skill folder in PARALLEL. The old sequential for-await
+            // ran ~3 adapter I/O calls plus a provenance hash per skill, which
+            // on iCloud with ~86 skills took 2-3 minutes. Parsing is
+            // independent per folder, so Promise.all cuts wall-clock to the
+            // slowest single folder. Results are collected first, then written
+            // into the maps in a deterministic order (folder order) so a later
+            // duplicate-name folder resolves the same way it did sequentially.
+            const parsedList = await Promise.all(
+                entries.folders.map(async (subfolderPath) => {
+                    const skillPath = `${subfolderPath}/SKILL.md`;
+                    try {
+                        if (!(await adapter.exists(skillPath))) return null;
+                        const content = await adapter.read(skillPath);
+                        const parsed = this.parseSkillMd(content, skillPath, rejected);
+                        if (!parsed) return null;
+                        // FIX-44-05: a trusted-tier `source:` claim is only honoured
+                        // when the provenance manifest confirms the plugin materialized
+                        // this exact SKILL.md; otherwise it drops to 'user'.
+                        parsed.source = await this.resolveSkillSource(parsed.source, subfolderPath, content);
+                        // FEATURE-2201: populate inventory from scripts/, references/,
+                        // assets/, and sub-role *.skill.md files next to SKILL.md.
+                        parsed.inventory = await this.loadSkillInventory(subfolderPath, parsed.isCoordinator);
+                        return parsed;
+                    } catch (e) {
+                        console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${skillPath}:`, e);
+                        return null;
+                    }
+                }),
+            );
+            for (const parsed of parsedList) {
+                if (parsed) skills.set(parsed.name, parsed);
             }
         } catch (e) {
             console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${dir}:`, e);
@@ -1065,7 +1102,10 @@ export class SelfAuthoredSkillLoader {
         return undefined;
     }
 
-    private parseSkillMd(content: string, filePath: string): SelfAuthoredSkill | null {
+    private parseSkillMd(content: string, filePath: string, rejected: Map<string, RejectedSkill> = this.rejected): SelfAuthoredSkill | null {
+        // `rejected` defaults to the live map (hot-reload path). loadAll() passes
+        // its LOCAL map so an atomic reload records into the set it will swap in,
+        // not the one currently serving readers.
         // Accept two metadata shapes:
         //   1) YAML frontmatter at the top (Vault Operator + Anthropic standard).
         //   2) HTML-comment metadata block anywhere in the file (real-world
@@ -1103,7 +1143,7 @@ export class SelfAuthoredSkillLoader {
             // skill down while the Notice saw an unchanged signature and stayed
             // silent, and Settings showed nothing. Record it like any other
             // rejection so the user learns what happened.
-            this.recordRejection(filePath, 'no YAML frontmatter or <!-- Metadata --> block found');
+            this.recordRejection(filePath, 'no YAML frontmatter or <!-- Metadata --> block found', rejected);
             return null;
         }
 
@@ -1118,11 +1158,11 @@ export class SelfAuthoredSkillLoader {
         // loads.
         const validation = validateSkillFrontmatter(fm);
         if (!validation.valid) {
-            this.recordRejection(filePath, validation.errors.join('; '));
+            this.recordRejection(filePath, validation.errors.join('; '), rejected);
             return null;
         }
         // A file that now parses must not linger in the rejected list.
-        this.rejected.delete(filePath);
+        rejected.delete(filePath);
         if (validation.warnings.length > 0) {
             console.debug(
                 `[SelfAuthoredSkillLoader] Warnings for ${filePath}: ${validation.warnings.join('; ')}`,
@@ -1161,6 +1201,7 @@ export class SelfAuthoredSkillLoader {
             createdAt: fm.createdAt ? new Date(fm.createdAt) : new Date(),
             successCount: fm.successCount ? parseInt(fm.successCount, 10) : 0,
             body,
+            chatTitle: typeof fm.chatTitle === 'string' ? fm.chatTitle : undefined,
             filePath,
             // FEATURE-2201: inventory gets populated by scanSkillsFrom() after parse.
             inventory: { scripts: [], references: [], assets: [], subRoles: [] },

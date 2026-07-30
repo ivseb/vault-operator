@@ -263,6 +263,32 @@ function normaliseTarget(raw: string): string {
             'INVALID_TARGET',
         );
     }
+    // AUDIT 2026-07-26 H-1: reject "." exactly like ".." instead of dropping it.
+    // The filter above only removed EMPTY segments, so "." and "./" survived as
+    // a target of ".", every entry became "./<entry>", and Obsidian's
+    // FileSystemAdapter.getFullPath (path.join) resolved that straight into the
+    // vault root. An archive entry named ".obsidian/plugins/<id>/main.js" then
+    // landed in the real config dir: code executed on the next reload, plus
+    // ".vault-operator/data/settings.json" for the auto-approval flags. The
+    // governance layer could not catch it either, because validatePaths only
+    // ever saw the literal string "." (which is neither ignored nor protected)
+    // and the per-entry paths are not tool inputs at all.
+    //
+    // Covers ".", "./", ".//", " . " (trimmed above) and ".\\" (backslashes are
+    // normalised above). An implicit vault-root target is refused outright: if
+    // the caller means the root it has to be a real folder.
+    if (segments.some((s) => s === '.')) {
+        throw new ExtractZipError(
+            `targetFolder must not contain "." segments, got "${raw}".`,
+            'INVALID_TARGET',
+        );
+    }
+    if (segments.length === 0) {
+        throw new ExtractZipError(
+            'targetFolder must point at a folder inside the vault, not the vault root.',
+            'INVALID_TARGET',
+        );
+    }
     return segments.join('/');
 }
 

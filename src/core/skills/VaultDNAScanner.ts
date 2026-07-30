@@ -1345,6 +1345,12 @@ export class VaultDNAScanner {
 
     private static readonly README_MAX_LEN = 20000;
     private static readonly README_CACHE_DAYS = 7;
+    /**
+     * PERF 2026-07-25: true when the last fetchPluginReadme call was served
+     * from the 7-day cache and issued no HTTP request, so the caller can skip
+     * its 1-second rate-limit pause.
+     */
+    private lastReadmeWasCacheHit = false;
 
     /**
      * Build a map of plugin ID → GitHub "owner/repo" from the official
@@ -1391,8 +1397,17 @@ export class VaultDNAScanner {
             const didFetch = await this.fetchPluginReadme(skill.id, repo, force);
             if (didFetch) fetched++;
 
-            // Rate-limit: 1 request per second
-            await new Promise<void>((r) => window.setTimeout(r, 1000));
+            // Rate-limit: 1 request per second -- but ONLY when a request was
+            // actually issued. PERF 2026-07-25: this used to sleep for every
+            // plugin unconditionally, so a fully cached run (the normal case:
+            // READMEs are cached for 7 days) still burned one second per
+            // installed plugin. With ~50 plugins that was ~50 s of the startup
+            // window spent waiting for nothing, squarely inside the send path
+            // the RCA measured at 75 s of host time. Nothing to rate-limit when
+            // nothing was requested.
+            if (!this.lastReadmeWasCacheHit) {
+                await new Promise<void>((r) => window.setTimeout(r, 1000));
+            }
         }
 
         console.debug(`[VaultDNA] README fetch complete: ${fetched} new/updated, ${skipped} skipped (not in registry)`);
@@ -1406,10 +1421,14 @@ export class VaultDNAScanner {
             try {
                 const stat = await this.vault.adapter.stat(readmePath);
                 if (stat && (Date.now() - stat.mtime) < VaultDNAScanner.README_CACHE_DAYS * 24 * 60 * 60 * 1000) {
+                    // PERF 2026-07-25: signal "cached, no request issued" so the
+                    // caller can skip its rate-limit pause. See the loop below.
+                    this.lastReadmeWasCacheHit = true;
                     return false;
                 }
             } catch { /* file doesn't exist — continue */ }
         }
+        this.lastReadmeWasCacheHit = false;
 
         const rawUrl = `https://raw.githubusercontent.com/${repo}/HEAD/README.md`;
 

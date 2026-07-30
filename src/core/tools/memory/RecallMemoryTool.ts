@@ -15,6 +15,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { FactStore } from '../../memory/FactStore';
@@ -99,8 +100,12 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
                 );
                 return;
             }
+            // AUDIT 2026-07-26 M-6: fact text is extracted from notes and chats,
+            // so it is untrusted bytes that were rendered straight into the result.
             const md = this.renderMarkdown(query, expanded, multiHop);
-            callbacks.pushToolResult(md);
+            callbacks.pushToolResult(
+                this.formatUntrustedContent('memory', md, { region: 'recall' }),
+            );
         } catch (e) {
             await callbacks.handleError('recall_memory', e);
         }
@@ -235,9 +240,11 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
         lines.push('');
         for (const h of hits) {
             const tag = h.kind ? ` _(${h.kind})_` : '';
-            const topics = h.topics.length > 0 ? ` [${h.topics.join(', ')}]` : '';
-            lines.push(`- **${h.text}**${tag}${topics}`);
-            lines.push(`  \`${h.uri}\` -- score ${h.score.toFixed(2)}`);
+            const topics = h.topics.length > 0
+                ? ` [${h.topics.map((t) => sanitizeDirectoryEntry(String(t), 60)).join(', ')}]`
+                : '';
+            lines.push(`- **${sanitizeDirectoryEntry(h.text, 400)}**${tag}${topics}`);
+            lines.push(`  \`${sanitizeDirectoryEntry(h.uri, 200)}\` -- score ${h.score.toFixed(2)}`);
 
             // External backlinks (thread://, vault://, https://, ...) per hit.
             // Skip for non-fact URIs to avoid recursion.

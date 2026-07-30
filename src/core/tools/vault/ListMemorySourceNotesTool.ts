@@ -8,6 +8,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 
@@ -63,8 +64,14 @@ export class ListMemorySourceNotesTool extends BaseTool<'list_memory_source_note
         for (const r of records) {
             const dirtyTag = r.dirty ? ' [dirty]' : '';
             const lastExt = r.lastExtractedAt ? ` last-extracted=${r.lastExtractedAt.slice(0, 10)}` : ' never-extracted';
-            lines.push(`- ${r.notePath}${dirtyTag} (${r.markerSource}, ${r.factCount} facts,${lastExt})`);
+            lines.push(
+                `- ${sanitizeDirectoryEntry(r.notePath, 300)}${dirtyTag} `
+                + `(${sanitizeDirectoryEntry(String(r.markerSource), 40)}, ${r.factCount} facts,${lastExt})`,
+            );
         }
-        ctx.callbacks.pushToolResult(this.formatSuccess(lines.join('\n')));
+        // AUDIT 2026-07-26 M-6: note paths are vault bytes.
+        ctx.callbacks.pushToolResult(
+            this.formatUntrustedContent('vault', lines.join('\n'), { region: 'memory-sources' }),
+        );
     }
 }

@@ -20,6 +20,9 @@ import { createBackgroundTaskExecutor } from './core/background/backgroundTaskEx
 import { fetchProviderModelLineup } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
+import { resolveActiveChatLeaf } from './ui/sidebar/resolveActiveChatLeaf';
+import { InflightResumeClaims } from './ui/sidebar/inflightResumeClaim';
+import { requestRateLimiter } from './api/RequestRateLimiter';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { sanitizeDirectoryEntry } from './core/tools/BaseTool';
@@ -40,6 +43,7 @@ import { GlobalMigrationService } from './core/storage/GlobalMigrationService';
 import { RulesLoader } from './core/context/RulesLoader';
 import { WorkflowLoader } from './core/context/WorkflowLoader';
 import { SkillsManager, loadableSkills } from './core/context/SkillsManager';
+import { enabledSelfAuthoredNames } from './core/skills/skillToggleGate';
 import { GitCheckpointService } from './core/checkpoints/GitCheckpointService';
 import { SemanticIndexService } from './core/semantic/SemanticIndexService';
 import { EmbeddingService } from './core/memory/EmbeddingService';
@@ -88,6 +92,7 @@ import { MemoryDB } from './core/knowledge/MemoryDB';
 import { RerankerService } from './core/knowledge/RerankerService';
 import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
+import { runHistoryRepair } from './core/history/historyRepairJob';
 import { MemoryService } from './core/memory/MemoryService';
 import { ExtractionQueue } from './core/memory/ExtractionQueue';
 import { SingleCallProcessor } from './core/memory/SingleCallProcessor';
@@ -131,6 +136,8 @@ import type { ISandboxExecutor } from './core/sandbox/ISandboxExecutor';
 import { createSandboxExecutor } from './core/sandbox/createSandboxExecutor';
 import { EsbuildWasmManager } from './core/sandbox/EsbuildWasmManager';
 import { DynamicToolLoader } from './core/tools/dynamic/DynamicToolLoader';
+import { drainBootJobs, type BootJob } from './core/boot/bootJobQueue';
+import { waitWhileBusy, BACKGROUND_STARVATION_MS, BACKGROUND_POLL_MS } from './core/semantic/agentBusyGate';
 import { EmbeddedSourceManager } from './core/self-development/EmbeddedSourceManager';
 import { PluginBuilder } from './core/self-development/PluginBuilder';
 import { PluginReloader } from './core/self-development/PluginReloader';
@@ -258,8 +265,6 @@ export default class ObsidianAgentPlugin extends Plugin {
     /** FEAT-03-26 Lifecycle: Debounce-Timer fuer Top-Hub-Block Regen bei Ontology-Changes. */
     private topHubBlockRegenTimer: number | null = null;
     private warmupFired = false;
-    /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
-    sessionFlags = new Set<string>();
     private cloudProviderWarningShown = false;
     chatHistoryService: ChatHistoryService | null = null;
     conversationStore: ConversationStore | null = null;
@@ -297,6 +302,61 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalFs: GlobalFileService;
     /** IMP-41-03-01: inflight snapshot store for crash recovery. */
     inflightStore: InflightStore | null = null;
+    /**
+     * FEAT-55-01 (EPIC-55, ADR-169): the chat leaf the user most recently
+     * focused. With parallel chat sessions this is what vault-wide actions
+     * (send-selection, deep-link, mark-for-memory, programmatic send,
+     * onboarding) target instead of the first leaf. Tracked via an
+     * active-leaf-change listener; resolved through resolveActiveChatLeaf
+     * with a getMostRecentLeaf / first-leaf fallback. Weakly held so a
+     * closed leaf does not leak; the resolver drops it when detached.
+     */
+    private lastActiveChatLeaf: WorkspaceLeaf | null = null;
+    /**
+     * FEAT-55-04 (ADR-171): plugin-level boot-recovery ownership. Each
+     * interrupted-run snapshot is offered for resume in exactly one chat
+     * leaf; the first leaf to claim a taskId wins so N restored leaves do
+     * not each render a card for the same snapshot.
+     */
+    readonly inflightResumeClaims = new InflightResumeClaims();
+    /**
+     * FEAT-55-04 (ADR-171): plugin-once guard for the locale-pack consent
+     * card. Without it, N restored chat leaves each show the same card on
+     * boot. The first leaf to show it sets this; the others skip.
+     */
+    localePackCardShownThisBoot = false;
+    /**
+     * FEAT-55-01 (user request 2026-07-25): conversationIds that currently
+     * have an interrupted-task snapshot. Filled from the boot recovery scan
+     * and refreshed by refreshInterruptedConversations(); History reads it
+     * synchronously to tag resumable chats. A cache (not a live async call)
+     * so row rendering stays sync.
+     */
+    readonly interruptedConversationIds = new Set<string>();
+
+    /**
+     * PERF 2026-07-25: heavy startup work, drained one job at a time by
+     * enqueueBootJob instead of all firing in one onLayoutReady tick.
+     */
+    private readonly bootJobs: BootJob[] = [];
+    private bootJobsScheduled = false;
+    /** True once onLayoutReady has fired, so late jobs can start their own drain. */
+    private bootJobsLayoutReady = false;
+    /** Guards against two drains running the queue at the same time. */
+    private bootJobsDraining = false;
+
+    /** FEAT-55-01: recompute the interrupted-conversation cache from the store. */
+    async refreshInterruptedConversations(): Promise<void> {
+        try {
+            const recoverable = await this.inflightStore?.listRecoverable() ?? [];
+            this.interruptedConversationIds.clear();
+            for (const s of recoverable) {
+                if (s.conversationId) this.interruptedConversationIds.add(s.conversationId);
+            }
+        } catch (e) {
+            console.debug('[InflightStore] refreshInterrupted failed (non-fatal):', e);
+        }
+    }
     /** ADR-148: output caps learned from provider max_tokens rejections. */
     learnedCapsStore: LearnedCapsStore | null = null;
     /** IMP-41-03-05: single-slot background research task runner. */
@@ -1351,6 +1411,15 @@ export default class ObsidianAgentPlugin extends Plugin {
             });
         }
 
+        // FEAT-55-01 (ADR-169): track the most recently focused chat leaf so
+        // vault-wide actions target it instead of the first leaf. Registered
+        // unconditionally (not gated on the vaultDNA block) so it always runs.
+        this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+            if (leaf?.view instanceof AgentSidebarView) {
+                this.lastActiveChatLeaf = leaf;
+            }
+        }));
+
         // Governance: persistent operation log + checkpoints
         this.operationLogger = new OperationLogger(this.globalFs);
         await this.operationLogger.initialize();
@@ -1395,7 +1464,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             },
             persistOAuth: () => { void this.saveSettings(); },
             // FEAT-04-13: spawn trust is checked per device against the local store.
-            isStdioTrusted: (name: string) => this.deviceLocalStore?.isTrusted(name) ?? false,
+            isStdioTrusted: (name: string, fingerprint?: string) => this.deviceLocalStore?.isTrusted(name, fingerprint) ?? false,
             // FEAT-04-13: stdio env secrets are stored encrypted; decrypt right
             // before spawn (passthrough for plaintext / non-secret values).
             decryptSecret: (v: string) => this.safeStorage.decrypt(v),
@@ -1770,10 +1839,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // async (selektiver Read nur fuer Notizen mit HTML-Kommentar,
                 // um Block-Kanten zu klassifizieren); der Normalfall bleibt
                 // read-frei.
-                this.app.workspace.onLayoutReady(() => {
-                    void this.graphExtractor?.extractAll(this.app.vault)
-                        .catch((e) => console.warn('[Plugin] boot extractAll failed:', e));
-                });
+                this.enqueueBootJob('graph extraction', () =>
+                    this.graphExtractor?.extractAll(this.app.vault)
+                        .catch((e) => console.warn('[Plugin] boot extractAll failed:', e)));
 
                 // IMP-06-01-01 hint: PDF embeddings created before v2.14.10
                 // carry a placeholder string. Show the hint exactly once
@@ -1788,7 +1856,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
             // Ontology Bootstrap (FEATURE-1902): build cluster mappings from MOC edges
             if (this.ontologyStore && this.graphStore) {
-                this.app.workspace.onLayoutReady(() => {
+                this.enqueueBootJob('ontology bootstrap', () => {
                     // Build category map from metadataCache (Kategorie is a string, not a Wikilink)
                     const catProp = this.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
                     const categoryMap = new Map<string, string>();
@@ -2115,9 +2183,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             };
         // ADR-166: Extraktions-Zugang fuer die applyAndVerify-Sequenz.
         if (this.graphExtractor) this.vaultHealthService.graphExtractor = this.graphExtractor;
-                this.app.workspace.onLayoutReady(() => {
-                    void this.vaultHealthService?.runChecks(undefined, buildHealthCheckOptions(this.settings));
-                });
+                this.enqueueBootJob('vault health', () =>
+                    this.vaultHealthService?.runChecks(undefined, buildHealthCheckOptions(this.settings)));
             }
 
             // FIX-19-06-03 (USER 2026-07-20): Hub-History beim Reload IMMER neu
@@ -2127,9 +2194,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             // Boot-Check ist read-only (Repairs laufen nur ueber das Modal), die
             // Regeneration liest denselben Graph-Store, also kein Konflikt. Nur
             // geschrieben wird bei echter Aenderung (djb2-sha-Kurzschluss).
-            this.app.workspace.onLayoutReady(() => {
-                void this.regenerateIncomingLinksBlocks();
-            });
+            this.enqueueBootJob('incoming-links regeneration', () =>
+                this.regenerateIncomingLinksBlocks());
 
             // Implicit Connections (FEATURE-1503): discover semantically similar notes
             if (this.settings.enableImplicitConnections && this.vectorStore && this.graphStore) {
@@ -2140,9 +2206,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 );
                 // Auto-compute after startup if index exists
                 if (this.semanticIndex.isIndexed) {
-                    this.app.workspace.onLayoutReady(() => {
-                        void this.implicitConnectionService?.computeAll(this.settings.implicitThreshold);
-                    });
+                    this.enqueueBootJob('implicit connections', () =>
+                        this.implicitConnectionService?.computeAll(this.settings.implicitThreshold));
                 }
             }
 
@@ -2153,9 +2218,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // If the ONNX asset isn't installed, loadModel marks the
                 // service failed and returns -- semantic search keeps working
                 // without the rerank step.
-                this.app.workspace.onLayoutReady(() => {
-                    void this.rerankerService?.loadModel();
-                });
+                this.enqueueBootJob('reranker model', () =>
+                    this.rerankerService?.loadModel());
             }
             } // end FIX-18 else (knowledgeDB available)
         }
@@ -2397,6 +2461,44 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.conversationStore.initialize().catch((e) =>
                 console.warn('[Plugin] ConversationStore init failed (non-fatal):', e)
             );
+
+            // History hardening phase A3 (FIX-03-20-02): one-time persistent
+            // repair of conversations damaged by the broken drain-owner gate
+            // (full API history on disk, thin uiMessages -> History looked
+            // empty). Idempotent and resumable: an aborted run keeps the flag
+            // on 'pending' and simply resumes next boot.
+            if (this.settings._historyRepairStatus !== 'complete') {
+                const store = this.conversationStore;
+                this.enqueueBootJob('history repair', async () => {
+                    const openIds = new Set<string>();
+                    const sidebarViews: AgentSidebarView[] = [];
+                    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR)) {
+                        if (leaf.view instanceof AgentSidebarView) {
+                            sidebarViews.push(leaf.view);
+                            for (const cid of leaf.view.getOpenConversationIds()) openIds.add(cid);
+                        }
+                    }
+                    const result = await runHistoryRepair({
+                        listIds: () => store.list().map((c) => c.id),
+                        repair: (id) => store.repairConversation(id),
+                        isOpen: (id) => openIds.has(id),
+                        onRepaired: (id) => {
+                            // Re-index so history search covers the
+                            // reconstructed answers too.
+                            void store.load(id).then((d) => {
+                                if (d) void this.historyIndexer?.onConversationSaved(id, d.uiMessages);
+                            });
+                        },
+                        yieldNow: () => new Promise((resolve) => window.setTimeout(resolve, 0)),
+                    });
+                    console.debug(
+                        `[HistoryRepair] scanned=${result.scanned} repaired=${result.repaired} skippedOpen=${result.skippedOpen}`,
+                    );
+                    this.settings._historyRepairStatus = 'complete';
+                    await this.saveSettings();
+                    for (const view of sidebarViews) view.refreshHistoryPanel();
+                });
+            }
         }
 
         // IMP-24-05-02: live price catalog (OpenRouter) for the cost footer.
@@ -2415,18 +2517,31 @@ export default class ObsidianAgentPlugin extends Plugin {
             .catch((e) => console.warn('[LearnedCaps] boot load failed (non-fatal):', e));
 
         // IMP-41-03-01: inflight snapshot store for crash recovery. The boot
+        // FEAT-55-04 (ADR-172): surface a dezent notice while a run waits on
+        // the shared API budget, so parallel chats do not look hung. Fires
+        // only when rate limiting is configured (rateLimitMs>0; default off).
+        requestRateLimiter.setWaitObserver((waiting) => {
+            if (waiting) new Notice(t('notice.budgetWait'), 4000);
+        });
+
         // sweep drops stale entries (>24h) and surfaces fresh ones so an
         // interrupted task is visible instead of silently lost.
         this.inflightStore = new InflightStore(this.globalFs);
         void this.inflightStore.listRecoverable()
             .then((recoverable) => {
+                // FEAT-55-01: seed the interrupted-conversation cache for History tags.
+                this.interruptedConversationIds.clear();
+                for (const s of recoverable) {
+                    if (s.conversationId) this.interruptedConversationIds.add(s.conversationId);
+                }
                 if (recoverable.length === 0) return;
-                const newest = recoverable[0];
-                const when = new Date(newest.savedAt).toLocaleTimeString();
-                new Notice(
-                    t('notice.inflight.recoverableFound', { time: when, count: newest.history.length }),
-                    10_000,
-                );
+                // FEAT-55-01 (user decision 2026-07-25): NO global boot notice.
+                // With several chat tabs the notice could only name one of the
+                // interrupted chats (time + count, no chat identity) and it
+                // duplicated the two attribution-correct surfaces that already
+                // cover this: the per-row "Interrupted" marker in History and
+                // the conversation-scoped Resume card inside each chat. The
+                // cache seed above still lights up those History markers.
                 console.debug('[InflightStore] recoverable task(s) found:',
                     recoverable.map((r) => `${r.taskId} @ iteration ${r.state.iteration}`).join(', '));
             })
@@ -2637,6 +2752,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             id: 'open-agent-sidebar',
             name: t('plugin.commandOpen'),
             callback: () => this.activateView()
+        });
+
+        // FEAT-55-01: open an additional in-view chat tab (parallel session).
+        this.addCommand({
+            id: 'new-chat-session',
+            name: t('plugin.commandNewChat'),
+            callback: () => { void this.openNewChatTab(); },
         });
 
         // EPIC-33: Inline-Editor-AI-Actions wiring. Builds the action
@@ -3645,10 +3767,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             ? userSkills.filter(s => toggles[s.path] !== false)
             : userSkills;
 
-        const selfAuthoredBlock = selfLoader?.getMetadataSummary() ?? '';
-        const selfAuthoredNames = new Set(
-            (selfLoader?.getAllSkills() ?? []).map(s => s.name),
-        );
+        // AUDIT 2026-07-26 M-17: the self-authored block ignored the switches.
+        // Self-authored skills are keyed by filePath, never by `s.path`, so the
+        // filter above never touched them and switching one off changed nothing.
+        const selfSkills = selfLoader?.getAllSkills() ?? [];
+        const selfAuthoredBlock = selfLoader?.getMetadataSummary(
+            enabledSelfAuthoredNames(toggles, selfSkills),
+        ) ?? '';
+        const selfAuthoredNames = new Set(selfSkills.map(s => s.name));
         const userLines = filteredUserSkills
             .filter(s => !selfAuthoredNames.has(s.name))
             // AUDIT 2026-07-14 (Codex re-review, M-1): sanitise untrusted user
@@ -3915,59 +4041,38 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /**
-     * Activate the agent sidebar view
+     * Activate the agent chat view.
+     *
+     * FEAT-55-01: parallel chats are TABS INSIDE this one sidebar view (user
+     * decision 2026-07-25), so there is exactly ONE sidebar leaf. If it
+     * exists, reveal it; otherwise create it in the right sidebar. New chats
+     * are opened as in-view tabs (openInViewTab / openNewChatTab), not new
+     * Obsidian leaves.
      */
     async activateView() {
         const { workspace } = this.app;
-
-        let leaf: WorkspaceLeaf | null = null;
-        const leaves = workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-
-        // Cleanup: detach duplicate leaves (keep only the first one in the right sidebar)
-        if (leaves.length > 1) {
-            for (let i = 1; i < leaves.length; i++) {
-                leaves[i].detach();
-            }
+        const existing = this.resolveActiveSidebarLeaf();
+        const leaf = existing ?? workspace.getRightLeaf(false);
+        if (!leaf) return;
+        if (!existing) {
+            await leaf.setViewState({ type: VIEW_TYPE_AGENT_SIDEBAR, active: true });
         }
+        void workspace.revealLeaf(leaf);
+    }
 
-        if (leaves.length > 0) {
-            const existing = leaves[0];
-            // If the leaf ended up in the wrong sidebar (e.g. left), migrate it to the right
-            const rightSplit = workspace.rightSplit;
-            const isInRight = rightSplit && existing.getRoot() === rightSplit;
-            if (isInRight) {
-                leaf = existing;
-            } else {
-                // Detach from wrong location and recreate in right sidebar
-                existing.detach();
-                leaf = workspace.getRightLeaf(false);
-                if (leaf) {
-                    await leaf.setViewState({
-                        type: VIEW_TYPE_AGENT_SIDEBAR,
-                        active: true,
-                    });
-                }
-            }
-        } else {
-            // Create new leaf in right sidebar
-            leaf = workspace.getRightLeaf(false);
-            if (leaf) {
-                await leaf.setViewState({
-                    type: VIEW_TYPE_AGENT_SIDEBAR,
-                    active: true,
-                });
-            }
-        }
-
-        // Reveal the view and set sidebar width to 30% of window
-        if (leaf) {
-            void workspace.revealLeaf(leaf);
-
-            const rightSplit = workspace.rightSplit;
-            if (rightSplit && typeof rightSplit.setSize === 'function') {
-                const targetWidth = Math.round(window.innerWidth * 0.30);
-                rightSplit.setSize(targetWidth);
-            }
+    /**
+     * FEAT-55-01: open an ADDITIONAL chat session as a TAB INSIDE the sidebar
+     * view (user decision 2026-07-25: tabs live within the one VO sidebar, not
+     * as separate Obsidian leaves). Ensures the sidebar is open, then asks the
+     * active view to add an in-view tab. A long-running task in one tab never
+     * blocks starting work in another; the busy tab keeps running in the
+     * background with a running indicator.
+     */
+    async openNewChatTab(): Promise<void> {
+        await this.activateView();
+        const leaf = this.resolveActiveSidebarLeaf();
+        if (leaf?.view instanceof AgentSidebarView) {
+            leaf.view.openInViewTab();
         }
     }
 
@@ -3998,7 +4103,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         void (async () => {
             try {
                 await this.activateView();
-                const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR)[0];
+                const leaf = this.resolveActiveSidebarLeaf();
                 if (!leaf) return;
                 const sidebar = leaf.view;
                 if (sidebar instanceof AgentSidebarView) {
@@ -4016,11 +4121,41 @@ export default class ObsidianAgentPlugin extends Plugin {
      * to find out what to enqueue. Returns null when no sidebar leaf exists
      * or the active conversation has no messages.
      */
-    snapshotActiveConversationForMemory(): ReturnType<AgentSidebarView['snapshotForMemory']> | null {
+    /**
+     * FEAT-55-01 (ADR-169): resolve the chat leaf a vault-wide action
+     * should target. Last-focused chat leaf (if still open), else the
+     * most-recent chat leaf, else the first leaf, else null. This is the
+     * single resolver every migrated call site routes through; while only
+     * one chat exists it returns that one, so behaviour is unchanged until
+     * the multi-leaf detach loop is removed (final PLAN-53 slice).
+     */
+    resolveActiveSidebarLeaf(): WorkspaceLeaf | null {
         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-        if (leaves.length === 0) return null;
-        const view = leaves[0].view as AgentSidebarView;
-        return view.snapshotForMemory?.() ?? null;
+        const mostRecent = this.app.workspace.getMostRecentLeaf();
+        const mostRecentChat = mostRecent?.view instanceof AgentSidebarView ? mostRecent : null;
+        return resolveActiveChatLeaf(leaves, this.lastActiveChatLeaf, mostRecentChat);
+    }
+
+    /**
+     * FEAT-55-01 (ADR-169): prepopulate the ACTIVE chat's composer with a
+     * context selection. Shared by the editor "send selection to sidebar"
+     * command and the inline SendToMainChat action so both target the
+     * last-focused chat rather than the first leaf, and neither needs a
+     * hard import of AgentSidebarView from a wiring module.
+     */
+    prepopulateActiveSidebarComposer(args: { text: string; notePath: string }): boolean {
+        const leaf = this.resolveActiveSidebarLeaf();
+        if (leaf?.view instanceof AgentSidebarView) {
+            leaf.view.prepopulateComposerWithContext(args);
+            return true;
+        }
+        return false;
+    }
+
+    snapshotActiveConversationForMemory(): ReturnType<AgentSidebarView['snapshotForMemory']> | null {
+        const leaf = this.resolveActiveSidebarLeaf();
+        if (!(leaf?.view instanceof AgentSidebarView)) return null;
+        return leaf.view.snapshotForMemory?.() ?? null;
     }
 
     /**
@@ -4769,10 +4904,9 @@ export default class ObsidianAgentPlugin extends Plugin {
             new Notice(t('notice.conversationNotFound'));
             return;
         }
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-        if (leaves.length > 0) {
-            const view = leaves[0].view as AgentSidebarView;
-            void view.loadConversationById(id);
+        const leaf = this.resolveActiveSidebarLeaf();
+        if (leaf?.view instanceof AgentSidebarView) {
+            void leaf.view.loadConversationById(id);
         }
     }
 
@@ -4943,6 +5077,62 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /**
+     * PERF 2026-07-25 (send-latency RCA): register a heavy startup job instead
+     * of firing it directly in `onLayoutReady`.
+     *
+     * Six heavy jobs used to start in the same tick -- graph extraction, the
+     * ontology bootstrap, vault health, incoming-links regeneration, the
+     * implicit-connections sweep and the reranker load. On a single-threaded
+     * renderer they interleaved with the user's first send; one measured send
+     * spent 75 s of HOST time against 1.3 s of provider time. The queue runs
+     * them one at a time, waits while an agent task is in flight (the
+     * agentBusyGate admission gate, which only the semantic reindex used
+     * before), and leaves a gap between jobs so the UI can paint. The gate's
+     * starvation deadline still applies, so startup work cannot be postponed
+     * forever by back-to-back tasks.
+     */
+    enqueueBootJob(label: string, run: () => Promise<unknown> | unknown): void {
+        this.bootJobs.push({ label, run });
+        if (!this.bootJobsScheduled) {
+            this.bootJobsScheduled = true;
+            this.app.workspace.onLayoutReady(() => {
+                this.bootJobsLayoutReady = true;
+                void this.drainBootJobsNow();
+            });
+            return;
+        }
+        // USER 2026-07-26: re-arm. Registration is spread across an async load
+        // with several awaits in it, so on a plugin RELOAD (layout already
+        // ready, onLayoutReady fires at once) the first drain could finish
+        // before the later jobs were even queued -- they then sat in an array
+        // nobody was draining. That stranded four of the six jobs, including the
+        // vault-health check, which is why the health button above the chat went
+        // missing. The queue consumes its entries, so a second drain only picks
+        // up what is left.
+        if (this.bootJobsLayoutReady) void this.drainBootJobsNow();
+    }
+
+    /** Drain the boot queue, unless a drain is already in flight. */
+    private async drainBootJobsNow(): Promise<void> {
+        if (this.bootJobsDraining) return;
+        this.bootJobsDraining = true;
+        try {
+            await drainBootJobs(this.bootJobs, {
+                isBusy: () => this.isAgentBusy(),
+                waitWhileBusy: (isBusy) => waitWhileBusy(isBusy, {
+                    maxWaitMs: BACKGROUND_STARVATION_MS,
+                    pollMs: BACKGROUND_POLL_MS,
+                }),
+            });
+        } finally {
+            this.bootJobsDraining = false;
+            // A job appended during the final inter-job gap would otherwise wait
+            // for a drain that has just ended.
+            if (this.bootJobs.length > 0) void this.drainBootJobsNow();
+        }
+    }
+
+    /**
      * Open the sidebar and programmatically send a message.
      * Used by Settings buttons to trigger agent actions (e.g. "Start setup").
      */
@@ -4950,10 +5140,9 @@ export default class ObsidianAgentPlugin extends Plugin {
         await this.activateView();
         // Small delay to ensure the view is rendered
         window.setTimeout(() => {
-            const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-            if (leaves.length > 0) {
-                const view = leaves[0].view as AgentSidebarView;
-                view.sendProgrammaticMessage(text, hidden);
+            const leaf = this.resolveActiveSidebarLeaf();
+            if (leaf?.view instanceof AgentSidebarView) {
+                leaf.view.sendProgrammaticMessage(text, hidden);
             }
         }, 200);
     }
@@ -4993,10 +5182,9 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.app.setting?.close();
         await this.activateView();
         window.setTimeout(() => {
-            const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
-            if (leaves.length > 0) {
-                const view = leaves[0].view as AgentSidebarView;
-                view.startOnboardingChat();
+            const leaf = this.resolveActiveSidebarLeaf();
+            if (leaf?.view instanceof AgentSidebarView) {
+                leaf.view.startOnboardingChat();
             }
         }, 200);
     }

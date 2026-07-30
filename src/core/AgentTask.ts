@@ -278,6 +278,13 @@ export interface AgentTaskRunConfig {
     /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
     conversationId?: string;
     /**
+     * FEAT-55-02 (ADR-170): run-scoped chat-attachment texts for this run.
+     * The sidebar passes the consumed full-doc texts here instead of setting
+     * them on the shared read_document / ingest_document tool singletons, so
+     * two parallel chats cannot share or wipe each other's attachments.
+     */
+    attachmentTexts?: string[];
+    /**
      * IMP-41-03-01: resume a task from an inflight snapshot. The loop
      * continues with the NEXT iteration after the snapshot (budgets,
      * mistake counters and usage totals carry over). The caller passes the
@@ -643,6 +650,7 @@ export class AgentTask {
             recipesSection,
             configDir,
             conversationId,
+            attachmentTexts,
             subagentRoleOverride,
             subagentAllowedTools,
         } = config;
@@ -804,6 +812,8 @@ export class AgentTask {
                         // post-task-review decision like model writes.
                         onUnreviewedWrite: this.taskCallbacks.onUnreviewedWrite,
                     },
+                    // FEAT-55-02 (ADR-170): run-scoped attachments for recipe steps.
+                    attachmentTexts,
                 );
             },
         });
@@ -1559,6 +1569,7 @@ export class AgentTask {
                         activateDeferredTool,
                         conversationId,
                         readFiles,
+                        attachmentTexts,
                     });
                     // FIX-COMPACT-01: record both outcomes in the ledger so the
                     // post-condense agent sees failures explicitly instead of

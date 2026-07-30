@@ -73,6 +73,9 @@ export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
     'createdAt',
     'successCount',
     'type',
+    // FIX-03-20-02: optional deterministic chat-title template (e.g.
+    // `chatTitle: "Plaud {date}"`). Read by the send path, `{date}` -> DD-MM-YY.
+    'chatTitle',
     // FEAT-29-05 follow-up: common community-skill conventions that the
     // Vault Operator discovery layer doesn't act on but the user may want
     // to keep for portability or documentation. Accepting them silently

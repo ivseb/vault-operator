@@ -103,7 +103,7 @@ export class ReadCheckpointTool extends BaseTool<'read_checkpoint'> {
                 : content;
             const truncated = originalLength > MAX_CONTENT_CHARS;
 
-            const result = this.formatContent(body, {
+            const result = this.formatUntrustedContent('vault-checkpoint', body, {
                 oid: commitOid,
                 taskId: cp.taskId,
                 timestamp: cp.timestamp,

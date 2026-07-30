@@ -7,6 +7,8 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { isDeniedPath } from './denyZoneFilter';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 
@@ -69,6 +71,10 @@ export class SearchByTagTool extends BaseTool<'search_by_tag'> {
             const allFiles = this.app.vault.getMarkdownFiles();
 
             for (const file of allFiles) {
+                // AUDIT 2026-07-26 M-7: before the cache read AND before the
+                // limit break below -- a denied note must not consume a result
+                // slot, or the limit becomes a counting oracle.
+                if (isDeniedPath(this.plugin, file.path)) continue;
                 const cache = this.app.metadataCache.getFileCache(file);
                 if (!cache) continue;
 
@@ -101,20 +107,25 @@ export class SearchByTagTool extends BaseTool<'search_by_tag'> {
             }
 
             if (results.length === 0) {
+                // AUDIT 2026-07-26 M-6: no vault bytes in this branch.
                 callbacks.pushToolResult(
-                    `<tag_search tags="${tags.join(', ')}" match="${match}">\nNo notes found.\n</tag_search>`
+                    `No notes found for tags [${tags.join(', ')}] (match: ${match}).`,
                 );
                 return;
             }
 
-            const lines = results.map((r) => `- ${r.path}  [${r.matchedTags.join(', ')}]`);
-            const output = [
-                `<tag_search tags="${tags.join(', ')}" match="${match}" count="${results.length}">`,
-                ...lines,
-                '</tag_search>',
-            ].join('\n');
+            // AUDIT 2026-07-26 M-6: paths and the matched tag values are note
+            // bytes, emitted into a hand-rolled wrapper with an unescaped
+            // attribute and a raw body.
+            const lines = results.map((r) => {
+                const tagList = r.matchedTags.map((t) => sanitizeDirectoryEntry(String(t), 60)).join(', ');
+                return `- ${sanitizeDirectoryEntry(r.path, 200)}  [${tagList}]`;
+            });
+            const header = `Found ${results.length} note(s) for tags [${tags.join(', ')}] (match: ${match}):`;
 
-            callbacks.pushToolResult(output);
+            callbacks.pushToolResult(
+                `${header}\n\n${this.formatUntrustedContent('vault', lines.join('\n'), { region: 'tag-search' })}`,
+            );
             callbacks.log(`Tag search: found ${results.length} notes`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

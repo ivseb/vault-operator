@@ -21,6 +21,7 @@
  */
 
 import type { AgentTaskCallbacks } from '../../AgentTask';
+import { defangBoundaryTags } from '../../tools/BaseTool';
 import type { InlineAction } from '../InlineActionRegistry';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 import type { InlineLLMCaller } from '../InlineLLMCaller';
@@ -241,8 +242,13 @@ function uniq<T>(arr: T[]): T[] {
  * fresh instructions into the trusted prompt scope.
  */
 function escapeForPromptBlock(text: string): string {
-    return text
-        .replace(/<\/?(vault_context|web_context|selection)\b[^>]*>/gi, '')
-        .replace(/[\r\n]+/g, ' ')
-        .trim();
+    // AUDIT 2026-07-26 M-6: this used to be a single `String.replace` over three
+    // tag names. Two problems. It was NOT reconstruction-safe -- a nested
+    // payload like `</vault_<vault_context>context>` re-forms a live closing tag
+    // once the inner one is removed -- and it only knew three of the boundary
+    // tags, so `</untrusted-content>` and the rest passed through untouched.
+    // Both are exactly what stripToFixpoint and the shared tag list already
+    // solve for the tool-result paths. (BaseTool's own comment claimed this
+    // function was the defence the tool paths were copying; it was not.)
+    return defangBoundaryTags(text).replace(/[\r\n]+/g, ' ').trim();
 }

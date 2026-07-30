@@ -17,6 +17,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 
@@ -103,7 +104,13 @@ export class ListPinnedConversationsTool extends BaseTool<'list_pinned_conversat
         for (const r of rows) {
             const meta = metaById.get(r.sessionId);
             if (meta) {
-                const title = meta.title?.replace(/\n.*/s, '').trim() || '(untitled)';
+                // AUDIT 2026-07-26 M-6: sanitise, but keep the existing
+                // first-line-only display. sanitizeDirectoryEntry COLLAPSES
+                // newlines where this list TRUNCATES at them, so applying it
+                // alone would quietly start showing the rest of a multi-line
+                // title. Truncate first, then defang.
+                const firstLine = (meta.title ?? '').replace(/\n.*/s, '');
+                const title = sanitizeDirectoryEntry(firstLine, 200) || '(untitled)';
                 const updated = meta.updated ? ` updated=${meta.updated.slice(0, 10)}` : '';
                 lines.push(`- ${title} -- id=${r.sessionId}, ${r.factCount} facts,${updated}`);
             } else {
@@ -111,6 +118,8 @@ export class ListPinnedConversationsTool extends BaseTool<'list_pinned_conversat
                 lines.push(`- (deleted conversation) -- id=${r.sessionId}, ${r.factCount} facts`);
             }
         }
-        ctx.callbacks.pushToolResult(this.formatSuccess(lines.join('\n')));
+        ctx.callbacks.pushToolResult(
+            this.formatUntrustedContent('history', lines.join('\n'), { region: 'pinned-conversations' }),
+        );
     }
 }

@@ -135,10 +135,24 @@ export class SkillsTab {
         reloadSkillsBtn.addEventListener('click', () => { void (async () => {
             const loader = this.plugin.selfAuthoredSkillLoader;
             if (!loader) { new Notice(t('settings.skills.loaderNotReady')); return; }
-            await loader.refresh();
-            await refreshList();
-            const count = loader.getAllSkills().length;
-            new Notice(t('settings.skills.rescanned', { count }));
+            // Feedback while the (possibly multi-minute, iCloud) rescan runs, so
+            // the click is visibly acknowledged and the user knows it is working
+            // rather than wondering if VO hung. Mirrors the Rescan button below.
+            const originalText = reloadSkillsBtn.textContent ?? t('settings.skills.reload');
+            reloadSkillsBtn.disabled = true;
+            reloadSkillsBtn.setText(t('settings.skills.scanning'));
+            try {
+                await loader.refresh();
+                await refreshList();
+                const count = loader.getAllSkills().length;
+                new Notice(t('settings.skills.rescanned', { count }));
+            } catch (e) {
+                console.error('[SkillsTab] Reload skills failed:', e);
+                new Notice(t('settings.skills.loaderNotReady'));
+            } finally {
+                reloadSkillsBtn.disabled = false;
+                reloadSkillsBtn.setText(originalText);
+            }
         })(); });
 
         // -- Skill list --

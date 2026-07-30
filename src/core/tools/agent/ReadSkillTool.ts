@@ -20,6 +20,7 @@ import { BaseTool, defangBoundaryTags, sanitizeDirectoryEntry } from '../BaseToo
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import { TRUSTED_SKILL_TIERS } from '../../skills/SkillProvenanceStore';
 import { loadableSkills } from '../../context/SkillsManager';
+import { isSkillEnabled } from '../../skills/skillToggleGate';
 import type ObsidianAgentPlugin from '../../../main';
 import type { SelfAuthoredSkillLoader, SelfAuthoredSkill } from '../../skills/SelfAuthoredSkillLoader';
 
@@ -68,6 +69,19 @@ export class ReadSkillTool extends BaseTool<'read_skill'> {
 
         if (!rawName) {
             callbacks.pushToolResult(this.formatError(new Error('name is required')));
+            return;
+        }
+
+        // AUDIT 2026-07-26 M-17: a skill the user switched off in the Skills tab
+        // stays resolvable by name, so hiding it from <available_skills> was not
+        // a gate. Refuse here too -- the body is the payload, and reading it is
+        // how a switched-off skill would still get followed.
+        const toggles = this.plugin.settings.manualSkillToggles;
+        const disabledSelf = this.skillLoader?.getSkill(rawName);
+        if (disabledSelf && !isSkillEnabled(toggles, { filePath: disabledSelf.filePath, name: disabledSelf.name })) {
+            callbacks.pushToolResult(this.formatError(new Error(
+                `Skill "${sanitizeDirectoryEntry(rawName, 80)}" is switched off in settings.`,
+            )));
             return;
         }
 

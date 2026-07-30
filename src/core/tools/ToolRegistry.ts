@@ -17,10 +17,12 @@ import { ReadFileTool } from './vault/ReadFileTool';
 import { ReadDocumentTool } from './vault/ReadDocumentTool';
 import { ListFilesTool } from './vault/ListFilesTool';
 import { SearchFilesTool } from './vault/SearchFilesTool';
+import { ComputePlaudDeltaTool } from './vault/ComputePlaudDeltaTool';
 // Import tools — vault: write
 import { WriteFileTool } from './vault/WriteFileTool';
 import { EditFileTool } from './vault/EditFileTool';
 import { AppendToFileTool } from './vault/AppendToFileTool';
+import { BuildMeetingNoteFromSinkTool } from './vault/BuildMeetingNoteFromSinkTool';
 import { SetBlockAnchorsTool } from './vault/SetBlockAnchorsTool';
 import { CreateFolderTool } from './vault/CreateFolderTool';
 import { DeleteFileTool } from './vault/DeleteFileTool';
@@ -173,10 +175,12 @@ export class ToolRegistry {
         this.register(new ReadDocumentTool(this.plugin));
         this.register(new ListFilesTool(this.plugin));
         this.register(new SearchFilesTool(this.plugin));
+        this.register(new ComputePlaudDeltaTool(this.plugin));
         // Vault: write (Sprint 1.1)
         this.register(new WriteFileTool(this.plugin));
         this.register(new EditFileTool(this.plugin));
         this.register(new AppendToFileTool(this.plugin));
+        this.register(new BuildMeetingNoteFromSinkTool(this.plugin));
         this.register(new SetBlockAnchorsTool(this.plugin));
         this.register(new IngestDocumentTool(this.plugin));
         this.register(new IngestTriageTool(this.plugin));

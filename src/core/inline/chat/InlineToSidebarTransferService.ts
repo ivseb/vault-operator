@@ -77,10 +77,11 @@ export class InlineToSidebarTransferService {
      */
     canTransfer(args: { inlineRunning: boolean }): CanTransferOutcome {
         if (args.inlineRunning === true) return { ok: false, reason: 'inline-busy' };
-        const sidebar = this.findSidebarView();
-        if (sidebar !== null && sidebar.isBusy === true) {
-            return { ok: false, reason: 'sidebar-busy' };
-        }
+        // FEAT-55-01 (ADR-169): a busy sidebar is no longer a blocker -- the
+        // transfer opens a new parallel chat leaf and imports there. Only the
+        // inline-running case still gates. (transfer() handles the busy case
+        // by opening a fresh leaf; if none can be opened it falls back to a
+        // sidebar-busy refusal at that point.)
         return { ok: true };
     }
 
@@ -116,7 +117,7 @@ export class InlineToSidebarTransferService {
             console.warn('[InlineToSidebarTransferService] activateView failed:', e);
             return { ok: false, reason: 'no-sidebar' };
         }
-        const sidebar = this.findSidebarView();
+        let sidebar = this.findSidebarView();
         if (sidebar === null) {
             this.notify('Sidebar chat is not available.');
             return { ok: false, reason: 'no-sidebar' };
@@ -129,9 +130,24 @@ export class InlineToSidebarTransferService {
             this.notifyForReason('inline-busy');
             return { ok: false, reason: 'inline-busy' };
         }
+        // FEAT-55-01: parallel sessions replace the old busy-refusal. If the
+        // active chat is running, open a NEW in-view chat tab and import
+        // there so the running stream is never interrupted (FEAT-33-13 TODO).
+        // openNewChatTab switches the sidebar's active session to a fresh
+        // (idle) tab, which findNonBusySidebarView then resolves.
         if (sidebar.isBusy === true) {
-            this.notifyForReason('sidebar-busy');
-            return { ok: false, reason: 'sidebar-busy' };
+            try {
+                await this.plugin.openNewChatTab();
+            } catch (e) {
+                console.warn('[InlineToSidebarTransferService] openNewChatTab failed:', e);
+            }
+            const fresher = this.findNonBusySidebarView();
+            if (fresher === null) {
+                // No idle tab available; fall back to the old refusal.
+                this.notifyForReason('sidebar-busy');
+                return { ok: false, reason: 'sidebar-busy' };
+            }
+            sidebar = fresher;
         }
         try {
             // AUDIT 2026-07-07 GUARD-I1: a refusal (FIX-01-01-02 guard fired
@@ -170,6 +186,24 @@ export class InlineToSidebarTransferService {
         for (const leaf of leaves) {
             const candidate = leaf.view as unknown as Partial<SidebarHandshake> | undefined;
             if (candidate !== undefined && typeof candidate.importConversation === 'function') {
+                return candidate as SidebarHandshake;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * FEAT-55-01 (ADR-169): find a chat leaf that is NOT busy, so a transfer
+     * into a freshly opened parallel session lands on an idle chat rather
+     * than one with a running stream.
+     */
+    private findNonBusySidebarView(): SidebarHandshake | null {
+        const leaves = this.plugin.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+        for (const leaf of leaves) {
+            const candidate = leaf.view as unknown as Partial<SidebarHandshake> | undefined;
+            if (candidate !== undefined
+                && typeof candidate.importConversation === 'function'
+                && candidate.isBusy !== true) {
                 return candidate as SidebarHandshake;
             }
         }

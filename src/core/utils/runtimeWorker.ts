@@ -31,8 +31,12 @@ import * as crypto from 'crypto';
 
 const RUNTIME_DIR = '.vault-operator/runtime';
 
-/** AUDIT-024 L-1: whitelist the worker filenames we materialise. */
-const ALLOWED_WORKER_NAMES = new Set(['sandbox-worker.js', 'mcp-server-worker.js']);
+/** AUDIT-024 L-1: whitelist the worker filenames we materialise.
+ *  AUDIT-2026-07-29 L-3: 'sandbox-worker.js' dropped -- the vm sandbox worker
+ *  was removed at SBX-1 and no call site materialises it (only McpTab passes
+ *  'mcp-server-worker.js'); the dead allow-entry is removed to keep the
+ *  whitelist minimal. */
+const ALLOWED_WORKER_NAMES = new Set(['mcp-server-worker.js']);
 
 /**
  * Materialise `code` as `<vault>/.vault-operator/runtime/<name>`.
@@ -68,15 +72,25 @@ export function ensureRuntimeWorker(plugin: Plugin, name: string, code: string):
 
     const expectedSha = crypto.createHash('sha256').update(code, 'utf-8').digest('hex');
 
-    // Cache hit: sidecar matches the SHA of the inlined code AND the
-    // worker file is still on disk. Both conditions cheap to check.
+    // Cache hit: the WORKER FILE hashes to the SHA of the inlined code.
+    //
+    // AUDIT 2026-07-26 (P3): this used to compare the SIDECAR against the
+    // expected SHA and then merely check that the worker file existed. The
+    // sidecar is an ordinary file next to the worker, so anything that could
+    // overwrite the worker could leave the sidecar untouched and have its code
+    // loaded on the next spawn -- the check verified the receipt, not the goods.
+    // Same lesson as M-1 in this audit: an authority the attacker can write is
+    // not an authority. Hashing the file itself makes the sidecar unnecessary
+    // for the decision; it is still written, but only as a cheap human-readable
+    // marker.
     try {
-        const installedSha = safeFs.readFileSync(sidecarAbs, 'utf-8').trim();
-        if (installedSha === expectedSha && safeFs.existsSync(fileAbs)) {
-            return fileAbs;
+        if (safeFs.existsSync(fileAbs)) {
+            const onDisk = safeFs.readFileSync(fileAbs, 'utf-8');
+            const actualSha = crypto.createHash('sha256').update(onDisk, 'utf-8').digest('hex');
+            if (actualSha === expectedSha) return fileAbs;
         }
     } catch {
-        // sidecar missing or unreadable -- fall through to rewrite
+        // unreadable -- fall through and rewrite, which is the safe direction
     }
 
     safeFs.mkdirSync(dirAbs, { recursive: true });

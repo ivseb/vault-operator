@@ -56,8 +56,11 @@ export class GetFrontmatterTool extends BaseTool<'get_frontmatter'> {
             const fm = cache?.frontmatter;
 
             if (!fm || Object.keys(fm).length === 0) {
+                // AUDIT 2026-07-26 M-6: hand-rolled wrapper, unescaped attribute,
+                // undefanged body. Use the shared envelope, exactly like
+                // UpdateFrontmatterTool does for the same data.
                 callbacks.pushToolResult(
-                    `<frontmatter path="${path}">\n(no frontmatter)\n</frontmatter>`
+                    this.formatUntrustedContent('vault', '(no frontmatter)', { path, region: 'frontmatter' }),
                 );
                 return;
             }
@@ -73,8 +76,12 @@ export class GetFrontmatterTool extends BaseTool<'get_frontmatter'> {
                     return `${key}: ${value}`;
                 });
 
-            const result = `<frontmatter path="${path}">\n${entries.join('\n')}\n</frontmatter>`;
-            callbacks.pushToolResult(result);
+            // AUDIT 2026-07-26 M-6: frontmatter values are note bytes. A value
+            // containing `</frontmatter>` (or any other boundary tag) closed the
+            // envelope and continued as trusted prompt.
+            callbacks.pushToolResult(
+                this.formatUntrustedContent('vault', entries.join('\n'), { path, region: 'frontmatter' }),
+            );
             callbacks.log(`Read frontmatter from ${path} (${entries.length} fields)`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

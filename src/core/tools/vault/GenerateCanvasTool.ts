@@ -16,6 +16,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { keepVisible } from './denyZoneFilter';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { TFile } from 'obsidian';
@@ -180,6 +181,14 @@ export class GenerateCanvasTool extends BaseTool<'generate_canvas'> {
                 }
                 targetFiles = Array.from(linked);
             }
+
+            // AUDIT 2026-07-26 M-7: every mode funnels through here. Placed
+            // BEFORE the max_notes cap so a denied note cannot consume a slot
+            // (which would turn the cap into a counting oracle), and before the
+            // emptiness check so a fully denied selection reports "no notes"
+            // rather than a partial canvas. A canvas is persisted, so a leak here
+            // outlives the conversation.
+            targetFiles = keepVisible(this.plugin, targetFiles, (f) => f.path);
 
             // Cap to maxNotes
             if (targetFiles.length > maxNotes) {

@@ -7,6 +7,8 @@
  */
 
 import { TFolder } from 'obsidian';
+import { isDeniedPath, keepVisible } from './denyZoneFilter';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -35,12 +37,21 @@ export class GetVaultStatsTool extends BaseTool<'get_vault_stats'> {
         const { callbacks } = context;
 
         try {
-            const allFiles = this.app.vault.getMarkdownFiles();
-            const allFolders = this.app.vault.getAllLoadedFiles().filter((f) => f instanceof TFolder);
+            // AUDIT 2026-07-26 M-7: filtered at collection, so every number
+            // below counts only what the user allows the agent to see. This is
+            // also the frontmatter half of the finding: a tag used ONLY inside
+            // the deny zone used to show up in the top-15 list.
+            const allFiles = keepVisible(this.plugin, this.app.vault.getMarkdownFiles(), (f) => f.path);
+            const allFolders = keepVisible(
+                this.plugin,
+                this.app.vault.getAllLoadedFiles().filter((f) => f instanceof TFolder),
+                (f) => f.path,
+            );
 
-            // Top-level folders
+            // Top-level folders. Filter before the .map: the deny check needs
+            // the path, and `name` has already thrown it away.
             const rootFolders = (this.app.vault.getRoot().children ?? [])
-                .filter((f) => f instanceof TFolder)
+                .filter((f) => f instanceof TFolder && !isDeniedPath(this.plugin, f.path))
                 .map((f) => f.name)
                 .sort();
 
@@ -71,7 +82,8 @@ export class GetVaultStatsTool extends BaseTool<'get_vault_stats'> {
             const topTags = Object.entries(tagCounts)
                 .sort(([, a], [, b]) => b - a)
                 .slice(0, 15)
-                .map(([tag, count]) => `${tag} (${count})`);
+                // AUDIT 2026-07-26 M-6: tag names come from note frontmatter.
+                .map(([tag, count]) => `${sanitizeDirectoryEntry(String(tag), 80)} (${count})`);
 
             // Recently modified (last 10)
             const recentFiles = [...allFiles]
@@ -79,29 +91,30 @@ export class GetVaultStatsTool extends BaseTool<'get_vault_stats'> {
                 .slice(0, 10)
                 .map((f) => {
                     const date = new Date(f.stat.mtime).toLocaleDateString();
-                    return `${f.path} (${date})`;
+                    return `${sanitizeDirectoryEntry(f.path, 200)} (${date})`;
                 });
 
+            // AUDIT 2026-07-26 M-6: folder names, tag names and note paths are all
+            // vault bytes, and `<vault_stats>` was a hand-rolled wrapper with a raw
+            // body. The counts are tool-authored and stay outside the envelope.
+            const header = `Notes: ${allFiles.length}, folders: ${allFolders.length}, `
+                + `unique tags: ${Object.keys(tagCounts).length}`;
             const lines = [
-                `<vault_stats>`,
-                `Notes: ${allFiles.length}`,
-                `Folders: ${allFolders.length}`,
-                `Unique tags: ${Object.keys(tagCounts).length}`,
-                ``,
                 `Top-level folders:`,
                 ...(rootFolders.length > 0
-                    ? rootFolders.map((f) => `  ${f}/`)
-                    : ['  (vault root — no subfolders)']),
+                    ? rootFolders.map((f) => `  ${sanitizeDirectoryEntry(f, 200)}/`)
+                    : ['  (vault root, no subfolders)']),
                 ``,
                 `Most used tags:`,
                 ...(topTags.length > 0 ? topTags.map((t) => `  ${t}`) : ['  (none)']),
                 ``,
                 `Recently modified:`,
                 ...recentFiles.map((f) => `  ${f}`),
-                `</vault_stats>`,
             ];
 
-            callbacks.pushToolResult(lines.join('\n'));
+            callbacks.pushToolResult(
+                `${header}\n\n${this.formatUntrustedContent('vault', lines.join('\n'), { region: 'vault-stats' })}`,
+            );
             callbacks.log(`Vault stats: ${allFiles.length} notes, ${allFolders.length} folders`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

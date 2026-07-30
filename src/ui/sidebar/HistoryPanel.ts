@@ -84,6 +84,12 @@ export class HistoryPanel {
         private onRename: ((id: string, currentTitle: string) => Promise<void> | void) | null = null,
         /** BA-26 / FEAT-23-04: confirm a pending external conversation (Manual-Sync). */
         private onConfirmPending: ((id: string, title: string) => Promise<void> | void) | null = null,
+        /**
+         * FEAT-55-01 (user request 2026-07-25): true when this conversation
+         * has an interrupted-task snapshot, so History can tag it. Lets the
+         * user find resumable chats in History instead of relying on a notice.
+         */
+        private isInterrupted: ((id: string) => boolean) | null = null,
     ) {}
 
     /** Mount the panel inside a parent container. */
@@ -303,6 +309,16 @@ export class HistoryPanel {
                     titleRow.createSpan({
                         cls: 'history-row-pending-marker',
                         text: t('ui.history.pendingMarker'),
+                    });
+                }
+                // FEAT-55-01 (user request 2026-07-25): tag conversations with
+                // an interrupted-task snapshot so the user spots resumable chats
+                // directly in History.
+                if (this.isInterrupted?.(conv.id)) {
+                    titleRow.createSpan({
+                        cls: 'history-row-interrupted-marker',
+                        text: t('ui.history.interruptedMarker'),
+                        attr: { 'aria-label': t('ui.history.interruptedMarker') },
                     });
                 }
                 // FIX-23-01-01: Thread-Pill fuer Conversations mit

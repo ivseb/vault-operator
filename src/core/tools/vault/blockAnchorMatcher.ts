@@ -312,7 +312,10 @@ function resolveAnchor(idx: TranscriptIndex, find: string): AnchorResolution {
     if (ex.count > 1) return { status: 'ambiguous', confidence: 1 };
     if (ex.count === 1) {
         if (inFence(idx, ex.first)) return { status: 'missed', confidence: 0 };
-        return { status: 'exact', start: ex.first, end: ex.first + find.length, confidence: 1 };
+        // Extend over trailing punctuation so a find that stops mid-sentence
+        // ("...Modus setzen" before "...setzen.") anchors after the period, not
+        // between the word and the mark. Parity with the fuzzy path's extendEnd.
+        return { status: 'exact', start: ex.first, end: extendEnd(idx.text, ex.first + find.length), confidence: 1 };
     }
 
     const needle = tokenizeNorms(find);
@@ -360,7 +363,75 @@ function insertAnchor(text: string, end: number, id: string | number): string {
     return `${before}${anchor}\n\n${rest}`;
 }
 
-export function applyAnchors(text: string, anchors: AnchorRequest[]): ApplyAnchorsResult {
+export interface ApplyAnchorsOptions {
+    /**
+     * Restrict matching to one section of the note. The value is matched
+     * (trimmed, case-insensitive) against heading texts; anchors are placed
+     * only inside that section's body -- from its heading line to the next
+     * heading of the same or higher level, or EOF. Everything outside stays
+     * byte-identical.
+     *
+     * The meeting-summary skill writes a summary above the transcript before
+     * placing anchors. Without this scope a `find` whose wording is closer to
+     * the model's own summary paraphrase than to the raw transcript resolves
+     * INTO the summary (or ambiguously across both), leaving the summary link
+     * pointing at an anchor nobody can click. Scoping to "Transkript" keeps
+     * every anchor in the transcript regardless of what order the skill wrote
+     * things in. If the section is not found, nothing is anchored
+     * (fail-closed): every id is reported missed.
+     */
+    restrictToSection?: string;
+}
+
+/**
+ * Locate a section body by heading text. Returns [start, end) offsets in the
+ * ORIGINAL text (start = just after the heading line, end = the next
+ * same-or-higher heading or EOF), or null if no heading matches.
+ */
+export function findSectionBody(text: string, heading: string): { start: number; end: number } | null {
+    const want = heading.trim().toLowerCase();
+    if (!want) return null;
+    const headingRe = /^(#{1,6})[ \t]+(.*?)[ \t]*$/gm;
+    let m: RegExpExecArray | null;
+    let level = -1;
+    let bodyStart = -1;
+    while ((m = headingRe.exec(text)) !== null) {
+        if (bodyStart === -1) {
+            const title = m[2].trim().toLowerCase();
+            if (title === want || title.startsWith(want)) {
+                level = m[1].length;
+                bodyStart = m.index + m[0].length;
+            }
+        } else if (m[1].length <= level) {
+            return { start: bodyStart, end: m.index };
+        }
+    }
+    return bodyStart === -1 ? null : { start: bodyStart, end: text.length };
+}
+
+/**
+ * Place `^block-<id>` anchors. With `options.restrictToSection`, matching and
+ * insertion happen only inside that section; the rest of the note is spliced
+ * back untouched. See {@link ApplyAnchorsOptions.restrictToSection}.
+ */
+export function applyAnchors(text: string, anchors: AnchorRequest[], options?: ApplyAnchorsOptions): ApplyAnchorsResult {
+    const section = options?.restrictToSection?.trim();
+    if (!section) return applyAnchorsCore(text, anchors);
+
+    const body = findSectionBody(text, section);
+    if (!body) {
+        // Fail-closed: an unknown section anchors nothing, rather than falling
+        // back to matching the whole note (which is the bug this guards).
+        const missed = anchors.map((a) => a.id);
+        const details: AnchorDetail[] = anchors.map((a) => ({ id: a.id, status: 'missed' as const, confidence: 0 }));
+        return { text, set: [], missed, ambiguous: [], details };
+    }
+
+    const inner = applyAnchorsCore(text.slice(body.start, body.end), anchors);
+    return { ...inner, text: text.slice(0, body.start) + inner.text + text.slice(body.end) };
+}
+
+function applyAnchorsCore(text: string, anchors: AnchorRequest[]): ApplyAnchorsResult {
     const idx = buildTranscriptIndex(text);
     const set: Array<string | number> = [];
     const missed: Array<string | number> = [];

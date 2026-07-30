@@ -13,6 +13,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
+import { sanitizeDirectoryEntry } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 
@@ -104,8 +105,9 @@ export class FindNotesByTypeTool extends BaseTool<'find_notes_by_type'> {
             }
 
             if (matches.length === 0) {
+                // AUDIT 2026-07-26 M-6: no vault bytes here, so plain text.
                 callbacks.pushToolResult(
-                    `<notes_by_type types="${types.join(', ')}">\nNo notes found.\n</notes_by_type>`,
+                    `No notes found of type [${types.join(', ')}].`,
                 );
                 return;
             }
@@ -114,17 +116,19 @@ export class FindNotesByTypeTool extends BaseTool<'find_notes_by_type'> {
             // No file paths, tags capped -- a bloated list crosses the
             // externalize threshold and the model never sees it inline.
             const truncated = matches.length >= limit;
+            // AUDIT 2026-07-26 M-6: basenames and tag values are note bytes and
+            // went into a hand-rolled wrapper raw. The count line and the
+            // truncation note are tool-authored and stay outside the envelope, so
+            // the model still obeys them.
             const lines = matches.map((m) => {
-                const tags = m.tags.slice(0, MAX_TAGS_PER_NOTE);
-                return tags.length ? `- [[${m.basename}]]  [${tags.join(', ')}]` : `- [[${m.basename}]]`;
+                const tags = m.tags.slice(0, MAX_TAGS_PER_NOTE).map((t) => sanitizeDirectoryEntry(String(t), 60));
+                const name = sanitizeDirectoryEntry(m.basename, 200);
+                return tags.length ? `- [[${name}]]  [${tags.join(', ')}]` : `- [[${name}]]`;
             });
+            const header = `Found ${matches.length} note(s) of type [${types.join(', ')}]:`;
+            const footer = truncated ? `\n(truncated at ${limit} -- raise limit to see the rest)` : '';
             callbacks.pushToolResult(
-                [
-                    `<notes_by_type types="${types.join(', ')}" count="${matches.length}"${truncated ? ' truncated="true"' : ''}>`,
-                    ...lines,
-                    truncated ? `(truncated at ${limit} -- raise limit to see the rest)` : '',
-                    '</notes_by_type>',
-                ].filter(Boolean).join('\n'),
+                `${header}\n\n${this.formatUntrustedContent('vault', lines.join('\n'), { region: 'notes-by-type' })}${footer}`,
             );
             callbacks.log(`find_notes_by_type: ${matches.length} notes for types [${types.join(', ')}]`);
         } catch (error) {

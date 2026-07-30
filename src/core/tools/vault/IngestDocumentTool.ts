@@ -33,16 +33,8 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
     readonly name = 'ingest_document' as const;
     readonly isWriteOperation = true;
 
-    /** Parsed text from chat attachments, set by AgentSidebarView before task execution */
-    private attachmentTexts: string[] = [];
-
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
-    }
-
-    /** Called by AgentSidebarView to pass parsed attachment texts for the current turn */
-    setAttachmentTexts(texts: string[]): void {
-        this.attachmentTexts = texts;
     }
 
     /**
@@ -134,14 +126,18 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
             // Get the document text
             let documentText: string;
 
+            // FEAT-55-02 (ADR-170): run-scoped attachments from the context,
+            // not a shared instance field.
+            const attachmentTexts = context.getAttachmentTexts?.() ?? [];
+
             if (source_path) {
                 try {
                     // Parse from vault file
                     documentText = await this.parseVaultDocument(source_path, context);
                 } catch (parseErr) {
                     // Fallback: if vault parsing fails but a specific attachment_index was provided, use that
-                    if (attachment_index !== undefined && attachment_index >= 0 && attachment_index < this.attachmentTexts.length) {
-                        documentText = this.attachmentTexts[attachment_index];
+                    if (attachment_index !== undefined && attachment_index >= 0 && attachment_index < attachmentTexts.length) {
+                        documentText = attachmentTexts[attachment_index];
                         callbacks.log(`Vault parse failed (${parseErr instanceof Error ? parseErr.message : String(parseErr)}), using attachment[${attachment_index}] as fallback.`);
                     } else {
                         throw parseErr;
@@ -149,12 +145,12 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
                 }
             } else if (attachment_index !== undefined && attachment_index >= 0) {
                 // Get from chat attachment
-                if (attachment_index >= this.attachmentTexts.length) {
+                if (attachment_index >= attachmentTexts.length) {
                     // Attachments are populated only on the turn the user uploaded them;
                     // a Multi-Turn-Dialog skill that calls ingest_document on a later
                     // turn will see attachmentTexts === [] (FIX-19-28-02 follow-up).
                     // Give the agent an actionable error instead of a number.
-                    if (this.attachmentTexts.length === 0) {
+                    if (attachmentTexts.length === 0) {
                         throw new Error(
                             'No chat attachments available on this turn. The chat-attachment lifetime is one turn -- ' +
                             'the PDF/Office document the user uploaded earlier is no longer accessible via attachment_index. ' +
@@ -167,10 +163,10 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
                     }
                     throw new Error(
                         `Attachment index ${attachment_index} out of range. ` +
-                        `${this.attachmentTexts.length} attachment(s) available (use index 0..${this.attachmentTexts.length - 1}).`
+                        `${attachmentTexts.length} attachment(s) available (use index 0..${attachmentTexts.length - 1}).`
                     );
                 }
-                documentText = this.attachmentTexts[attachment_index];
+                documentText = attachmentTexts[attachment_index];
             } else {
                 throw new Error('Either source_path or attachment_index is required');
             }

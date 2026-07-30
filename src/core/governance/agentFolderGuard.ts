@@ -17,6 +17,8 @@
  * into disagreeing about what "the config zone" is.
  */
 
+import { foldPath } from './foldPath';
+
 /**
  * True when `safePath` lives inside the agent folder but outside the skill
  * workspace -- i.e. it is agent configuration that must not be written (and, for
@@ -32,8 +34,11 @@ export function isProtectedAgentConfigPath(safePath: string, agentRoot: string):
     // and `.vault-operator/...` resolve to the same file, so a case-variant must
     // not slip past the deny-zone. The exemption below stays case-sensitive on
     // purpose (fail-closed): an odd-cased `SKILLS/` is treated as config.
-    const lowerRoot = agentRoot.toLowerCase();
-    const lowerPath = safePath.toLowerCase();
+    // AUDIT 2026-07-26 (P3 follow-up): was `.toLowerCase()`, a THIRD notion of
+    // path sameness alongside IgnoreService's fold and its raw comparisons.
+    // Shared fold now, so a non-ASCII agent root folds the same way everywhere.
+    const lowerRoot = foldPath(agentRoot);
+    const lowerPath = foldPath(safePath);
     if (lowerPath !== lowerRoot && !lowerPath.startsWith(`${lowerRoot}/`)) return false;
 
     const rel = safePath.slice(agentRoot.length).replace(/^\//, '');
