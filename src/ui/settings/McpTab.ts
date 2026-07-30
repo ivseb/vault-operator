@@ -327,7 +327,7 @@ export class McpTab {
                 // alarms (e.g. tab opened before the relay connected).
                 const seenWorkerVersion = mcpBridge?.deployedWorkerVersion ?? null;
                 if (seenWorkerVersion !== null && isWorkerOutdated(seenWorkerVersion, RELAY_WORKER_VERSION)) {
-                    containerEl.createEl('div', {
+                    containerEl.createDiv({
                         cls: 'setting-item-description mcp-worker-outdated',
                         text: t('settings.mcp.workerOutdatedWarning'),
                     });

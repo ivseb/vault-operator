@@ -122,7 +122,7 @@ export class PromptsTab {
         for (const mode of allModes) {
             modeSelect.createEl('option', { value: mode.slug, text: mode.name });
         }
-        modeRow.createEl('span', {
+        modeRow.createSpan({
             cls: 'agent-empty-state',
             text: t('settings.prompts.modeHint'),
         });

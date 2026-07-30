@@ -182,14 +182,14 @@ export class EditReviewPanel {
     open(): HTMLElement {
         this.close();
         const doc = this.containerEl.ownerDocument;
-        const root = createEl('div');
+        const root = createDiv();
         root.classList.add('agent-edit-review');
         if (this.mode === 'checkpoint') root.classList.add('is-checkpoint');
 
         this.buildHeader(root, doc);
 
         if (this.entries.length === 0) {
-            const empty = createEl('div');
+            const empty = createDiv();
             empty.classList.add('agent-edit-review__empty');
             empty.textContent = t('ui.editReview.noChanges');
             root.appendChild(empty);
@@ -199,7 +199,7 @@ export class EditReviewPanel {
             return root;
         }
 
-        const main = createEl('div');
+        const main = createDiv();
         main.classList.add('agent-edit-review__main');
         root.appendChild(main);
 
@@ -247,19 +247,19 @@ export class EditReviewPanel {
     }
 
     private buildHeader(root: HTMLElement, doc: Document): void {
-        const header = createEl('div');
+        const header = createDiv();
         header.classList.add('agent-edit-review__header');
 
-        const titleWrap = createEl('div');
+        const titleWrap = createDiv();
         titleWrap.classList.add('agent-edit-review__title-wrap');
 
-        const title = createEl('div');
+        const title = createDiv();
         title.classList.add('agent-edit-review__title');
         title.textContent = this.title;
         titleWrap.appendChild(title);
 
         if (this.sourceLabel.length > 0) {
-            const sub = createEl('div');
+            const sub = createDiv();
             sub.classList.add('agent-edit-review__subtitle');
             sub.textContent = this.sourceLabel;
             titleWrap.appendChild(sub);
@@ -269,9 +269,9 @@ export class EditReviewPanel {
     }
 
     private buildFileList(main: HTMLElement, doc: Document): void {
-        const list = createEl('div');
+        const list = createDiv();
         list.classList.add('agent-edit-review__filelist');
-        const heading = createEl('div');
+        const heading = createDiv();
         heading.classList.add('agent-edit-review__filelist-heading');
         heading.textContent = t('ui.editReview.filesHeading', { count: this.entries.length });
         list.appendChild(heading);
@@ -281,14 +281,14 @@ export class EditReviewPanel {
             row.classList.add('agent-edit-review__file');
             row.setAttribute('type', 'button');
 
-            const statusEl = createEl('span');
+            const statusEl = createSpan();
             statusEl.classList.add('agent-edit-review__file-status');
             statusEl.textContent = entry.isNew === true ? '+'
                 : entry.isDeleted === true ? '−'
                 : '●';
             row.appendChild(statusEl);
 
-            const labelEl = createEl('span');
+            const labelEl = createSpan();
             labelEl.classList.add('agent-edit-review__file-label');
             labelEl.textContent = entry.path;
             row.appendChild(labelEl);
@@ -306,19 +306,19 @@ export class EditReviewPanel {
     }
 
     private buildDiff(main: HTMLElement, doc: Document): void {
-        const diff = createEl('div');
+        const diff = createDiv();
         diff.classList.add('agent-edit-review__diff');
 
         // --- toolbar ---------------------------------------------------------
-        const bar = createEl('div');
+        const bar = createDiv();
         bar.classList.add('agent-edit-review__diff-header');
 
-        const pathEl = createEl('div');
+        const pathEl = createDiv();
         pathEl.classList.add('agent-edit-review__diff-path');
         bar.appendChild(pathEl);
         this.diffPathEl = pathEl;
 
-        const stats = createEl('span');
+        const stats = createSpan();
         stats.classList.add('agent-edit-review__stats');
         bar.appendChild(stats);
         this.afterStatsEl = stats;
@@ -365,13 +365,13 @@ export class EditReviewPanel {
         diff.appendChild(bar);
 
         // --- column headings -------------------------------------------------
-        const heads = createEl('div');
+        const heads = createDiv();
         heads.classList.add('agent-edit-review__colheads');
-        const hOld = createEl('span');
+        const hOld = createSpan();
         hOld.classList.add('agent-edit-review__colhead');
         hOld.textContent = t('ui.editReview.original');
         heads.appendChild(hOld);
-        const hNew = createEl('span');
+        const hNew = createSpan();
         hNew.classList.add('agent-edit-review__colhead');
         hNew.textContent = this.mode === 'checkpoint'
             ? t('ui.editReview.snapshot')
@@ -382,7 +382,7 @@ export class EditReviewPanel {
         // --- the ONE scroll container ---------------------------------------
         // Both columns are rendered INSIDE this, one row element per diff line.
         // That is what keeps the two sides aligned when a line wraps.
-        const body = createEl('div');
+        const body = createDiv();
         body.classList.add('agent-edit-review__body');
         diff.appendChild(body);
         this.bodyEl = body;
@@ -441,7 +441,7 @@ export class EditReviewPanel {
     }
 
     private buildFooter(root: HTMLElement, doc: Document): void {
-        const footer = createEl('div');
+        const footer = createDiv();
         footer.classList.add('agent-edit-review__footer');
 
         const discardBtn = createEl('button');
@@ -578,7 +578,7 @@ export class EditReviewPanel {
         const aligned = buildAlignedDiff(entry.before, currentContent, { collapse: !this.expanded });
 
         if (aligned.left.length === 0) {
-            const empty = createEl('div');
+            const empty = createDiv();
             empty.classList.add('agent-edit-review__empty-diff');
             empty.textContent = t('ui.editReview.emptyFile');
             host.appendChild(empty);
@@ -603,14 +603,14 @@ export class EditReviewPanel {
     }
 
     private makeHeadingRow(doc: Document, heading: string): HTMLElement {
-        const el = createEl('div');
+        const el = createDiv();
         el.classList.add('agent-edit-review__hunk-head');
         el.textContent = heading;
         return el;
     }
 
     private makeRow(doc: Document, left: AlignedLine, right: AlignedLine): HTMLElement {
-        const row = createEl('div');
+        const row = createDiv();
         row.classList.add('agent-edit-review__row');
 
         if (left.type === 'collapsed') {
@@ -637,7 +637,7 @@ export class EditReviewPanel {
     }
 
     private makeCell(doc: Document, line: AlignedLine, side: 'old' | 'new'): HTMLElement {
-        const cell = createEl('div');
+        const cell = createDiv();
         cell.classList.add('agent-edit-review__cell');
         cell.classList.add(`agent-edit-review__cell--${side}`);
 
@@ -647,13 +647,13 @@ export class EditReviewPanel {
 
         // Redundant, non-colour cue (WCAG 1.4.1: never carry meaning by colour
         // alone). Rendered in its own grid slot so it cannot disturb the prose.
-        const marker = createEl('span');
+        const marker = createSpan();
         marker.classList.add('agent-edit-review__marker');
         marker.setAttribute('aria-hidden', 'true');
         marker.textContent = line.type === 'added' ? '+' : line.type === 'removed' ? '\u2212' : '';
         cell.appendChild(marker);
 
-        const text = createEl('span');
+        const text = createSpan();
         text.classList.add('agent-edit-review__text');
         if (isMonospaceLine(line.content)) text.classList.add('is-mono');
         this.renderLineText(doc, text, line, side);
@@ -693,7 +693,7 @@ export class EditReviewPanel {
                 host.appendChild(doc.createTextNode(op.text));
                 continue;
             }
-            const mark = createEl('span');
+            const mark = createSpan();
             mark.classList.add('agent-edit-review__word');
             mark.classList.add(op.type === 'del' ? 'is-del-word' : 'is-add-word');
             mark.textContent = op.text;

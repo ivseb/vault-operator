@@ -337,7 +337,7 @@ export class FirstRunWizardModal extends Modal {
         const card = parent.createDiv({ cls: 'wizard-provider-card' });
         const header = card.createDiv({ cls: 'wizard-provider-header' });
         header.createDiv({ cls: 'wizard-provider-name', text: opts.name });
-        const badge = header.createEl('span', { cls: `wizard-provider-badge is-${opts.tier}`, text: opts.tierLabel });
+        const badge = header.createSpan({ cls: `wizard-provider-badge is-${opts.tier}`, text: opts.tierLabel });
         badge.setAttr('title', opts.tierLabel);
         card.createDiv({ cls: 'wizard-provider-note', text: opts.note });
         if (opts.url) {
@@ -585,7 +585,7 @@ export class FirstRunWizardModal extends Modal {
 
             const header = label.createDiv({ cls: 'wizard-provider-header' });
             header.createDiv({ cls: 'wizard-provider-name', text: p.label });
-            header.createEl('span', { cls: `wizard-provider-badge is-${p.tier}`, text: p.tierLabel });
+            header.createSpan({ cls: `wizard-provider-badge is-${p.tier}`, text: p.tierLabel });
 
             label.createDiv({ cls: 'wizard-provider-note', text: p.note });
             label.addEventListener('click', () => { radio.checked = true; radio.dispatchEvent(new Event('change')); });
@@ -794,7 +794,7 @@ export class FirstRunWizardModal extends Modal {
             const header = card.createDiv({ cls: 'wizard-provider-header' });
             header.createDiv({ cls: 'wizard-provider-name', text: `${item.label} (${item.size})` });
             if (item.recommended) {
-                header.createEl('span', { cls: 'wizard-provider-badge is-recommended', text: t('modal.firstRunWizard.badgeRecommended') });
+                header.createSpan({ cls: 'wizard-provider-badge is-recommended', text: t('modal.firstRunWizard.badgeRecommended') });
             }
 
             card.createDiv({ cls: 'wizard-provider-note', text: item.what });

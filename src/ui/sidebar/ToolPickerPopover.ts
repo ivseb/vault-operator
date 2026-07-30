@@ -59,7 +59,7 @@ export class ToolPickerPopover {
         }
         const mode = resolvedMode;
 
-        const popover = createEl('div');
+        const popover = createDiv();
         popover.className = 'tool-picker-popover';
         this.popoverEl = popover;
 
@@ -243,7 +243,7 @@ export class ToolPickerPopover {
             if (servers.length > 0) {
                 // FEAT-04-12: the selection is PER AGENT now -- say whose it is.
                 // Keyed on the RESOLVED mode slug (U5 pattern), not raw currentMode.
-                mcpCatBody.createEl('div', {
+                mcpCatBody.createDiv({
                     cls: 'tp-section-hint',
                     text: t('ui.toolPicker.mcpServersHint', { agent: mode.name }),
                 });
@@ -278,7 +278,7 @@ export class ToolPickerPopover {
                 mcpGroupCb.checked = allMcp;
                 mcpGroupCb.indeterminate = !allMcp && someMcp;
             } else {
-                mcpCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.noMcpServers') });
+                mcpCatBody.createSpan({ cls: 'tp-empty-hint', text: t('ui.toolPicker.noMcpServers') });
                 mcpGroupCb.checked = false;
                 mcpGroupCb.disabled = true;
             }

@@ -3775,7 +3775,7 @@ export class AgentSidebarView extends ItemView {
                     if (parsedFollowups.length > 0) {
                         const followupList = messageEl.createDiv('followup-list');
                         if (followupHeading) {
-                            followupList.createEl('div', { cls: 'followup-heading', text: followupHeading });
+                            followupList.createDiv({ cls: 'followup-heading', text: followupHeading });
                         }
                         for (const raw of parsedFollowups) {
                             // Clean [[wikilinks]] → display name only (no folder prefix)
@@ -3793,7 +3793,7 @@ export class AgentSidebarView extends ItemView {
                                 }
                             });
                             // "+" button: append text to textarea without sending (inside item, right-aligned, hover-only)
-                            const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
+                            const appendBtn = item.createSpan({ cls: 'followup-append-btn', text: '+' });
                             appendBtn.setAttribute('aria-label', t('ui.sidebar.addToInput'));
                             appendBtn.addEventListener('click', (ev) => {
                                 ev.stopPropagation();
@@ -5847,7 +5847,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         for (const { node, text } of replacements) {
-            const fragment = activeDocument.createDocumentFragment();
+            const fragment = createFragment();
             let lastIndex = 0;
             let replaced = false;
 
@@ -5865,7 +5865,7 @@ export class AgentSidebarView extends ItemView {
                 }
 
                 // Citation badge
-                const badge = createEl('span');
+                const badge = createSpan();
                 badge.className = 'source-badge';
                 badge.textContent = String(num);
                 badge.addEventListener('click', (e) => {
@@ -5931,10 +5931,10 @@ export class AgentSidebarView extends ItemView {
     private showSourcePopup(anchor: HTMLElement, source: { num: number; note: string; context: string }): void {
         activeDocument.querySelectorAll('.source-popup').forEach(el => el.remove());
 
-        const popup = createEl('div');
+        const popup = createDiv();
         popup.className = 'source-popup';
 
-        const titleEl = createEl('div');
+        const titleEl = createDiv();
         titleEl.className = 'source-popup-title';
         const target = resolveSourceTarget(source.note);
         titleEl.textContent = target.display;
@@ -5945,7 +5945,7 @@ export class AgentSidebarView extends ItemView {
         popup.appendChild(titleEl);
 
         if (source.context) {
-            const ctxEl = createEl('div');
+            const ctxEl = createDiv();
             ctxEl.className = 'source-popup-context';
             ctxEl.textContent = source.context;
             popup.appendChild(ctxEl);
@@ -5965,19 +5965,19 @@ export class AgentSidebarView extends ItemView {
     private showSourcesPanel(anchor: HTMLElement, sources: { num: number; note: string; context: string }[]): void {
         activeDocument.querySelectorAll('.source-popup').forEach(el => el.remove());
 
-        const popup = createEl('div');
+        const popup = createDiv();
         popup.className = 'source-popup sources-panel';
 
         for (const source of sources) {
-            const row = createEl('div');
+            const row = createDiv();
             row.className = 'source-panel-row';
 
-            const numEl = createEl('span');
+            const numEl = createSpan();
             numEl.className = 'source-badge';
             numEl.textContent = String(source.num);
             row.appendChild(numEl);
 
-            const titleEl = createEl('span');
+            const titleEl = createSpan();
             titleEl.className = 'source-panel-title';
             const target = resolveSourceTarget(source.note);
             titleEl.textContent = target.display;
@@ -5988,7 +5988,7 @@ export class AgentSidebarView extends ItemView {
             row.appendChild(titleEl);
 
             if (source.context) {
-                const ctxEl = createEl('div');
+                const ctxEl = createDiv();
                 ctxEl.className = 'source-panel-context';
                 ctxEl.textContent = source.context;
                 row.appendChild(ctxEl);
@@ -6013,7 +6013,7 @@ export class AgentSidebarView extends ItemView {
 
         // Sources indicator (left-aligned, before action buttons)
         if (sources && sources.length > 0) {
-            const indicator = bar.createEl('span', { cls: 'sources-indicator' });
+            const indicator = bar.createSpan({ cls: 'sources-indicator' });
             const iconEl = indicator.createSpan('sources-indicator-icon');
             setIcon(iconEl, 'book-open');
             indicator.createSpan({ text: t('ui.sidebar.sources', { count: sources.length }) });
@@ -6136,7 +6136,7 @@ export class AgentSidebarView extends ItemView {
 
         if (!planBoxEl) {
             // First call — build the plan box and move toolsEl into it
-            planBoxEl = createEl('div');
+            planBoxEl = createDiv();
             planBoxEl.className = 'agent-todo-box';
             // Insert before toolsEl (direct child of messageEl on first call)
             messageEl.insertBefore(planBoxEl, toolsEl);
@@ -6223,7 +6223,7 @@ export class AgentSidebarView extends ItemView {
                 const item = itemRow.createEl('button', { cls: 'followup-item', text: opt });
                 item.addEventListener('click', () => { answer(opt); });
                 // "+" button: append to the textarea, do NOT resolve.
-                const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
+                const appendBtn = item.createSpan({ cls: 'followup-append-btn', text: '+' });
                 appendBtn.setAttribute('aria-label', t('ui.sidebar.addToInput'));
                 appendBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
@@ -6641,7 +6641,7 @@ export class AgentSidebarView extends ItemView {
             const previewPromise = this.maybeRenderFrontmatterOperatorPreview(toolName, input, row);
 
             // Collapsible details for power users
-            const detailsToggle = row.createEl('span', {
+            const detailsToggle = row.createSpan({
                 cls: 'tool-approval-details-toggle',
                 text: t('ui.approval.explain.showDetails'),
             });
@@ -6967,7 +6967,7 @@ export class AgentSidebarView extends ItemView {
                 sizeMb: String(spec.sizeMb),
             }));
 
-            const detailsToggle = row.createEl('span', {
+            const detailsToggle = row.createSpan({
                 cls: 'tool-approval-details-toggle',
                 text: t('ui.installPrompt.whatHappens'),
             });

@@ -91,7 +91,7 @@ export class InlineFloatingMenu {
         }
 
         this.currentCtx = ctx;
-        const root = createEl('div');
+        const root = createDiv();
         root.classList.add('agent-inline-menu');
         root.setAttribute('role', 'menu');
         root.setAttribute('aria-label', t('ui.inline.menuAriaLabel'));

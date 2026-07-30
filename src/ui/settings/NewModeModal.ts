@@ -45,8 +45,8 @@ export class NewModeModal extends Modal {
             }));
 
         // ── Short description ─────────────────────────────────────────────────
-        contentEl.createEl('div', { cls: 'new-mode-field-label', text: t('modal.newMode.shortDesc') });
-        contentEl.createEl('div', { cls: 'new-mode-field-desc', text: t('modal.newMode.shortDescHint') });
+        contentEl.createDiv({ cls: 'new-mode-field-label', text: t('modal.newMode.shortDesc') });
+        contentEl.createDiv({ cls: 'new-mode-field-desc', text: t('modal.newMode.shortDescHint') });
         const descTextarea = contentEl.createEl('textarea', {
             cls: 'new-mode-textarea',
             attr: { placeholder: t('modal.newMode.shortDescPlaceholder') },
@@ -56,7 +56,7 @@ export class NewModeModal extends Modal {
 
         // ── Role Definition ───────────────────────────────────────────────────
         contentEl.createEl('label', { cls: 'new-mode-field-label', text: t('modal.newMode.roleDefinition') });
-        contentEl.createEl('div', { cls: 'new-mode-field-desc', text: t('modal.newMode.roleDefinitionHint') });
+        contentEl.createDiv({ cls: 'new-mode-field-desc', text: t('modal.newMode.roleDefinitionHint') });
         const roleTextarea = contentEl.createEl('textarea', {
             cls: 'new-mode-textarea',
             attr: { placeholder: t('modal.newMode.roleDefinitionPlaceholder') },
@@ -66,7 +66,7 @@ export class NewModeModal extends Modal {
 
         // ── Custom Instructions ───────────────────────────────────────────────
         contentEl.createEl('label', { cls: 'new-mode-field-label', text: t('modal.newMode.customInstructions') });
-        contentEl.createEl('div', { cls: 'new-mode-field-desc', text: t('modal.newMode.customInstructionsHint') });
+        contentEl.createDiv({ cls: 'new-mode-field-desc', text: t('modal.newMode.customInstructionsHint') });
         const ciTextarea = contentEl.createEl('textarea', {
             cls: 'new-mode-textarea',
             attr: { placeholder: t('modal.newMode.customInstructionsPlaceholder') },
@@ -76,8 +76,8 @@ export class NewModeModal extends Modal {
 
         // ── Save Location ─────────────────────────────────────────────────────
         const locationWrap = contentEl.createDiv('new-mode-location');
-        locationWrap.createEl('div', { cls: 'new-mode-field-label', text: t('modal.newMode.saveLocation') });
-        locationWrap.createEl('div', { cls: 'new-mode-field-desc', text: t('modal.newMode.saveLocationHint') });
+        locationWrap.createDiv({ cls: 'new-mode-field-label', text: t('modal.newMode.saveLocation') });
+        locationWrap.createDiv({ cls: 'new-mode-field-desc', text: t('modal.newMode.saveLocationHint') });
         const locGrid = locationWrap.createDiv('new-mode-loc-grid');
 
         for (const opt of [
@@ -90,7 +90,7 @@ export class NewModeModal extends Modal {
             radio.addEventListener('change', () => { if (radio.checked) saveLocation = opt.value; });
             const lbl = row.createEl('label');
             lbl.createEl('strong', { text: opt.label });
-            lbl.createEl('span', { text: `, ${opt.desc}`, cls: 'modes-group-desc' });
+            lbl.createSpan({ text: `, ${opt.desc}`, cls: 'modes-group-desc' });
         }
 
         // ── Actions ───────────────────────────────────────────────────────────

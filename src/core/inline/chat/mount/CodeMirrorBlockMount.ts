@@ -209,7 +209,7 @@ export class CodeMirrorBlockMount implements InlineChatMountAdapter {
             // canMount guards this; defensive throw rather than null-return
             throw new Error('CodeMirrorBlockMount.mount called without an EditorView');
         }
-        const container = createEl('div');
+        const container = createDiv();
         container.classList.add('agent-inline-chat-block');
         // Read the full selection now: `from` for the highlight mark
         // (so the user sees what the chat is referencing even after the

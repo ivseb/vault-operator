@@ -177,7 +177,7 @@ export class LogTab {
                 text: e.success ? t('settings.log.statusOk') : t('settings.log.statusError'),
             });
             if (!e.success && e.error) {
-                statusTd.createEl('span', {
+                statusTd.createSpan({
                     cls: 'agent-log-error-msg',
                     text: `: ${this.truncate(e.error, 80)}`,
                 });
@@ -191,21 +191,21 @@ export class LogTab {
 
                 // Params
                 if (e.params && Object.keys(e.params).length > 0) {
-                    detailTd.createEl('div', { cls: 'agent-log-detail-label', text: t('settings.log.detailParams') });
+                    detailTd.createDiv({ cls: 'agent-log-detail-label', text: t('settings.log.detailParams') });
                     const paramsPre = detailTd.createEl('pre', { cls: 'agent-log-detail-content' });
                     paramsPre.setText(JSON.stringify(e.params, null, 2));
                 }
 
                 // Result
                 if (e.result) {
-                    detailTd.createEl('div', { cls: 'agent-log-detail-label', text: t('settings.log.detailResult') });
+                    detailTd.createDiv({ cls: 'agent-log-detail-label', text: t('settings.log.detailResult') });
                     const resultPre = detailTd.createEl('pre', { cls: 'agent-log-detail-content' });
                     resultPre.setText(e.result);
                 }
 
                 // Error details
                 if (e.error) {
-                    detailTd.createEl('div', { cls: 'agent-log-detail-label', text: t('settings.log.detailError') });
+                    detailTd.createDiv({ cls: 'agent-log-detail-label', text: t('settings.log.detailError') });
                     const errorPre = detailTd.createEl('pre', { cls: 'agent-log-detail-content agent-log-detail-error' });
                     errorPre.setText(e.error);
                 }

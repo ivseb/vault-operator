@@ -286,7 +286,7 @@ export class InlineChatPanel {
         this.forcedWorkflowRefreshUnsub =
             this.subscribeForcedWorkflowRefresh?.(() => this.renderForcedWorkflowChip()) ?? null;
         const doc = this.containerEl.ownerDocument;
-        const root = createEl('div');
+        const root = createDiv();
         root.classList.add('agent-inline-panel');
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-label', t('ui.inline.panelAriaLabel'));
@@ -324,7 +324,7 @@ export class InlineChatPanel {
         // the panel is part of the CM6 layout and must not float around.
         let dragHandle: HTMLElement | null = null;
         if (this.displayMode === 'popover') {
-            dragHandle = createEl('div');
+            dragHandle = createDiv();
             dragHandle.classList.add('agent-inline-panel__drag-handle');
             dragHandle.setAttribute('aria-hidden', 'true');
             root.appendChild(dragHandle);
@@ -350,37 +350,37 @@ export class InlineChatPanel {
         root.appendChild(closeBtn);
 
         // Body: chat messages.
-        const body = createEl('div');
+        const body = createDiv();
         body.classList.add('agent-inline-panel__body');
         root.appendChild(body);
         this.bodyEl = body;
 
         // Status pill.
-        const status = createEl('div');
+        const status = createDiv();
         status.classList.add('agent-inline-panel__status');
         status.classList.add('agent-u-hidden');
         root.appendChild(status);
         this.statusEl = status;
 
         // Composer (sidebar-style: .chat-input-container > .chat-input-wrapper).
-        const composerContainer = createEl('div');
+        const composerContainer = createDiv();
         composerContainer.classList.add('chat-input-container');
         composerContainer.classList.add('agent-inline-panel__composer');
-        const wrapper = createEl('div');
+        const wrapper = createDiv();
         wrapper.classList.add('chat-input-wrapper');
         composerContainer.appendChild(wrapper);
 
         // FEAT-02-12: forced-workflow status row, above the attachment chips.
         // AttachmentHandler empties the chip bar on every render, so the forced
         // indicator needs its own element the attachment handler never touches.
-        const forcedChip = createEl('div');
+        const forcedChip = createDiv();
         forcedChip.classList.add('chat-context-chips', 'agent-inline-forced-row');
         wrapper.appendChild(forcedChip);
         this.forcedChipEl = forcedChip;
 
         // Attachment chip bar (sidebar-style: above textarea). Empty by
         // default; AttachmentHandler renders chips into this element.
-        const chipBar = createEl('div');
+        const chipBar = createDiv();
         chipBar.classList.add('chat-attachment-chips');
         wrapper.appendChild(chipBar);
         this.chipBarEl = chipBar;
@@ -425,11 +425,11 @@ export class InlineChatPanel {
             }
         }
 
-        const toolbar = createEl('div');
+        const toolbar = createDiv();
         toolbar.classList.add('chat-toolbar');
-        const left = createEl('div');
+        const left = createDiv();
         left.classList.add('chat-toolbar-left');
-        const right = createEl('div');
+        const right = createDiv();
         right.classList.add('chat-toolbar-right');
 
         // Model button: same visual treatment as the sidebar. Click
@@ -524,7 +524,7 @@ export class InlineChatPanel {
         // Resize handle: same treatment as drag -- null in inline-block.
         let resizeHandle: HTMLElement | null = null;
         if (this.displayMode === 'popover') {
-            resizeHandle = createEl('div');
+            resizeHandle = createDiv();
             resizeHandle.classList.add('agent-inline-panel__resize-handle');
             resizeHandle.setAttribute('aria-hidden', 'true');
             root.appendChild(resizeHandle);
@@ -604,14 +604,14 @@ export class InlineChatPanel {
         const sel = this.ctx.selectionText;
         if (sel.length === 0) return;
 
-        const section = createEl('div');
+        const section = createDiv();
         section.classList.add('agent-inline-panel__anchor');
 
-        const label = createEl('div');
+        const label = createDiv();
         label.classList.add('agent-inline-panel__anchor-label');
         label.textContent = 'Selection';
 
-        const preview = createEl('div');
+        const preview = createDiv();
         preview.classList.add('agent-inline-panel__anchor-text');
         preview.textContent = this.truncateToLines(sel, PREVIEW_VISIBLE_LINES);
         this.previewEl = preview;
@@ -629,7 +629,7 @@ export class InlineChatPanel {
             toggle.setAttribute('type', 'button');
             toggle.setAttribute('aria-label', t('ui.inline.expandSelectionPreview'));
             toggle.setAttribute('title', t('ui.inline.expandTooltip'));
-            const iconSpan = createEl('span');
+            const iconSpan = createSpan();
             iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
             this.setIcon(iconSpan, 'chevron-down');
             toggle.appendChild(iconSpan);
@@ -652,7 +652,7 @@ export class InlineChatPanel {
         while (this.previewToggleEl.firstChild !== null) {
             this.previewToggleEl.removeChild(this.previewToggleEl.firstChild);
         }
-        const iconSpan = createEl('span');
+        const iconSpan = createSpan();
         iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
         if (this.previewExpanded === true) {
             this.previewEl.textContent = this.ctx.selectionText;
@@ -691,7 +691,7 @@ export class InlineChatPanel {
         btn.setAttribute('type', 'button');
         btn.setAttribute('aria-label', tooltip);
         btn.setAttribute('title', tooltip);
-        const iconSpan = createEl('span');
+        const iconSpan = createSpan();
         iconSpan.classList.add('toolbar-icon');
         this.setIcon(iconSpan, iconName);
         btn.appendChild(iconSpan);
@@ -749,14 +749,14 @@ export class InlineChatPanel {
         }
         const slug = this.getForcedWorkflowSlug?.() ?? '';
         if (slug === '') return;
-        const chip = createEl('div');
+        const chip = createDiv();
         chip.classList.add('chat-context-chip', 'chat-forced-workflow-chip');
         chip.setAttribute('title', t('ui.sidebar.forcedWorkflowChipTooltip', { slug }));
-        const icon = createEl('span');
+        const icon = createSpan();
         icon.classList.add('context-chip-icon');
         this.setIcon(icon, 'git-branch');
         chip.appendChild(icon);
-        const label = createEl('span');
+        const label = createSpan();
         label.classList.add('context-chip-label');
         label.textContent = t('ui.sidebar.forcedWorkflowChipLabel', { slug });
         chip.appendChild(label);
@@ -802,17 +802,17 @@ export class InlineChatPanel {
         // CSS hierarchy AgentSidebarView.renderCheckpointMarker uses, so
         // the inline panel inherits the divider-line + ghost-icon-button
         // look without a parallel stylesheet.
-        const wrap = createEl('div');
+        const wrap = createDiv();
         wrap.classList.add('checkpoint-marker');
         wrap.classList.add('agent-inline-panel__bubble');
         wrap.classList.add('agent-inline-panel__bubble--checkpoint');
 
-        const iconEl = createEl('span');
+        const iconEl = createSpan();
         iconEl.classList.add('checkpoint-icon');
         this.setIcon(iconEl, 'git-commit-vertical');
         wrap.appendChild(iconEl);
 
-        const labelEl = createEl('span');
+        const labelEl = createSpan();
         labelEl.classList.add('checkpoint-label');
         const labelText = marker.detail !== undefined && marker.detail.length > 0
             ? `${marker.label} -- ${marker.detail}`
@@ -820,7 +820,7 @@ export class InlineChatPanel {
         labelEl.textContent = labelText;
         wrap.appendChild(labelEl);
 
-        const actions = createEl('div');
+        const actions = createDiv();
         actions.classList.add('checkpoint-actions');
 
         const makeBtn = (icon: string, tooltip: string, handler: () => void): HTMLButtonElement => {
@@ -863,7 +863,7 @@ export class InlineChatPanel {
 
     private appendMessage(message: InlinePanelMessage): string {
         if (this.bodyEl === null) return '';
-        const bubble = createEl('div');
+        const bubble = createDiv();
         bubble.classList.add('agent-inline-panel__bubble');
         bubble.classList.add(`agent-inline-panel__bubble--${message.role}`);
         bubble.textContent = message.text;

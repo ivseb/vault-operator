@@ -41,7 +41,8 @@ const HELP_URL = 'https://pssah4.github.io/vault-operator/';
 // manifest.minAppVersion is 1.8.7 -- adopting it would either raise the floor
 // (locking older installs out of updates) or require a version-gated fork of
 // the whole settings surface. It stays a plain Warning (never disabled) until
-// minAppVersion moves to 1.13+.
+// minAppVersion moves to 1.13+. Full rationale + re-evaluation trigger:
+// REVIEWER_NOTES.md:402.
 export class AgentSettingsTab extends PluginSettingTab {
     plugin: ObsidianAgentPlugin;
     private activeTab: TabId = 'providers';

@@ -893,7 +893,7 @@ export class VaultTab {
             { level: 'h4' },
         );
 
-        const privacyWarn = containerEl.createEl('div', { cls: 'agent-settings-desc' });
+        const privacyWarn = containerEl.createDiv({ cls: 'agent-settings-desc' });
         privacyWarn.createEl('strong', { text: t('settings.vault.topHubPrivacyLabel') });
         privacyWarn.appendText(t('settings.vault.topHubPrivacyText'));
 

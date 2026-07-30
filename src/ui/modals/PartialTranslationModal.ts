@@ -133,7 +133,7 @@ export class PartialTranslationModal extends Modal {
         for (const entry of this.report.unmappable) {
             const li = list.createEl('li');
             li.createSpan({ text: `${entry.module} (${entry.source})` });
-            const reason = li.createEl('div', { cls: 'mod-muted partial-translation-reason' });
+            const reason = li.createDiv({ cls: 'mod-muted partial-translation-reason' });
             reason.setText(entry.reason);
         }
     }

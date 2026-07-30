@@ -54,8 +54,8 @@ export class SkillVersionsModal extends Modal {
         const fileText = snap.fileCount === 1
             ? t('modal.skillVersions.fileCountOne')
             : t('modal.skillVersions.fileCountMany', { count: snap.fileCount });
-        info.createEl('div', { text: when });
-        const meta = info.createEl('div', { cls: 'mod-muted skill-version-meta' });
+        info.createDiv({ text: when });
+        const meta = info.createDiv({ cls: 'mod-muted skill-version-meta' });
         const labelBadge = snap.label === 'pre-restore' ? t('modal.skillVersions.preRestoreBadge') + ' ' : '';
         const tagText = snap.tags.length > 0 ? ` · ${t('modal.skillVersions.tagsLabel', { tags: snap.tags.join(', ') })}` : '';
         meta.setText(`${labelBadge}${fileText}, ${this.formatBytes(snap.totalBytes)}${tagText}`);

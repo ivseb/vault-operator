@@ -137,7 +137,7 @@ export class ModesTab {
             if (isBuiltIn && vaultOverride) {
                 const badge = formArea.createDiv('modes-customized-badge');
                 setIcon(badge.createSpan('modes-customized-icon'), 'pencil');
-                badge.createEl('span', { cls: 'modes-customized-text', text: t('settings.modes.customized') });
+                badge.createSpan({ cls: 'modes-customized-text', text: t('settings.modes.customized') });
             }
 
             // ── Name ─────────────────────────────────────────────────────────
@@ -159,8 +159,8 @@ export class ModesTab {
 
             // ── Short description ─────────────────────────────────────────────
             const descWrap = formArea.createDiv('modes-field');
-            descWrap.createEl('div', { cls: 'modes-field-label', text: t('settings.modes.shortDesc') });
-            descWrap.createEl('div', { cls: 'modes-field-desc', text: t('settings.modes.shortDescHint') });
+            descWrap.createDiv({ cls: 'modes-field-label', text: t('settings.modes.shortDesc') });
+            descWrap.createDiv({ cls: 'modes-field-desc', text: t('settings.modes.shortDescHint') });
             const descTextarea = descWrap.createEl('textarea', { cls: 'modes-textarea', attr: { placeholder: t('settings.modes.shortDescPlaceholder') } });
             descTextarea.value = mode.description || '';
             descTextarea.rows = 2;
@@ -175,8 +175,8 @@ export class ModesTab {
 
             // ── Role Definition ───────────────────────────────────────────────
             const roleWrap = formArea.createDiv('modes-field');
-            roleWrap.createEl('div', { cls: 'modes-field-label', text: t('settings.modes.roleDefinition') });
-            roleWrap.createEl('div', {
+            roleWrap.createDiv({ cls: 'modes-field-label', text: t('settings.modes.roleDefinition') });
+            roleWrap.createDiv({
                 cls: 'modes-field-desc',
                 text: t('settings.modes.roleDefinitionHint'),
             });
@@ -192,8 +192,8 @@ export class ModesTab {
 
             // ── Mode-specific Custom Instructions ─────────────────────────────
             const ciWrap = formArea.createDiv('modes-field');
-            ciWrap.createEl('div', { cls: 'modes-field-label', text: t('settings.modes.customInstructions') });
-            ciWrap.createEl('div', {
+            ciWrap.createDiv({ cls: 'modes-field-label', text: t('settings.modes.customInstructions') });
+            ciWrap.createDiv({
                 cls: 'modes-field-desc',
                 text: t('settings.modes.customInstructionsHint', { mode: mode.name }),
             });
@@ -227,7 +227,7 @@ export class ModesTab {
             // active badge stays as a visual marker.
             const isActive = this.plugin.settings.currentMode === slug;
             if (isActive) {
-                bottomBar.createEl('span', { cls: 'modes-active-badge', text: t('settings.modes.activeMode') });
+                bottomBar.createSpan({ cls: 'modes-active-badge', text: t('settings.modes.activeMode') });
             }
 
             // Preview System Prompt
