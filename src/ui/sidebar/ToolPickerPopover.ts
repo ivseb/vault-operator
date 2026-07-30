@@ -59,7 +59,7 @@ export class ToolPickerPopover {
         }
         const mode = resolvedMode;
 
-        const popover = activeDocument.createElement('div');
+        const popover = createEl('div');
         popover.className = 'tool-picker-popover';
         this.popoverEl = popover;
 

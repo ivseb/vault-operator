@@ -15,6 +15,8 @@
 import type ObsidianAgentPlugin from '../../main';
 import { resolveCommandAllowance } from '../tools/agent/commandAllowlist';
 import { classifySkillScript, type SkillScriptVerdict } from '../governance/skillScriptGuard';
+import { sandboxScriptGrantKey, type SandboxScriptGrantKey } from '../governance/sandboxScriptGrant';
+import { sha256Hex } from '../utils/sha256';
 import { BUNDLED_SKILLS } from '../../_generated/bundled-skills';
 import { castGenerated } from '../utils/runtime';
 import { isSafePathSegment } from '../utils/safePathName';
@@ -213,6 +215,15 @@ export interface ApprovalResult {
      * `context.approvedBatchPaths`.
      */
     approvedPaths?: string[];
+    /**
+     * Content-hash grant (M-1 follow-up) TOCTOU pin: the SHA-256 of the exact
+     * sandbox-script bytes this approval covers. Threaded into the tool as
+     * `context.approvedSandboxHash`; RunSkillScriptTool aborts if the file it
+     * reads at execute time no longer hashes to this, so the bytes that run are
+     * the bytes that were approved even if a concurrent write swapped them.
+     * Set by the Pipeline only, for an approved (or grant-auto) sandbox call.
+     */
+    approvedSandboxHash?: string;
 }
 
 /**
@@ -225,6 +236,36 @@ export interface ApprovalResult {
 export interface RunGrantStore {
     epoch: number;
     keys: Set<import('../tools/toolEffects').ApprovalGrantKey>;
+}
+
+/**
+ * What classifySandboxCall returns: the byte verdict plus the content hash and
+ * validated identifiers the content-hash grant needs. `contentHash`/`skill`/
+ * `script` are null whenever nothing was read (custom_*, bad identifier,
+ * unreadable file) -- there is then nothing to grant on, so the call always asks.
+ */
+interface SandboxCallClassification {
+    verdict: SkillScriptVerdict;
+    contentHash: string | null;
+    skill: string | null;
+    script: string | null;
+}
+
+/**
+ * The content-hash grant an approval card can arm for an unverified sandbox
+ * script. Built by the M-1 gate from the exact bytes it classified and threaded
+ * to the card, so the card banks the NARROW hash key (never the coarse `sandbox`
+ * category) and can name the script the grant is pinned to.
+ */
+export interface SandboxScriptGrantContext {
+    /** Full grant key incl. the SHA-256 -- what run/session/persistent bank. */
+    key: SandboxScriptGrantKey;
+    /** Skill folder name, for the card text and the persisted grant entry. */
+    skill: string;
+    /** Script name, for the card text and the persisted grant entry. */
+    script: string;
+    /** SHA-256 of the approved bytes, threaded to execution to pin what runs. */
+    contentHash: string;
 }
 
 /**
@@ -299,6 +340,11 @@ export interface ContextExtensions {
         input: Record<string, unknown>,
         preview?: EditPreview,
         batch?: BatchEditPreview,
+        // Content-hash grant (M-1 follow-up): set only for an unverified sandbox
+        // script. The card then offers per-script options ("always allow THIS
+        // script", run, session) that bank the narrow hash key instead of the
+        // `sandbox` category, and names the script the grant is pinned to.
+        sandboxGrant?: SandboxScriptGrantContext,
     ) => Promise<ApprovalResult>;
     /**
      * Ask the user to install a missing optional asset (office bundle,
@@ -835,6 +881,10 @@ export class ToolExecutionPipeline {
                 approvedBatchPaths: approval.approvedPaths !== undefined
                     ? new Set(approval.approvedPaths)
                     : undefined,
+                // Content-hash grant (M-1 follow-up) TOCTOU pin: the bytes this
+                // approval covers. RunSkillScriptTool re-hashes what it reads and
+                // refuses to run if a concurrent write swapped the file.
+                approvedSandboxHash: approval.approvedSandboxHash,
             };
 
             await tool.execute(toolCall.input, context);
@@ -1311,28 +1361,36 @@ export class ToolExecutionPipeline {
     /**
      * Read the code this call would run and classify it against the shipped
      * copy. Any failure classifies as unverified, never as verified.
+     *
+     * Also returns the SHA-256 of the exact bytes that were classified (the
+     * content-hash grant keys on it) and the validated skill/script names. The
+     * hash is taken from the SAME `fileSource` the verdict was formed from -- no
+     * second read -- so the grant can never key on different bytes than the ones
+     * that were judged. `contentHash` is null whenever nothing was read
+     * (custom_* short-circuit, a bad identifier, or an unreadable file), which
+     * simply means "no hash to grant on, always ask".
      */
-    private async classifySandboxCall(toolCall: ToolUse): Promise<SkillScriptVerdict> {
+    private async classifySandboxCall(toolCall: ToolUse): Promise<SandboxCallClassification> {
         // Code modules: the plugin ships none (no `code-compiled/` entry exists
         // in BUNDLED_SKILLS, pinned by a test), so a custom_* tool is always
         // agent- or user-authored code loaded from the vault. It can never be
         // plugin-verified, and saying so here is cheaper and more honest than
         // resolving the owning skill just to reach the same answer.
         if (toolCall.name.startsWith(DYNAMIC_TOOL_PREFIX)) {
-            return { kind: 'unverified', detail: 'unmanaged' };
+            return { verdict: { kind: 'unverified', detail: 'unmanaged' }, contentHash: null, skill: null, script: null };
         }
 
         const rawSkill = toolCall.input?.skill_name;
         const rawScript = toolCall.input?.script_name;
         if (typeof rawSkill !== 'string' || typeof rawScript !== 'string') {
-            return { kind: 'unverified', detail: 'bad-name' };
+            return { verdict: { kind: 'unverified', detail: 'bad-name' }, contentHash: null, skill: null, script: null };
         }
         // Trim exactly as the tool does, so the gate and the executor can never
         // address different files.
         const skillName = rawSkill.trim();
         const scriptName = rawScript.trim();
         if (!isSafePathSegment(skillName) || !isSafePathSegment(scriptName)) {
-            return { kind: 'unverified', detail: 'bad-name' };
+            return { verdict: { kind: 'unverified', detail: 'bad-name' }, contentHash: null, skill: null, script: null };
         }
 
         const skillsDir = getSelfAuthoredSkillsDir(this.plugin);
@@ -1344,13 +1402,35 @@ export class ToolExecutionPipeline {
                 return null;
             }
         };
-        return classifySkillScript({
+        const fileSource = await readOrNull(`${skillsDir}/${skillName}/scripts/${scriptName}.js`);
+        const verdict = classifySkillScript({
             skillFolder: skillName,
             fileRelPath: `scripts/${scriptName}.js`,
-            fileSource: await readOrNull(`${skillsDir}/${skillName}/scripts/${scriptName}.js`),
+            fileSource,
             skillMd: await readOrNull(`${skillsDir}/${skillName}/SKILL.md`),
             bundle: castGenerated<Record<string, Record<string, string>>>(BUNDLED_SKILLS),
         });
+        return {
+            verdict,
+            contentHash: fileSource === null ? null : sha256Hex(fileSource),
+            skill: skillName,
+            script: scriptName,
+        };
+    }
+
+    /**
+     * Content-hash grant lookup for one byte-state of one sandbox script. Order
+     * mirrors the effect-class scope grants: run -> session -> persistent
+     * settings. The persistent tier lives on `autoApproval.sandboxScriptGrants`
+     * (written by the card's "always allow this script"), deliberately NOT the
+     * `sandbox` category flag, which never covers unverified code (M-1).
+     */
+    private hasSandboxScriptGrant(key: SandboxScriptGrantKey): boolean {
+        this.syncRunGrantsWithRevocationEpoch();
+        if (this.runGrants.keys.has(key)) return true;
+        if (this.getSessionGrants()?.has(key) === true) return true;
+        const persisted = this.plugin.settings.autoApproval?.sandboxScriptGrants;
+        return Array.isArray(persisted) && persisted.some((g) => g?.key === key);
     }
 
     private isScopeGrantExempt(toolCall: ToolUse): boolean {
@@ -1400,19 +1480,24 @@ export class ToolExecutionPipeline {
         // AUDIT 2026-07-26 M-1: sandbox-class code is approved on its BYTES, not
         // on its name.
         //
-        // Both sandbox sinks load code out of the skill workspace, which
-        // sandboxed code may itself write (the deny zone exempts skills/ so
-        // skill-creator works): run_skill_script reads scripts/<x>.js, and a
-        // custom_* tool runs a code module. Only code that is byte-identical to
-        // what the plugin ships may ride autoApproval.sandbox or a banked
-        // `sandbox` grant. Everything else asks, every time.
+        // run_skill_script loads scripts/<x>.js out of the skill workspace,
+        // which sandboxed code may itself write (the deny zone exempts skills/
+        // so skill-creator works). Code byte-identical to what the plugin ships
+        // is `plugin-verified` and falls through to the normal path (it may ride
+        // autoApproval.sandbox). Everything else -- every user- and pro-authored
+        // script -- is judged here, ABOVE the grant lookup and the settings
+        // branch, so the coarse `sandbox` category flag can never wave it
+        // through.
         //
-        // Placed with the paranoid branch, ABOVE the grant lookup and the
-        // settings branch, because a grant banked for one script must not cover
-        // a different one. The grant key is narrowed to the content hash below
-        // so approving a script once does not silently cover the next version.
+        // Content-hash grant: an unverified script may still carry a per-script
+        // grant keyed on the SHA-256 of its exact bytes (run, session, or the
+        // persisted autoApproval.sandboxScriptGrants list). Same bytes -> auto,
+        // and the approved hash rides along so execution runs only those bytes
+        // (TOCTOU). One byte changes -> a key that matches nothing -> the card
+        // returns. That IS the narrowing this gate rests on: a grant for one
+        // script never covers a different one, or a different version.
         if (effect === 'sandbox' && this.isVaultAuthoredSandboxCall(toolCall)) {
-            const verdict = await this.classifySandboxCall(toolCall);
+            const { verdict, contentHash, skill, script } = await this.classifySandboxCall(toolCall);
             if (verdict.kind !== 'plugin-verified') {
                 // A bound headless policy would otherwise route this straight
                 // back into its own consent set. A standing consent granted for
@@ -1425,6 +1510,26 @@ export class ToolExecutionPipeline {
                             + 'cannot run without a person approving it.',
                     };
                 }
+                // Only 'unverified' code is grantable. A 'tampered' verdict (a
+                // folder the plugin ships, carrying bytes it does not) is refused
+                // outright by the executor regardless of any approval, so a
+                // per-script grant for it could only ever be inert -- offering or
+                // honouring one would be a card that promises what it cannot
+                // deliver (the ADR-153 rule). Tampered still asks, without a grant.
+                if (verdict.kind === 'unverified' && contentHash !== null && skill !== null && script !== null) {
+                    const grant: SandboxScriptGrantContext = {
+                        key: sandboxScriptGrantKey(skill, script, contentHash),
+                        skill,
+                        script,
+                        contentHash,
+                    };
+                    if (this.hasSandboxScriptGrant(grant.key)) {
+                        return { decision: 'auto', approvedSandboxHash: contentHash };
+                    }
+                    return await this.askOrDeny(toolCall, tool, extensions, effect, grant);
+                }
+                // Tampered, or no hash to grant on (custom_*, bad name,
+                // unreadable): always ask, and offer no per-script grant.
                 return await this.askOrDeny(toolCall, tool, extensions, effect);
             }
         }
@@ -1570,6 +1675,11 @@ export class ToolExecutionPipeline {
         tool: unknown,
         extensions: ContextExtensions | undefined,
         effect: ToolEffect | 'unclassified',
+        // Content-hash grant (M-1 follow-up): present only for an unverified
+        // sandbox script. When set, run/session banking uses its NARROW hash key
+        // instead of the effect class, the card renders the per-script options,
+        // and the approved hash is threaded back for the execution-time check.
+        sandboxGrant?: SandboxScriptGrantContext,
     ): Promise<ApprovalResult> {
         if (!extensions?.onApprovalRequired) {
             // AUDIT 2026-07-26 M-14: paranoid mode outranks a standing headless
@@ -1644,7 +1754,7 @@ export class ToolExecutionPipeline {
             preview = (await tool.previewEdit(toolCall.input)) ?? undefined;
         }
 
-        const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview, batch);
+        const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview, batch, sandboxGrant);
 
         // FIX-44-39: store the RESOLVED grant key, and refuse to store alwaysAsk
         // effects (S1) -- the no-config/self-modify invariant must hold in the
@@ -1659,7 +1769,12 @@ export class ToolExecutionPipeline {
             // otherwise it would silently arm the moment paranoid is turned off.
             && !this.isParanoidMode()
         ) {
-            const grantKey = this.resolveGrantKey(effect, toolCall);
+            // Content-hash grant: run/session banking uses the NARROW hash key,
+            // never the coarse `sandbox` effect class -- that is the whole point
+            // of the M-1 gate. The persistent "always allow this script" tier is
+            // banked by the card (settings.autoApproval.sandboxScriptGrants),
+            // mirroring how the web-host "always allow" writes its own list.
+            const grantKey: ApprovalGrantKey = sandboxGrant ? sandboxGrant.key : this.resolveGrantKey(effect, toolCall);
             if (result.rememberForRun === true) {
                 this.syncRunGrantsWithRevocationEpoch();
                 this.runGrants.keys.add(grantKey);
@@ -1717,6 +1832,12 @@ export class ToolExecutionPipeline {
             ...(editedPath !== undefined ? { editedPath } : {}),
             diffReviewed: result.decision === 'approved'
                 && (preview !== undefined || (batch !== undefined && batch.scopeOnly !== true)),
+            // TOCTOU: pin execution to exactly the bytes that were approved. Set
+            // for an approved sandbox script only; the tool aborts if the file it
+            // reads at execute time no longer hashes to this.
+            ...(sandboxGrant !== undefined && result.decision === 'approved'
+                ? { approvedSandboxHash: sandboxGrant.contentHash }
+                : {}),
         };
     }
 

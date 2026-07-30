@@ -3527,6 +3527,15 @@
     word-break: break-all;
 }
 
+/* Content-hash grant (M-1 follow-up): the pinned-scope note on a sandbox-script card */
+.tool-approval-sandbox-script {
+    width: 100%;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
 /* FEAT-44-02b: scope-only batch approval -- planned file list on the card */
 .tool-approval-scope {
     width: 100%;

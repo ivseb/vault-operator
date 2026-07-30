@@ -73,6 +73,7 @@ import { ContextTracker } from '../core/context/ContextTracker';
 import { loadableSkills } from '../core/context/SkillsManager';
 import { stampProvenance } from '../core/governance/permissionInventory';
 import { allowHost, hostKeyOf } from '../core/governance/webHostGrants';
+import { MAX_SANDBOX_SCRIPT_GRANTS } from '../core/governance/sandboxScriptGrant';
 import { enabledSelfAuthoredNames } from '../core/skills/skillToggleGate';
 import { TaskMonitor } from './sidebar/TaskMonitor';
 import { CondensationFeedback } from './sidebar/CondensationFeedback';
@@ -3659,8 +3660,8 @@ export class AgentSidebarView extends ItemView {
                     };
                     this.showQuestionCard(question, options, wrappedResolve, myContainer, mySession);
                 },
-                onApprovalRequired: async (toolName, input, preview, batch) => {
-                    return this.showApprovalCard(toolName, input, preview, batch, myContainer, mySession);
+                onApprovalRequired: async (toolName, input, preview, batch, sandboxGrant) => {
+                    return this.showApprovalCard(toolName, input, preview, batch, myContainer, mySession, sandboxGrant);
                 },
                 onOptionalAssetRequired: async (spec, toolName) => {
                     return this.showInstallPromptCard(spec, toolName, myContainer);
@@ -5864,7 +5865,7 @@ export class AgentSidebarView extends ItemView {
                 }
 
                 // Citation badge
-                const badge = activeDocument.createElement('span');
+                const badge = createEl('span');
                 badge.className = 'source-badge';
                 badge.textContent = String(num);
                 badge.addEventListener('click', (e) => {
@@ -5930,10 +5931,10 @@ export class AgentSidebarView extends ItemView {
     private showSourcePopup(anchor: HTMLElement, source: { num: number; note: string; context: string }): void {
         activeDocument.querySelectorAll('.source-popup').forEach(el => el.remove());
 
-        const popup = activeDocument.createElement('div');
+        const popup = createEl('div');
         popup.className = 'source-popup';
 
-        const titleEl = activeDocument.createElement('div');
+        const titleEl = createEl('div');
         titleEl.className = 'source-popup-title';
         const target = resolveSourceTarget(source.note);
         titleEl.textContent = target.display;
@@ -5944,7 +5945,7 @@ export class AgentSidebarView extends ItemView {
         popup.appendChild(titleEl);
 
         if (source.context) {
-            const ctxEl = activeDocument.createElement('div');
+            const ctxEl = createEl('div');
             ctxEl.className = 'source-popup-context';
             ctxEl.textContent = source.context;
             popup.appendChild(ctxEl);
@@ -5964,19 +5965,19 @@ export class AgentSidebarView extends ItemView {
     private showSourcesPanel(anchor: HTMLElement, sources: { num: number; note: string; context: string }[]): void {
         activeDocument.querySelectorAll('.source-popup').forEach(el => el.remove());
 
-        const popup = activeDocument.createElement('div');
+        const popup = createEl('div');
         popup.className = 'source-popup sources-panel';
 
         for (const source of sources) {
-            const row = activeDocument.createElement('div');
+            const row = createEl('div');
             row.className = 'source-panel-row';
 
-            const numEl = activeDocument.createElement('span');
+            const numEl = createEl('span');
             numEl.className = 'source-badge';
             numEl.textContent = String(source.num);
             row.appendChild(numEl);
 
-            const titleEl = activeDocument.createElement('span');
+            const titleEl = createEl('span');
             titleEl.className = 'source-panel-title';
             const target = resolveSourceTarget(source.note);
             titleEl.textContent = target.display;
@@ -5987,7 +5988,7 @@ export class AgentSidebarView extends ItemView {
             row.appendChild(titleEl);
 
             if (source.context) {
-                const ctxEl = activeDocument.createElement('div');
+                const ctxEl = createEl('div');
                 ctxEl.className = 'source-panel-context';
                 ctxEl.textContent = source.context;
                 row.appendChild(ctxEl);
@@ -6135,7 +6136,7 @@ export class AgentSidebarView extends ItemView {
 
         if (!planBoxEl) {
             // First call — build the plan box and move toolsEl into it
-            planBoxEl = activeDocument.createElement('div');
+            planBoxEl = createEl('div');
             planBoxEl.className = 'agent-todo-box';
             // Insert before toolsEl (direct child of messageEl on first call)
             messageEl.insertBefore(planBoxEl, toolsEl);
@@ -6528,6 +6529,10 @@ export class AgentSidebarView extends ItemView {
         // abort signal, not the active tab's. Non-run callers keep the defaults.
         container?: HTMLElement | null,
         session: ChatSession = this.activeSession,
+        // Content-hash grant (M-1 follow-up): present only for an unverified
+        // sandbox script. The card then offers per-script grants that bank the
+        // narrow hash key (never the `sandbox` category) and names the script.
+        sandboxGrant?: import('../core/tool-execution/ToolExecutionPipeline').SandboxScriptGrantContext,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
         // FEAT-44-02b: a multi-file operation with real per-file diffs gets
         // the multi-entry review as its gate. Scope-only batches fall through
@@ -6586,6 +6591,15 @@ export class AgentSidebarView extends ItemView {
             explanationEl.createSpan().setText(explanationText);
             if (target) {
                 explanationEl.createSpan('tool-approval-target').setText(target);
+            }
+
+            // Content-hash grant (M-1 follow-up): name the script and make the
+            // pinned scope explicit, so the user knows "always allow" here means
+            // exactly these bytes, not all sandbox code.
+            if (sandboxGrant) {
+                row.createDiv('tool-approval-sandbox-script').setText(
+                    t('ui.approval.sandboxScript.pinned', { skill: sandboxGrant.skill, script: sandboxGrant.script }),
+                );
             }
 
             // FEAT-44-02b: scope-only batch -- the card names the operation's
@@ -6687,7 +6701,12 @@ export class AgentSidebarView extends ItemView {
                 ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-session', text: t('ui.approval.allowForSession') })
                 : null;
             const enableBtn = permKey
-                ? actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') })
+                ? actions.createEl('button', {
+                    cls: 'tool-approval-btn approval-enable',
+                    // Content-hash grant: the standing "always allow" is per-script
+                    // (pinned to the bytes), not the sandbox category.
+                    text: sandboxGrant ? t('ui.approval.sandboxScript.alwaysAllow') : t('ui.approval.enableInSettings'),
+                })
                 : null;
             const denyBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-deny-small', text: '✕' });
 
@@ -6762,7 +6781,11 @@ export class AgentSidebarView extends ItemView {
                     // FIX-44-03b gates behind an explicit confirm on both
                     // surfaces. Same friction here; the run scope stays one
                     // click because it dies with the task.
-                    if (scopeGrantNeedsConfirm(permKey, 'session')) {
+                    //
+                    // Content-hash grant: NOT the category. A per-script session
+                    // grant covers exactly one byte-state of one script, so the
+                    // broad-code warning would be false -- it stays one click.
+                    if (!sandboxGrant && scopeGrantNeedsConfirm(permKey, 'session')) {
                         const ok = await confirmModal(this.app, {
                             title: t('ui.approval.sandbox'),
                             message: t('ui.approval.sandboxGrantWarning'),
@@ -6781,6 +6804,29 @@ export class AgentSidebarView extends ItemView {
                     void (async () => {
                         const cfg = this.plugin.settings.autoApproval;
                         const flags = cfg as unknown as Record<string, boolean>;
+
+                        // Content-hash grant (M-1 follow-up): "always allow this
+                        // script" banks the NARROW hash key on autoApproval
+                        // .sandboxScriptGrants, never the `sandbox` category flag
+                        // (which by design never covers unverified code). Mirrors
+                        // how the web-host "always allow" writes its own list.
+                        // Idempotent (replace any entry with the same key) and
+                        // capped oldest-first, so the list cannot grow unbounded.
+                        if (sandboxGrant) {
+                            const existing = Array.isArray(cfg.sandboxScriptGrants) ? cfg.sandboxScriptGrants : [];
+                            const deduped = existing.filter((g) => g.key !== sandboxGrant.key);
+                            deduped.push({
+                                key: sandboxGrant.key,
+                                skill: sandboxGrant.skill,
+                                script: sandboxGrant.script,
+                                grantedAt: new Date().toISOString(),
+                            });
+                            cfg.sandboxScriptGrants = deduped.slice(-MAX_SANDBOX_SCRIPT_GRANTS);
+                            await this.plugin.saveSettings();
+                            cleanup();
+                            resolve({ decision: 'approved' });
+                            return;
+                        }
 
                         // FIX-44-03b: sandbox auto-approval means arbitrary
                         // agent-authored code writes the vault without a further

@@ -70,7 +70,13 @@ export type ToolEffectSpec = ToolEffect | ((input: Record<string, unknown> | und
 export type ApprovalGrantKey =
     | Exclude<ToolEffect, 'plugin-api'>
     | 'plugin-api:read'
-    | 'plugin-api:write';
+    | 'plugin-api:write'
+    // Content-hash grant for ONE byte-state of ONE vault-authored sandbox
+    // script (built by sandboxScriptGrant.ts). Keyed on the SHA-256 of the
+    // bytes, so a grant for one script can never cover a different one -- the
+    // coarse 'sandbox' effect class stays deliberately un-grantable for
+    // unverified vault code (AUDIT 2026-07-26 M-1 invariant).
+    | `sandbox-script:${string}`;
 
 /**
  * Prefix of dynamically loaded skill code tools. These declare their own

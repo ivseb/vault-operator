@@ -23,20 +23,14 @@
  * compared to the EsbuildWasm transform it avoids.
  */
 
-/* eslint-disable @typescript-eslint/no-require-imports -- one-time crypto require for sha256 hashing of script source. crypto is Node built-in, not an external dep. */
-const nodeCrypto = require('crypto') as typeof import('crypto');
-/* eslint-enable @typescript-eslint/no-require-imports -- end of one-time crypto require scope */
+import { sha256Hex } from '../utils/sha256';
 
 export interface RunSkillScriptCacheOptions {
     maxEntries?: number;
 }
 
-function sha256Hash(input: string): string {
-    return nodeCrypto.createHash('sha256').update(input, 'utf8').digest('hex');
-}
-
 function makeKey(skillName: string, scriptName: string, sourceText: string): string {
-    return `${skillName}|${scriptName}|${sha256Hash(sourceText)}`;
+    return `${skillName}|${scriptName}|${sha256Hex(sourceText)}`;
 }
 
 export class RunSkillScriptCache {

@@ -373,6 +373,14 @@ export interface ToolExecutionContext {
      * as skipped.
      */
     approvedBatchPaths?: ReadonlySet<string>;
+    /**
+     * Content-hash grant (M-1 follow-up) TOCTOU pin: the SHA-256 of the exact
+     * sandbox-script bytes the approval covered. Set only for an approved
+     * run_skill_script call; RunSkillScriptTool re-hashes the file it reads at
+     * execute time and refuses to run if it no longer matches, so a concurrent
+     * write cannot swap approved bytes for other ones between gate and run.
+     */
+    approvedSandboxHash?: string;
 }
 
 /**

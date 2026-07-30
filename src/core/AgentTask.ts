@@ -148,6 +148,9 @@ export interface AgentTaskCallbacks {
         input: Record<string, unknown>,
         preview?: import('./tools/editPreview').EditPreview,
         batch?: import('./tools/editPreview').BatchEditPreview,
+        // Content-hash grant (M-1 follow-up): set only for an unverified sandbox
+        // script; carries the narrow hash key + script names the card banks.
+        sandboxGrant?: import('./tool-execution/ToolExecutionPipeline').SandboxScriptGrantContext,
     ) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
     /**
      * Called when a tool needs an optional asset (office bundle, pdfjs

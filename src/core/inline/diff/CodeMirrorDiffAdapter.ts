@@ -88,9 +88,9 @@ const inlineDiffField = StateField.define<DiffSession | null>({
 class AcceptRejectWidget extends WidgetType {
     constructor(private hunkId: string, private view: () => EditorView | null) { super(); }
     toDOM(): HTMLElement {
-        const wrap = activeDocument.createElement('span');
+        const wrap = createEl('span');
         wrap.classList.add('agent-inline-diff-hunk-actions');
-        const accept = activeDocument.createElement('button');
+        const accept = createEl('button');
         accept.textContent = '✓';
         accept.title = 'Accept hunk (Cmd+Opt+Y)';
         accept.setAttribute('type', 'button');
@@ -99,7 +99,7 @@ class AcceptRejectWidget extends WidgetType {
             const v = this.view();
             if (v !== null) acceptHunkById(v, this.hunkId);
         });
-        const reject = activeDocument.createElement('button');
+        const reject = createEl('button');
         reject.textContent = '✗';
         reject.title = 'Reject hunk (Cmd+Opt+N)';
         reject.setAttribute('type', 'button');

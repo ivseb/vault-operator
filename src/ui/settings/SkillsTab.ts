@@ -626,7 +626,7 @@ export class SkillsTab {
 
     private triggerDownload(blob: Blob, filename: string): void {
         const url = URL.createObjectURL(blob);
-        const a = activeDocument.createElement('a');
+        const a = createEl('a');
         a.href = url;
         a.download = filename;
         a.click();
@@ -991,7 +991,7 @@ export class SkillsTab {
         adapter: import('obsidian').DataAdapter,
         refreshList: () => Promise<void>,
     ): void {
-        const fileInput = activeDocument.createElement('input');
+        const fileInput = createEl('input');
         fileInput.type = 'file';
         fileInput.accept = '.md,.txt,.zip,.skill';
         fileInput.addEventListener('change', () => { void (async () => {

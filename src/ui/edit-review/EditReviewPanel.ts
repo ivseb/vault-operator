@@ -182,14 +182,14 @@ export class EditReviewPanel {
     open(): HTMLElement {
         this.close();
         const doc = this.containerEl.ownerDocument;
-        const root = doc.createElement('div');
+        const root = createEl('div');
         root.classList.add('agent-edit-review');
         if (this.mode === 'checkpoint') root.classList.add('is-checkpoint');
 
         this.buildHeader(root, doc);
 
         if (this.entries.length === 0) {
-            const empty = doc.createElement('div');
+            const empty = createEl('div');
             empty.classList.add('agent-edit-review__empty');
             empty.textContent = t('ui.editReview.noChanges');
             root.appendChild(empty);
@@ -199,7 +199,7 @@ export class EditReviewPanel {
             return root;
         }
 
-        const main = doc.createElement('div');
+        const main = createEl('div');
         main.classList.add('agent-edit-review__main');
         root.appendChild(main);
 
@@ -247,19 +247,19 @@ export class EditReviewPanel {
     }
 
     private buildHeader(root: HTMLElement, doc: Document): void {
-        const header = doc.createElement('div');
+        const header = createEl('div');
         header.classList.add('agent-edit-review__header');
 
-        const titleWrap = doc.createElement('div');
+        const titleWrap = createEl('div');
         titleWrap.classList.add('agent-edit-review__title-wrap');
 
-        const title = doc.createElement('div');
+        const title = createEl('div');
         title.classList.add('agent-edit-review__title');
         title.textContent = this.title;
         titleWrap.appendChild(title);
 
         if (this.sourceLabel.length > 0) {
-            const sub = doc.createElement('div');
+            const sub = createEl('div');
             sub.classList.add('agent-edit-review__subtitle');
             sub.textContent = this.sourceLabel;
             titleWrap.appendChild(sub);
@@ -269,26 +269,26 @@ export class EditReviewPanel {
     }
 
     private buildFileList(main: HTMLElement, doc: Document): void {
-        const list = doc.createElement('div');
+        const list = createEl('div');
         list.classList.add('agent-edit-review__filelist');
-        const heading = doc.createElement('div');
+        const heading = createEl('div');
         heading.classList.add('agent-edit-review__filelist-heading');
         heading.textContent = t('ui.editReview.filesHeading', { count: this.entries.length });
         list.appendChild(heading);
 
         this.entries.forEach((entry, index) => {
-            const row = doc.createElement('button');
+            const row = createEl('button');
             row.classList.add('agent-edit-review__file');
             row.setAttribute('type', 'button');
 
-            const statusEl = doc.createElement('span');
+            const statusEl = createEl('span');
             statusEl.classList.add('agent-edit-review__file-status');
             statusEl.textContent = entry.isNew === true ? '+'
                 : entry.isDeleted === true ? '−'
                 : '●';
             row.appendChild(statusEl);
 
-            const labelEl = doc.createElement('span');
+            const labelEl = createEl('span');
             labelEl.classList.add('agent-edit-review__file-label');
             labelEl.textContent = entry.path;
             row.appendChild(labelEl);
@@ -306,19 +306,19 @@ export class EditReviewPanel {
     }
 
     private buildDiff(main: HTMLElement, doc: Document): void {
-        const diff = doc.createElement('div');
+        const diff = createEl('div');
         diff.classList.add('agent-edit-review__diff');
 
         // --- toolbar ---------------------------------------------------------
-        const bar = doc.createElement('div');
+        const bar = createEl('div');
         bar.classList.add('agent-edit-review__diff-header');
 
-        const pathEl = doc.createElement('div');
+        const pathEl = createEl('div');
         pathEl.classList.add('agent-edit-review__diff-path');
         bar.appendChild(pathEl);
         this.diffPathEl = pathEl;
 
-        const stats = doc.createElement('span');
+        const stats = createEl('span');
         stats.classList.add('agent-edit-review__stats');
         bar.appendChild(stats);
         this.afterStatsEl = stats;
@@ -327,7 +327,7 @@ export class EditReviewPanel {
             // Two buttons, not one toggle. "Back to diff" said nothing about what
             // happens to what you just typed -- it kept it, but you had to guess.
             // Now the two outcomes are named: keep the edit, or throw it away.
-            const editBtn = doc.createElement('button');
+            const editBtn = createEl('button');
             editBtn.classList.add('agent-edit-review__edit-btn');
             editBtn.setAttribute('type', 'button');
             editBtn.textContent = t('ui.editReview.editToggle');
@@ -339,7 +339,7 @@ export class EditReviewPanel {
             bar.appendChild(editBtn);
             this.editToggleEl = editBtn;
 
-            const dropBtn = doc.createElement('button');
+            const dropBtn = createEl('button');
             dropBtn.classList.add('agent-edit-review__edit-discard-btn');
             dropBtn.setAttribute('type', 'button');
             dropBtn.textContent = t('ui.editReview.discardEdit');
@@ -351,7 +351,7 @@ export class EditReviewPanel {
             this.editDiscardEl = dropBtn;
         }
         if (this.mode === 'edit') {
-            const skip = doc.createElement('button');
+            const skip = createEl('button');
             skip.classList.add('agent-edit-review__skip-btn');
             skip.setAttribute('type', 'button');
             skip.textContent = t('ui.editReview.skipFile');
@@ -365,13 +365,13 @@ export class EditReviewPanel {
         diff.appendChild(bar);
 
         // --- column headings -------------------------------------------------
-        const heads = doc.createElement('div');
+        const heads = createEl('div');
         heads.classList.add('agent-edit-review__colheads');
-        const hOld = doc.createElement('span');
+        const hOld = createEl('span');
         hOld.classList.add('agent-edit-review__colhead');
         hOld.textContent = t('ui.editReview.original');
         heads.appendChild(hOld);
-        const hNew = doc.createElement('span');
+        const hNew = createEl('span');
         hNew.classList.add('agent-edit-review__colhead');
         hNew.textContent = this.mode === 'checkpoint'
             ? t('ui.editReview.snapshot')
@@ -382,14 +382,14 @@ export class EditReviewPanel {
         // --- the ONE scroll container ---------------------------------------
         // Both columns are rendered INSIDE this, one row element per diff line.
         // That is what keeps the two sides aligned when a line wraps.
-        const body = doc.createElement('div');
+        const body = createEl('div');
         body.classList.add('agent-edit-review__body');
         diff.appendChild(body);
         this.bodyEl = body;
 
         // --- the editing surface (hidden until the user asks for it) ---------
         if (this.mode === 'edit' && !this.readonlyContent) {
-            const ta = doc.createElement('textarea');
+            const ta = createEl('textarea');
             ta.classList.add('agent-edit-review__textarea');
             ta.setAttribute('spellcheck', 'true');
             ta.addEventListener('input', () => {
@@ -441,10 +441,10 @@ export class EditReviewPanel {
     }
 
     private buildFooter(root: HTMLElement, doc: Document): void {
-        const footer = doc.createElement('div');
+        const footer = createEl('div');
         footer.classList.add('agent-edit-review__footer');
 
-        const discardBtn = doc.createElement('button');
+        const discardBtn = createEl('button');
         discardBtn.classList.add('agent-edit-review__discard-btn');
         discardBtn.setAttribute('type', 'button');
         discardBtn.textContent = this.discardLabel;
@@ -455,7 +455,7 @@ export class EditReviewPanel {
         footer.appendChild(discardBtn);
 
         if (this.mode === 'checkpoint') {
-            const restoreBtn = doc.createElement('button');
+            const restoreBtn = createEl('button');
             restoreBtn.classList.add('agent-edit-review__restore-btn');
             restoreBtn.classList.add('mod-cta');
             restoreBtn.setAttribute('type', 'button');
@@ -470,7 +470,7 @@ export class EditReviewPanel {
                 // FEAT-44-02: the user cannot be shown one diff for the whole run --
                 // the agent only decides its next tool call after seeing this one's
                 // result. What they can do is say yes once and mean it for the run.
-                const applyAllBtn = doc.createElement('button');
+                const applyAllBtn = createEl('button');
                 applyAllBtn.classList.add('agent-edit-review__apply-run-btn');
                 applyAllBtn.setAttribute('type', 'button');
                 applyAllBtn.textContent = t('ui.editReview.applyForRun');
@@ -481,7 +481,7 @@ export class EditReviewPanel {
                 footer.appendChild(applyAllBtn);
 
                 // FEAT-44-02a: one level up -- until the plugin reloads.
-                const applySessionBtn = doc.createElement('button');
+                const applySessionBtn = createEl('button');
                 applySessionBtn.classList.add('agent-edit-review__apply-session-btn');
                 applySessionBtn.setAttribute('type', 'button');
                 applySessionBtn.textContent = t('ui.editReview.applyForSession');
@@ -492,7 +492,7 @@ export class EditReviewPanel {
                 footer.appendChild(applySessionBtn);
             }
 
-            const applyBtn = doc.createElement('button');
+            const applyBtn = createEl('button');
             applyBtn.classList.add('agent-edit-review__apply-btn');
             applyBtn.classList.add('mod-cta');
             applyBtn.setAttribute('type', 'button');
@@ -578,7 +578,7 @@ export class EditReviewPanel {
         const aligned = buildAlignedDiff(entry.before, currentContent, { collapse: !this.expanded });
 
         if (aligned.left.length === 0) {
-            const empty = doc.createElement('div');
+            const empty = createEl('div');
             empty.classList.add('agent-edit-review__empty-diff');
             empty.textContent = t('ui.editReview.emptyFile');
             host.appendChild(empty);
@@ -603,19 +603,19 @@ export class EditReviewPanel {
     }
 
     private makeHeadingRow(doc: Document, heading: string): HTMLElement {
-        const el = doc.createElement('div');
+        const el = createEl('div');
         el.classList.add('agent-edit-review__hunk-head');
         el.textContent = heading;
         return el;
     }
 
     private makeRow(doc: Document, left: AlignedLine, right: AlignedLine): HTMLElement {
-        const row = doc.createElement('div');
+        const row = createEl('div');
         row.classList.add('agent-edit-review__row');
 
         if (left.type === 'collapsed') {
             row.classList.add('agent-edit-review__row--collapsed');
-            const bar = doc.createElement('button');
+            const bar = createEl('button');
             bar.classList.add('agent-edit-review__collapsed');
             bar.setAttribute('type', 'button');
             bar.textContent = t('ui.editReview.hiddenLines', { count: left.hiddenCount ?? 0 });
@@ -637,7 +637,7 @@ export class EditReviewPanel {
     }
 
     private makeCell(doc: Document, line: AlignedLine, side: 'old' | 'new'): HTMLElement {
-        const cell = doc.createElement('div');
+        const cell = createEl('div');
         cell.classList.add('agent-edit-review__cell');
         cell.classList.add(`agent-edit-review__cell--${side}`);
 
@@ -647,13 +647,13 @@ export class EditReviewPanel {
 
         // Redundant, non-colour cue (WCAG 1.4.1: never carry meaning by colour
         // alone). Rendered in its own grid slot so it cannot disturb the prose.
-        const marker = doc.createElement('span');
+        const marker = createEl('span');
         marker.classList.add('agent-edit-review__marker');
         marker.setAttribute('aria-hidden', 'true');
         marker.textContent = line.type === 'added' ? '+' : line.type === 'removed' ? '\u2212' : '';
         cell.appendChild(marker);
 
-        const text = doc.createElement('span');
+        const text = createEl('span');
         text.classList.add('agent-edit-review__text');
         if (isMonospaceLine(line.content)) text.classList.add('is-mono');
         this.renderLineText(doc, text, line, side);
@@ -693,7 +693,7 @@ export class EditReviewPanel {
                 host.appendChild(doc.createTextNode(op.text));
                 continue;
             }
-            const mark = doc.createElement('span');
+            const mark = createEl('span');
             mark.classList.add('agent-edit-review__word');
             mark.classList.add(op.type === 'del' ? 'is-del-word' : 'is-add-word');
             mark.textContent = op.text;

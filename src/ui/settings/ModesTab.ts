@@ -273,7 +273,7 @@ export class ModesTab {
                 const json = JSON.stringify(exportData, null, 2);
                 const blob = new Blob([json], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
-                const a = activeDocument.createElement('a');
+                const a = createEl('a');
                 a.href = url;
                 a.download = `${mode.slug}.json`;
                 a.click();
@@ -417,7 +417,7 @@ export class ModesTab {
 
         // Import
         importBtn.addEventListener('click', () => {
-            const input = activeDocument.createElement('input');
+            const input = createEl('input');
             input.type = 'file';
             input.accept = '.json';
             input.addEventListener('change', () => { void (async () => {

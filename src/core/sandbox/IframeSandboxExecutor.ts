@@ -292,7 +292,7 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
     // -----------------------------------------------------------------------
 
     private async initialize(): Promise<void> {
-        this.iframe = activeDocument.createElement('iframe');
+        this.iframe = createEl('iframe');
         this.iframe.sandbox.add('allow-scripts');
         // Review-Bot: CSS class instead of inline style
         this.iframe.addClass('agent-sandbox-iframe');

@@ -27,6 +27,7 @@ import { getSelfAuthoredSkillsDir } from '../../utils/agentFolder';
 import { RunSkillScriptCache } from '../../sandbox/RunSkillScriptCache';
 import { isSafePathSegment } from '../../utils/safePathName';
 import { classifySkillScript, verdictReason } from '../../governance/skillScriptGuard';
+import { sha256Hex } from '../../utils/sha256';
 import { BUNDLED_SKILLS } from '../../../_generated/bundled-skills';
 import { castGenerated } from '../../utils/runtime';
 import { AstValidator } from '../../sandbox/AstValidator';
@@ -122,6 +123,23 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
             source = await adapter.read(scriptPath);
         } catch (e) {
             callbacks.pushToolResult(this.formatError(e));
+            return;
+        }
+
+        // Content-hash grant (M-1 follow-up) TOCTOU pin: when the approval gate
+        // cleared this call for a specific byte-state (context.approvedSandboxHash),
+        // the bytes we are about to compile MUST still be those bytes. Sandboxed
+        // code may write into skills/, so a concurrent script could otherwise
+        // swap approved code for other code between the gate and here -- the exact
+        // M-1 attack surface. We hash the SAME `source` we compile below, so there
+        // is no gap inside the tool; the pin only rejects a change since approval.
+        const approvedHash = context.approvedSandboxHash;
+        if (typeof approvedHash === 'string' && sha256Hex(source) !== approvedHash) {
+            callbacks.pushToolResult(this.formatError(new Error(
+                `Refusing to run ${skillName}/scripts/${scriptName}.js: the script changed since it was `
+                + 'approved -- its bytes no longer match what you allowed. Run it again to review and '
+                + 'approve the new version.',
+            )));
             return;
         }
 

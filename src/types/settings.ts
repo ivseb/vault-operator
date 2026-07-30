@@ -549,6 +549,31 @@ export interface AutoApprovalConfig {
     recipes: boolean;
     /** Auto-approve sandbox code execution (evaluate_expression). Off by default — high risk. */
     sandbox: boolean;
+    /**
+     * Content-hash grant (M-1 follow-up): persistent "always allow THIS script"
+     * approvals for vault-authored sandbox scripts, keyed on the SHA-256 of the
+     * exact bytes. Deliberately NOT the `sandbox` category flag: that flag never
+     * covers unverified vault code (the M-1 invariant), so a per-script grant is
+     * the only persistent yes on offer for user- and pro-authored skills. Absent
+     * field means an empty list — no migration needed.
+     */
+    sandboxScriptGrants?: SandboxScriptGrant[];
+}
+
+/**
+ * One persisted content-hash grant. The `key` (incl. the SHA-256) is the
+ * security anchor; `skill`/`script` ride along only for the settings list and
+ * targeted revoke. A grant matches exactly one byte-state of one script.
+ */
+export interface SandboxScriptGrant {
+    /** Full grant key incl. the content hash (sandboxScriptGrant.ts). */
+    key: string;
+    /** Skill folder name — display and revoke only. */
+    skill: string;
+    /** Script name — display and revoke only. */
+    script: string;
+    /** ISO timestamp of when the user granted it. */
+    grantedAt: string;
 }
 
 /** Legacy — kept for backwards compat */

@@ -117,7 +117,7 @@ export class LogTab {
             }
             const blob = new Blob([raw], { type: 'application/jsonl' });
             const url = URL.createObjectURL(blob);
-            const a = activeDocument.createElement('a');
+            const a = createEl('a');
             a.href = url;
             a.download = `vault-operator-log-${date}.jsonl`;
             activeDocument.body.appendChild(a);

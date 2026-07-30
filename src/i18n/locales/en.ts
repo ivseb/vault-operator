@@ -458,6 +458,7 @@ export const en = {
     'settings.permissions.commandsNone': 'No further commands available',
     'settings.permissions.grantCommand': 'Obsidian command may run',
     'settings.permissions.grantWebHost': 'Web page may be fetched',
+    'settings.permissions.grantSandboxScript': 'Skill script may run without asking',
     'settings.permissions.headingKillSwitch': 'Kill switch',
     'settings.permissions.sectionKillSwitchInfo': 'Two emergency brakes: a runtime override that makes the agent ask before everything, and a one-click reset back to the fail-closed default.',
     'settings.permissions.paranoidMode': 'Always ask (paranoid mode)',
@@ -1216,6 +1217,11 @@ export const en = {
     'ui.approval.allowForRun': 'Allow for this run',
     'ui.approval.allowForSession': 'Allow this session',
     'ui.approval.enableInSettings': 'Always allow',
+    // Content-hash grant (M-1 follow-up): a per-script "always allow" that is
+    // pinned to the exact bytes, not the sandbox category. Shown for an
+    // unverified skill script instead of the category "Always allow".
+    'ui.approval.sandboxScript.alwaysAllow': 'Always allow this script',
+    'ui.approval.sandboxScript.pinned': 'This applies only to {{skill}} / {{script}} exactly as it is now. If the script changes, you will be asked again.',
     'ui.approval.expiresIn': 'Auto-deny in {{seconds}}s',
     'ui.resume.interrupted': 'An agent task was interrupted at {{time}} ({{messages}} messages preserved).',
     'ui.resume.resume': 'Resume task',

@@ -109,7 +109,7 @@ export class PluginPatchModal extends Modal {
     private triggerDownload(): void {
         const blob = new Blob([this.compiledJs], { type: 'application/javascript' });
         const url = URL.createObjectURL(blob);
-        const link = activeDocument.createElement('a');
+        const link = createEl('a');
         link.href = url;
         link.download = BUNDLE_FILENAME;
         activeDocument.body.appendChild(link);

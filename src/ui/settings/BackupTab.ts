@@ -531,7 +531,7 @@ export class BackupTab {
                 compressionOptions: { level: 6 },
             });
             const url = URL.createObjectURL(blob);
-            const a = activeDocument.createElement('a');
+            const a = createEl('a');
             a.href = url;
             const date = new Date().toISOString().split('T')[0];
             a.download = `vault-operator-backup-${date}.zip`;
@@ -596,7 +596,7 @@ export class BackupTab {
     }
 
     private pickImportFile(): void {
-        const input = activeDocument.createElement('input');
+        const input = createEl('input');
         input.type = 'file';
         input.accept = '.zip,application/zip';
         input.addEventListener('change', () => { void (async () => {

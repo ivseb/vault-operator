@@ -19,7 +19,7 @@ export function pickAndInstallAsset(
     spec: AssetSpec,
     onDone: () => void | Promise<void>,
 ): void {
-    const input = activeDocument.createElement('input');
+    const input = createEl('input');
     input.type = 'file';
     input.accept = spec.filename.endsWith('.wasm')
         ? '.wasm,application/wasm'

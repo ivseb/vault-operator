@@ -250,7 +250,7 @@ async function renderPdfToImages(pdfData: Buffer): Promise<RenderedSlide[]> {
             const viewport = page.getViewport({ scale: RENDER_SCALE });
 
             // Create canvas for rendering
-            const canvas = activeDocument.createElement('canvas');
+            const canvas = createEl('canvas');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             const ctx = canvas.getContext('2d');

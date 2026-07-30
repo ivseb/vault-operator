@@ -102,7 +102,7 @@ export class AttachmentHandler {
     ) {}
 
     openFilePicker(): void {
-        const input = activeDocument.createElement('input');
+        const input = createEl('input');
         input.type = 'file';
         input.multiple = true;
         // No accept filter — Electron/macOS greyed out Office files with MIME-based filters.

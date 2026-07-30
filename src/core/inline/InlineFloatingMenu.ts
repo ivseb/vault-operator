@@ -91,7 +91,7 @@ export class InlineFloatingMenu {
         }
 
         this.currentCtx = ctx;
-        const root = this.containerEl.ownerDocument.createElement('div');
+        const root = createEl('div');
         root.classList.add('agent-inline-menu');
         root.setAttribute('role', 'menu');
         root.setAttribute('aria-label', t('ui.inline.menuAriaLabel'));
@@ -101,7 +101,7 @@ export class InlineFloatingMenu {
         root.setCssStyles({ minWidth: `${this.minWidth}px` });
 
         for (const action of actions) {
-            const item = this.containerEl.ownerDocument.createElement('button');
+            const item = createEl('button');
             item.classList.add('agent-inline-menu__item');
             item.setAttribute('role', 'menuitem');
             item.setAttribute('type', 'button');

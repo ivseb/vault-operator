@@ -71,6 +71,7 @@ function labelFor(storeId: GrantStoreId, key: string): string {
         case 'importedSkill': return t('settings.permissions.grantImportedSkill');
         case 'webHost': return t('settings.permissions.grantWebHost');
         case 'command': return t('settings.permissions.grantCommand');
+        case 'sandboxScript': return t('settings.permissions.grantSandboxScript');
         default: return key;
     }
 }

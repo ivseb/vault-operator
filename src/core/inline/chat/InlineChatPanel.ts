@@ -286,7 +286,7 @@ export class InlineChatPanel {
         this.forcedWorkflowRefreshUnsub =
             this.subscribeForcedWorkflowRefresh?.(() => this.renderForcedWorkflowChip()) ?? null;
         const doc = this.containerEl.ownerDocument;
-        const root = doc.createElement('div');
+        const root = createEl('div');
         root.classList.add('agent-inline-panel');
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-label', t('ui.inline.panelAriaLabel'));
@@ -324,7 +324,7 @@ export class InlineChatPanel {
         // the panel is part of the CM6 layout and must not float around.
         let dragHandle: HTMLElement | null = null;
         if (this.displayMode === 'popover') {
-            dragHandle = doc.createElement('div');
+            dragHandle = createEl('div');
             dragHandle.classList.add('agent-inline-panel__drag-handle');
             dragHandle.setAttribute('aria-hidden', 'true');
             root.appendChild(dragHandle);
@@ -341,7 +341,7 @@ export class InlineChatPanel {
         }
 
         // Header close button (× in top-right corner).
-        const closeBtn = doc.createElement('button');
+        const closeBtn = createEl('button');
         closeBtn.classList.add('agent-inline-panel__close');
         closeBtn.setAttribute('type', 'button');
         closeBtn.setAttribute('title', 'Close (esc)');
@@ -350,42 +350,42 @@ export class InlineChatPanel {
         root.appendChild(closeBtn);
 
         // Body: chat messages.
-        const body = doc.createElement('div');
+        const body = createEl('div');
         body.classList.add('agent-inline-panel__body');
         root.appendChild(body);
         this.bodyEl = body;
 
         // Status pill.
-        const status = doc.createElement('div');
+        const status = createEl('div');
         status.classList.add('agent-inline-panel__status');
         status.classList.add('agent-u-hidden');
         root.appendChild(status);
         this.statusEl = status;
 
         // Composer (sidebar-style: .chat-input-container > .chat-input-wrapper).
-        const composerContainer = doc.createElement('div');
+        const composerContainer = createEl('div');
         composerContainer.classList.add('chat-input-container');
         composerContainer.classList.add('agent-inline-panel__composer');
-        const wrapper = doc.createElement('div');
+        const wrapper = createEl('div');
         wrapper.classList.add('chat-input-wrapper');
         composerContainer.appendChild(wrapper);
 
         // FEAT-02-12: forced-workflow status row, above the attachment chips.
         // AttachmentHandler empties the chip bar on every render, so the forced
         // indicator needs its own element the attachment handler never touches.
-        const forcedChip = doc.createElement('div');
+        const forcedChip = createEl('div');
         forcedChip.classList.add('chat-context-chips', 'agent-inline-forced-row');
         wrapper.appendChild(forcedChip);
         this.forcedChipEl = forcedChip;
 
         // Attachment chip bar (sidebar-style: above textarea). Empty by
         // default; AttachmentHandler renders chips into this element.
-        const chipBar = doc.createElement('div');
+        const chipBar = createEl('div');
         chipBar.classList.add('chat-attachment-chips');
         wrapper.appendChild(chipBar);
         this.chipBarEl = chipBar;
 
-        const textarea = doc.createElement('textarea');
+        const textarea = createEl('textarea');
         textarea.classList.add('chat-textarea');
         textarea.setAttribute('rows', '3');
         textarea.setAttribute('placeholder', 'Type your message here…');
@@ -425,11 +425,11 @@ export class InlineChatPanel {
             }
         }
 
-        const toolbar = doc.createElement('div');
+        const toolbar = createEl('div');
         toolbar.classList.add('chat-toolbar');
-        const left = doc.createElement('div');
+        const left = createEl('div');
         left.classList.add('chat-toolbar-left');
-        const right = doc.createElement('div');
+        const right = createEl('div');
         right.classList.add('chat-toolbar-right');
 
         // Model button: same visual treatment as the sidebar. Click
@@ -524,7 +524,7 @@ export class InlineChatPanel {
         // Resize handle: same treatment as drag -- null in inline-block.
         let resizeHandle: HTMLElement | null = null;
         if (this.displayMode === 'popover') {
-            resizeHandle = doc.createElement('div');
+            resizeHandle = createEl('div');
             resizeHandle.classList.add('agent-inline-panel__resize-handle');
             resizeHandle.setAttribute('aria-hidden', 'true');
             root.appendChild(resizeHandle);
@@ -604,14 +604,14 @@ export class InlineChatPanel {
         const sel = this.ctx.selectionText;
         if (sel.length === 0) return;
 
-        const section = doc.createElement('div');
+        const section = createEl('div');
         section.classList.add('agent-inline-panel__anchor');
 
-        const label = doc.createElement('div');
+        const label = createEl('div');
         label.classList.add('agent-inline-panel__anchor-label');
         label.textContent = 'Selection';
 
-        const preview = doc.createElement('div');
+        const preview = createEl('div');
         preview.classList.add('agent-inline-panel__anchor-text');
         preview.textContent = this.truncateToLines(sel, PREVIEW_VISIBLE_LINES);
         this.previewEl = preview;
@@ -624,12 +624,12 @@ export class InlineChatPanel {
         const lineCount = sel.split('\n').length;
         const needsToggle = lineCount > PREVIEW_VISIBLE_LINES || sel.length > 240;
         if (needsToggle) {
-            const toggle = doc.createElement('button');
+            const toggle = createEl('button');
             toggle.classList.add('agent-inline-panel__anchor-toggle');
             toggle.setAttribute('type', 'button');
             toggle.setAttribute('aria-label', t('ui.inline.expandSelectionPreview'));
             toggle.setAttribute('title', t('ui.inline.expandTooltip'));
-            const iconSpan = doc.createElement('span');
+            const iconSpan = createEl('span');
             iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
             this.setIcon(iconSpan, 'chevron-down');
             toggle.appendChild(iconSpan);
@@ -652,7 +652,7 @@ export class InlineChatPanel {
         while (this.previewToggleEl.firstChild !== null) {
             this.previewToggleEl.removeChild(this.previewToggleEl.firstChild);
         }
-        const iconSpan = this.containerEl.ownerDocument.createElement('span');
+        const iconSpan = createEl('span');
         iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
         if (this.previewExpanded === true) {
             this.previewEl.textContent = this.ctx.selectionText;
@@ -677,7 +677,7 @@ export class InlineChatPanel {
     }
 
     private makeToolbarButton(doc: Document, label: string): HTMLButtonElement {
-        const btn = doc.createElement('button');
+        const btn = createEl('button');
         btn.classList.add('toolbar-button');
         btn.setAttribute('type', 'button');
         btn.textContent = label;
@@ -685,13 +685,13 @@ export class InlineChatPanel {
     }
 
     private makeIconButton(doc: Document, iconName: string, tooltip: string): HTMLButtonElement {
-        const btn = doc.createElement('button');
+        const btn = createEl('button');
         btn.classList.add('toolbar-button');
         btn.classList.add('toolbar-ghost');
         btn.setAttribute('type', 'button');
         btn.setAttribute('aria-label', tooltip);
         btn.setAttribute('title', tooltip);
-        const iconSpan = doc.createElement('span');
+        const iconSpan = createEl('span');
         iconSpan.classList.add('toolbar-icon');
         this.setIcon(iconSpan, iconName);
         btn.appendChild(iconSpan);
@@ -749,15 +749,14 @@ export class InlineChatPanel {
         }
         const slug = this.getForcedWorkflowSlug?.() ?? '';
         if (slug === '') return;
-        const doc = this.forcedChipEl.ownerDocument;
-        const chip = doc.createElement('div');
+        const chip = createEl('div');
         chip.classList.add('chat-context-chip', 'chat-forced-workflow-chip');
         chip.setAttribute('title', t('ui.sidebar.forcedWorkflowChipTooltip', { slug }));
-        const icon = doc.createElement('span');
+        const icon = createEl('span');
         icon.classList.add('context-chip-icon');
         this.setIcon(icon, 'git-branch');
         chip.appendChild(icon);
-        const label = doc.createElement('span');
+        const label = createEl('span');
         label.classList.add('context-chip-label');
         label.textContent = t('ui.sidebar.forcedWorkflowChipLabel', { slug });
         chip.appendChild(label);
@@ -799,23 +798,21 @@ export class InlineChatPanel {
 
     private appendCheckpointMarker(marker: InlineCheckpointMarker): string {
         if (this.bodyEl === null) return '';
-        const doc = this.containerEl.ownerDocument;
-
         // Sidebar-parity DOM: the same `.checkpoint-marker`/`.checkpoint-*`
         // CSS hierarchy AgentSidebarView.renderCheckpointMarker uses, so
         // the inline panel inherits the divider-line + ghost-icon-button
         // look without a parallel stylesheet.
-        const wrap = doc.createElement('div');
+        const wrap = createEl('div');
         wrap.classList.add('checkpoint-marker');
         wrap.classList.add('agent-inline-panel__bubble');
         wrap.classList.add('agent-inline-panel__bubble--checkpoint');
 
-        const iconEl = doc.createElement('span');
+        const iconEl = createEl('span');
         iconEl.classList.add('checkpoint-icon');
         this.setIcon(iconEl, 'git-commit-vertical');
         wrap.appendChild(iconEl);
 
-        const labelEl = doc.createElement('span');
+        const labelEl = createEl('span');
         labelEl.classList.add('checkpoint-label');
         const labelText = marker.detail !== undefined && marker.detail.length > 0
             ? `${marker.label} -- ${marker.detail}`
@@ -823,11 +820,11 @@ export class InlineChatPanel {
         labelEl.textContent = labelText;
         wrap.appendChild(labelEl);
 
-        const actions = doc.createElement('div');
+        const actions = createEl('div');
         actions.classList.add('checkpoint-actions');
 
         const makeBtn = (icon: string, tooltip: string, handler: () => void): HTMLButtonElement => {
-            const btn = doc.createElement('button');
+            const btn = createEl('button');
             btn.classList.add('checkpoint-action-btn');
             btn.setAttribute('type', 'button');
             btn.setAttribute('aria-label', tooltip);
@@ -866,8 +863,7 @@ export class InlineChatPanel {
 
     private appendMessage(message: InlinePanelMessage): string {
         if (this.bodyEl === null) return '';
-        const doc = this.containerEl.ownerDocument;
-        const bubble = doc.createElement('div');
+        const bubble = createEl('div');
         bubble.classList.add('agent-inline-panel__bubble');
         bubble.classList.add(`agent-inline-panel__bubble--${message.role}`);
         bubble.textContent = message.text;

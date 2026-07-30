@@ -108,7 +108,7 @@ export class InlineActionPill {
         const anchor = pickAnchor(range);
         if (anchor === null) return;
 
-        const pill = doc.createElement('button');
+        const pill = createEl('button');
         pill.classList.add('agent-inline-action-pill');
         pill.setAttribute('type', 'button');
         pill.setAttribute('aria-label', this.label);

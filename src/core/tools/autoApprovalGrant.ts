@@ -109,7 +109,7 @@ export interface ApprovalKillSwitchHost {
  */
 export function resetToDefaultDeny(
     host: ApprovalKillSwitchHost,
-    restrictivePreset: Record<string, boolean>,
+    restrictivePreset: Record<string, unknown>,
     /**
      * AUDIT 2026-07-26 M-13: clears the imported-skill trust-on-first-use set.
      * Injected because that Set is module state inside InvokeSkillTool, which
@@ -120,6 +120,18 @@ export function resetToDefaultDeny(
     Object.assign(host.settings.autoApproval, restrictivePreset);
     host.sessionApprovedGrants?.clear();
     host.approvalRevocationEpoch = (host.approvalRevocationEpoch ?? 0) + 1;
+
+    // Content-hash grant (M-1 follow-up): the persistent "always allow THIS
+    // script" list is a standing consent too, and it lives INSIDE autoApproval,
+    // so the restrictive preset (which names only category flags) does not touch
+    // it. Clear it here with a FRESH array -- assigning the preset's own [] would
+    // alias every reset onto one shared array. A reset that left these armed
+    // would be the M-18 failure: the button promises default-deny while
+    // agent-authored scripts still run without a card.
+    const autoApproval = host.settings.autoApproval as { sandboxScriptGrants?: unknown[] };
+    if (autoApproval.sandboxScriptGrants !== undefined) {
+        autoApproval.sandboxScriptGrants = [];
+    }
 
     // AUDIT 2026-07-26 M-13: the consents that live OUTSIDE settings.autoApproval.
     // The old reset touched only that object, so a button labelled "reset

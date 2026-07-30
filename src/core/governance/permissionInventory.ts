@@ -69,7 +69,9 @@ export type GrantStoreId =
     | 'importedSkill'
     | 'webHost'
     | 'command'
-    | 'sessionGrant';
+    | 'sessionGrant'
+    /** Content-hash "always allow this script" grant (autoApproval.sandboxScriptGrants). */
+    | 'sandboxScript';
 
 /**
  * What the inventory needs from the plugin. Structural on purpose: the concrete
@@ -133,6 +135,34 @@ export function collectGrants(host: PermissionInventoryHost, label: LabelResolve
                 label: label('autoApproval', key),
                 scope: 'vault',
                 provenance: provenanceFor(host, id),
+            });
+        }
+    }
+
+    // --- Per-script sandbox grants (vault settings, content-hash keyed) -----
+    // NOT gated by the master toggle: the M-1 branch consults these directly,
+    // regardless of autoApproval.enabled, so listing them only while the master
+    // is on would hide a grant that is actually in force. Each is pinned to one
+    // byte-state of one script; the skill/script names ride along for display.
+    const scriptGrants = s.autoApproval.sandboxScriptGrants;
+    if (Array.isArray(scriptGrants)) {
+        for (const g of scriptGrants) {
+            if (g === null || typeof g !== 'object') continue;
+            const rec = g as { key?: unknown; skill?: unknown; script?: unknown; grantedAt?: unknown };
+            if (typeof rec.key !== 'string' || rec.key.length === 0) continue;
+            const id = `sandboxScript:${rec.key}`;
+            const at = typeof rec.grantedAt === 'string' && !Number.isNaN(Date.parse(rec.grantedAt))
+                ? Date.parse(rec.grantedAt)
+                : undefined;
+            out.push({
+                id,
+                store: 'sandboxScript',
+                label: label('sandboxScript', rec.key),
+                detail: typeof rec.skill === 'string' && typeof rec.script === 'string'
+                    ? `${rec.skill} / ${rec.script}`
+                    : undefined,
+                scope: 'vault',
+                provenance: { origin: 'card', ...(at !== undefined ? { at } : {}) },
             });
         }
     }

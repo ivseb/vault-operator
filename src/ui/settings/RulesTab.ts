@@ -38,7 +38,7 @@ export class RulesTab {
         // Import button
         const importBtn = createRow.createEl('button', { text: t('settings.rules.import'), cls: 'agent-rules-import-btn' });
         importBtn.addEventListener('click', () => {
-            const fileInput = activeDocument.createElement('input');
+            const fileInput = createEl('input');
             fileInput.type = 'file';
             fileInput.accept = '.md,.txt';
             fileInput.addEventListener('change', () => { void (async () => {
@@ -102,7 +102,7 @@ export class RulesTab {
                     const content = await rulesLoader.readFile(rPath);
                     const blob = new Blob([content], { type: 'text/markdown' });
                     const url = URL.createObjectURL(blob);
-                    const a = activeDocument.createElement('a');
+                    const a = createEl('a');
                     a.href = url;
                     a.download = `${RulesLoader.displayName(rPath)}.md`;
                     a.click();

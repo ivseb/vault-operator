@@ -113,6 +113,20 @@ export function revokeGrant(host: PermissionRevokeHost, id: string): RevokeResul
             return { ok: true, needsSave: false };
         }
 
+        case 'sandboxScript': {
+            // Drop exactly the entry whose content-hash key matches. The list
+            // lives inside autoApproval but is NOT a category flag, so it is not
+            // reachable through the master toggle -- only here and via the reset.
+            const list = s.autoApproval.sandboxScriptGrants;
+            if (Array.isArray(list)) {
+                s.autoApproval.sandboxScriptGrants = list.filter(
+                    (g) => !(g !== null && typeof g === 'object' && (g as { key?: unknown }).key === key),
+                );
+            }
+            clearProvenance(s, id);
+            return { ok: true, needsSave: true };
+        }
+
         default:
             return { ok: false, reason: `Unknown store: ${store}` };
     }

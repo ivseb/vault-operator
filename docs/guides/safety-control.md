@@ -78,6 +78,10 @@ The auto-approve categories are not repeated in this list. Their home is their t
 
 `web_fetch` used to sit behind a single **web** flag, so the only lasting yes was "any page, forever". Now, when you approve a web fetch and choose **Always allow**, Vault Operator remembers just that one domain. The next page on the same site is covered; a different site still asks. Each allowed domain is a row in the Specific permissions list, revocable on its own. Allowing `example.com` does not allow `evil-example.com` or any subdomain: exact host only.
 
+### Skill scripts: approve one script, not the whole sandbox
+
+A skill script that is not the copy the plugin ships is judged on its exact bytes, never on the **sandbox** category flag, so a broad "auto-approve sandbox" can never cover your own or an imported script. When you approve such a script and choose **Always allow this script**, Vault Operator remembers a fingerprint (SHA-256) of exactly those bytes. The next run of the same script is covered; change a single character and it asks again, because the fingerprint no longer matches. Each remembered script is a row in the Specific permissions list, revocable on its own. This is what makes a skill with helper scripts run without a card on every step, while still catching a script that was quietly rewritten underneath it.
+
 ### Shell commands: the execute_command allowlist
 
 `execute_command` can only run Obsidian commands that are on its allowlist. Nothing else runs, no matter what any toggle, preset, or approval says. Two tiers:

@@ -93,7 +93,7 @@ export class ChatModelPickerPopover {
         }
         this.close();
 
-        const popover = activeDocument.createElement('div');
+        const popover = createEl('div');
         popover.className = 'tool-picker-popover chat-model-picker';
         this.popoverEl = popover;
 

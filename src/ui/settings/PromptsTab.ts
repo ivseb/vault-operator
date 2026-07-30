@@ -49,7 +49,7 @@ export class PromptsTab {
         // Import button
         const importBtn = createRow.createEl('button', { text: t('settings.prompts.import'), cls: 'agent-rules-import-btn' });
         importBtn.addEventListener('click', () => {
-            const fileInput = activeDocument.createElement('input');
+            const fileInput = createEl('input');
             fileInput.type = 'file';
             fileInput.accept = '.json';
             fileInput.addEventListener('change', () => { void (async () => {
@@ -222,7 +222,7 @@ export class PromptsTab {
                     const data = { name: p.name, slug: p.slug, content: p.content, mode: p.mode };
                     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
-                    const a = activeDocument.createElement('a');
+                    const a = createEl('a');
                     a.href = url;
                     a.download = `prompt-${p.slug}.json`;
                     a.click();
