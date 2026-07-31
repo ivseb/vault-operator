@@ -921,6 +921,7 @@
   "ui.approval.scope.extractZipSkipped": "Существующие файлы ({{count}}) будут пропущены.",
   "ui.approval.scope.vaultHealth": "{{action}} изменит заметки: {{count}}.",
   "ui.approval.scope.ingestDocument": "Создать {{path}} из {{source}}.",
+  "ui.approval.scope.clipWebPage": "Сохранить {{url}} в {{path}} (изображения в {{folder}}).",
   "ui.approval.scope.chatAttachment": "вложение чата №{{index}}",
   "ui.approval.scope.ingestDeep": "Проход по источнику deep-ingest для {{source}}: устанавливает якоря блоков и обновляет счётчики. У перечисленной MOC-страницы обновляется только блок-маркер.",
   "ui.approval.scope.restoreCheckpoint": "Восстановить файлы ({{count}}) из контрольной точки {{oid}}.",

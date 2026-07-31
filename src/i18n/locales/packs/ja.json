@@ -921,6 +921,7 @@
   "ui.approval.scope.extractZipSkipped": "既存の {{count}} 件のファイルはスキップされます。",
   "ui.approval.scope.vaultHealth": "{{action}} は {{count}} 件のノートを変更します。",
   "ui.approval.scope.ingestDocument": "{{source}} から {{path}} を作成します。",
+  "ui.approval.scope.clipWebPage": "{{url}} を {{path}} に保存（画像は {{folder}}）。",
   "ui.approval.scope.chatAttachment": "チャット添付ファイル #{{index}}",
   "ui.approval.scope.ingestDeep": "{{source}} に対するディープインジェストのソースパス: ブロックアンカーを設定しカウンターを更新します。リストされた MOC ページはマーカーブロックの更新のみ行われます。",
   "ui.approval.scope.restoreCheckpoint": "チェックポイント {{oid}} から {{count}} 件のファイルを復元します。",

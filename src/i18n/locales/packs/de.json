@@ -921,6 +921,7 @@
   "ui.approval.scope.extractZipSkipped": "{{count}} vorhandene Datei(en) werden übersprungen.",
   "ui.approval.scope.vaultHealth": "{{action}} ändert {{count}} Notiz(en).",
   "ui.approval.scope.ingestDocument": "{{path}} aus {{source}} erstellen.",
+  "ui.approval.scope.clipWebPage": "{{url}} in {{path}} archivieren (Bilder in {{folder}}).",
   "ui.approval.scope.chatAttachment": "Chat-Anhang #{{index}}",
   "ui.approval.scope.ingestDeep": "Deep-Ingest-Source-Pass auf {{source}}: setzt Block-Anker und aktualisiert Zähler. Eine gelistete MOC-Seite erhält nur eine Auffrischung ihres Marker-Blocks.",
   "ui.approval.scope.restoreCheckpoint": "{{count}} Datei(en) aus Checkpoint {{oid}} wiederherstellen.",

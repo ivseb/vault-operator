@@ -71,3 +71,49 @@ export function readCappedResponseBody(
         });
     });
 }
+
+/**
+ * Binary sibling of {@link readCappedResponseBody}: streams the response into a
+ * Buffer under the same hard byte cap, WITHOUT UTF-8 decoding. clip_web_page
+ * downloads image bytes (PNG/JPEG/WebP/...), which are not valid UTF-8 and would
+ * be corrupted by the string reader. The cap logic is identical: reject early on
+ * an oversized Content-Length, abort once streamed bytes exceed maxBytes.
+ */
+export function readCappedResponseBodyBuffer(
+    res: ByteStream,
+    onAbort: () => void,
+    maxBytes: number,
+): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const declared = parseContentLength(res.headers['content-length']);
+        if (declared !== null && declared > maxBytes) {
+            onAbort();
+            reject(new Error(`Response exceeds ${maxBytes}-byte cap (Content-Length ${declared})`));
+            return;
+        }
+        const chunks: Buffer[] = [];
+        let received = 0;
+        let settled = false;
+        res.on('data', (chunk: Buffer) => {
+            if (settled) return;
+            received += chunk.length;
+            if (received > maxBytes) {
+                settled = true;
+                onAbort();
+                reject(new Error(`Response exceeds ${maxBytes}-byte cap`));
+                return;
+            }
+            chunks.push(chunk);
+        });
+        res.on('end', () => {
+            if (settled) return;
+            settled = true;
+            resolve(Buffer.concat(chunks));
+        });
+        res.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+        });
+    });
+}

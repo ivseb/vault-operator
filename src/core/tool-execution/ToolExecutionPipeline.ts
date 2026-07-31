@@ -1053,6 +1053,20 @@ export class ToolExecutionPipeline {
         restore_checkpoint: [
             { key: 'path', write: true },
         ],
+        // clip_web_page writes the note under target_path and the downloaded
+        // images under attachments_folder. Both are model-controlled vault paths
+        // and must run isIgnored/isProtected so a clip cannot land the note or its
+        // images in an .obsidian-agentprotected folder or the configDir/agent
+        // deny zone (BYP-1). The page/image URLs are governed by the SSRF guard,
+        // not IgnoreService, so `url` stays out (it is a web URL, not a vault path).
+        clip_web_page: [
+            // target_path is written verbatim (spec 4.1: used as-is), NOT resolved
+            // against defaultOutputFolder like the create_* tools -- so no
+            // resolveOutput here, or a slash-less target would be governed against
+            // (and could be spuriously denied by) a folder the tool never writes to.
+            { key: 'target_path', write: true },
+            { key: 'attachments_folder', write: true },
+        ],
         // FIX-44-51: the memory-source pair addresses its note via `note_path`,
         // which is neither `path` nor was it listed here -- ignore/protected
         // rules never ran for them, so a note under an ignored folder could be

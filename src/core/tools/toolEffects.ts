@@ -195,6 +195,10 @@ export const TOOL_EFFECTS: Record<string, ToolEffectSpec> = {
     web_fetch: 'web',
     web_search: 'web',
     anti_echo_search: 'web',
+    // Fetches a page + its images and writes them to the vault. Egress class 'web'
+    // (never auto-approvable without the web flag); vault writes go through
+    // writeBinaryToVault -> vaultPathGuard.
+    clip_web_page: 'web',
 
     // --- MCP -----------------------------------------------------------------
     use_mcp_tool: 'mcp',

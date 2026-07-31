@@ -75,6 +75,7 @@ import { QueryBaseTool } from './vault/QueryBaseTool';
 // Import tools — web
 import { WebFetchTool } from './web/WebFetchTool';
 import { WebSearchTool } from './web/WebSearchTool';
+import { ClipWebPageTool } from './web/ClipWebPageTool';
 // Import tools — agent control
 import { AskFollowupQuestionTool } from './agent/AskFollowupQuestionTool';
 import { AttemptCompletionTool } from './agent/AttemptCompletionTool';
@@ -239,6 +240,8 @@ export class ToolRegistry {
         // Web (Phase 1.1)
         this.register(new WebFetchTool(this.plugin));
         this.register(new WebSearchTool(this.plugin));
+        // Web: archive a page + images into the vault (Web-Clipper equivalent).
+        this.register(new ClipWebPageTool(this.plugin));
         // Agent control (Sprint 1.2 / Phase 1.3 / Phase 3.1)
         this.register(new AskFollowupQuestionTool(this.plugin));
         this.register(new AttemptCompletionTool(this.plugin));

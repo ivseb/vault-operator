@@ -921,6 +921,7 @@
   "ui.approval.scope.extractZipSkipped": "Se omitirán {{count}} archivo(s) existentes.",
   "ui.approval.scope.vaultHealth": "{{action}} modificará {{count}} nota(s).",
   "ui.approval.scope.ingestDocument": "Crear {{path}} a partir de {{source}}.",
+  "ui.approval.scope.clipWebPage": "Archivar {{url}} en {{path}} (imágenes en {{folder}}).",
   "ui.approval.scope.chatAttachment": "adjunto de chat #{{index}}",
   "ui.approval.scope.ingestDeep": "Pase de origen de deep-ingest en {{source}}: establece anclas de bloque y actualiza contadores. Una página MOC listada solo recibe una actualización de su bloque marcador.",
   "ui.approval.scope.restoreCheckpoint": "Restaurar {{count}} archivo(s) desde el checkpoint {{oid}}.",

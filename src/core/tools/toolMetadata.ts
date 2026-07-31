@@ -480,6 +480,15 @@ If ANY check fails, call create_xlsx again with corrections.`,
         whenToUse: 'For external/current information ("latest", "aktuell", "im Internet"). NOT for vault content.',
         commonMistakes: 'Searching the web when the answer is in the vault — check vault tools first.',
     },
+    clip_web_page: {
+        group: 'web', label: 'Clip Web Page', icon: 'scissors',
+        signature: 'clip_web_page(url, target_path, header_content?, attachments_folder?, max_images?)',
+        description: 'Archive a web page into the vault like the Obsidian Web Clipper: full text as Markdown, images downloaded as real vault files with links rewritten. You write header_content; the tool appends the full text under "## Originaltext". Deferred: activate with find_tool("clip web page").',
+        example: 'clip_web_page("https://example.com/article", "Sources/Article.md", "---\\ntype: source\\n---\\n## Summary\\n...")',
+        whenToUse: 'To permanently save an article/source with its images, offline-readable. Unlike web_fetch (reads into context, keeps remote image URLs, truncates), this writes a full archival note.',
+        commonMistakes: 'Using web_fetch when the user wants to SAVE a page. Expecting JavaScript-rendered content -- only the served HTML is clipped.',
+        qualityGate: true,
+    },
 
     // ── Agent Control ─────────────────────────────────────────────────────
     ask_followup_question: {
@@ -846,6 +855,8 @@ export const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
     // less-frequent plan_presentation and ingest_document stay deferred.
     'plan_presentation',
     'ingest_document',
+    // Web: archival clipper is specialised (rarely needed vs web_fetch/web_search).
+    'clip_web_page',
     // Self-development + niche agent utilities
     'evaluate_expression',
     'manage_source',

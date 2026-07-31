@@ -921,6 +921,7 @@
   "ui.approval.scope.extractZipSkipped": "将跳过 {{count}} 个已存在的文件。",
   "ui.approval.scope.vaultHealth": "{{action}} 将修改 {{count}} 条笔记。",
   "ui.approval.scope.ingestDocument": "从 {{source}} 创建 {{path}}。",
+  "ui.approval.scope.clipWebPage": "将 {{url}} 归档到 {{path}}（图片在 {{folder}}）。",
   "ui.approval.scope.chatAttachment": "聊天附件 #{{index}}",
   "ui.approval.scope.ingestDeep": "对 {{source}} 执行深度摄取源处理：设置块锚点并更新计数器。列出的 MOC 页面仅刷新其标记块。",
   "ui.approval.scope.restoreCheckpoint": "从检查点 {{oid}} 恢复 {{count}} 个文件。",

@@ -68,6 +68,8 @@ export type ToolName =
     // Web
     | 'web_fetch'
     | 'web_search'
+    // Web: archive a page (full text + images) into the vault, like the Web Clipper
+    | 'clip_web_page'
     // Semantic
     | 'semantic_search'
     // Agent control
