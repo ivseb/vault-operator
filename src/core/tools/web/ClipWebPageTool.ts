@@ -27,6 +27,7 @@ import { guardUrl, fetchWithRedirectGuard } from './ssrfGuard';
 import {
     extractMarkdownImageRefs,
     rewriteImageLinks,
+    imageExtFromBytes,
     imageExtFromContentType,
     imageFilenameFor,
     sanitizeSvg,
@@ -269,13 +270,19 @@ export class ClipWebPageTool extends BaseTool<'clip_web_page'> {
         const downloaded = resp.bytes?.byteLength ?? 0;
         if (resp.status >= 400) return { downloaded, saved: null };
 
-        // Content-Type is authoritative (checked over the wire, not just the URL).
+        // The Content-Type only decides whether this response claims to be an
+        // image at all. It is the remote server's word, so it cannot decide the
+        // format: a page can serve `image/png` and hand over ICNS or HEIF.
         const contentType = resp.headers['content-type'] ?? '';
-        const ext = imageExtFromContentType(contentType);
-        if (!ext) return { downloaded, saved: null };
+        if (!imageExtFromContentType(contentType)) return { downloaded, saved: null };
 
         const bytes = resp.bytes;
         if (!bytes || bytes.byteLength === 0) return { downloaded, saved: null };
+
+        // The bytes decide. Anything we cannot name is rejected rather than
+        // written under an extension the server picked for us.
+        const ext = imageExtFromBytes(bytes);
+        if (!ext) return { downloaded, saved: null };
 
         // AUDIT L-1: SVG is XML that can carry <script>/on*/javascript:. Strip the
         // obvious vectors before the bytes land in the vault and get embedded.

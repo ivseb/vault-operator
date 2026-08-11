@@ -37,12 +37,12 @@ const HELP_URL = 'https://pssah4.github.io/vault-operator/';
 
 // Review-bot recommendation (deferred by design): this tab does not implement
 // getSettingDefinitions(), so its settings do not surface in Obsidian's 1.13+
-// settings search. The declarative settings API only exists from 1.13.0, while
-// manifest.minAppVersion is 1.8.7 -- adopting it would either raise the floor
-// (locking older installs out of updates) or require a version-gated fork of
-// the whole settings surface. It stays a plain Warning (never disabled) until
-// minAppVersion moves to 1.13+. Full rationale + re-evaluation trigger:
-// REVIEWER_NOTES.md:402.
+// settings search. Adoption is all-or-nothing -- obsidian.d.ts states that
+// display() is "not called when getSettingDefinitions returns a non-empty
+// array", so even a search-only stub would replace this whole tab UI on 1.13+,
+// and a hidden definition is excluded from search too. manifest.minAppVersion
+// is 1.8.7, so that would mean two settings surfaces in parallel. Re-evaluation
+// trigger: minAppVersion raised to 1.13+. Rationale: REVIEWER_NOTES.md.
 export class AgentSettingsTab extends PluginSettingTab {
     plugin: ObsidianAgentPlugin;
     private activeTab: TabId = 'providers';

@@ -145,6 +145,66 @@ export function imageExtFromContentType(contentType: string): string | null {
     return CONTENT_TYPE_TO_EXT[base] ?? null;
 }
 
+/** Leading bytes match `sig` starting at `at`. */
+function startsWith(bytes: Uint8Array, sig: readonly number[], at = 0): boolean {
+    if (bytes.length < at + sig.length) return false;
+    return Buffer.from(bytes.subarray(at, at + sig.length)).equals(Buffer.from(sig));
+}
+
+/**
+ * Latin-1 of a fixed-length span, or '' when the buffer is too short. Latin-1
+ * rather than utf8 so every byte maps to exactly one char and offsets stay
+ * byte offsets.
+ */
+function ascii(bytes: Uint8Array, at: number, len: number): string {
+    if (bytes.length < at + len) return '';
+    return Buffer.from(bytes.subarray(at, at + len)).toString('latin1');
+}
+
+/** ISO-BMFF brands we accept. AVIF sequences use `avis`. */
+const AVIF_BRANDS: readonly string[] = ['avif', 'avis'];
+
+/**
+ * Derive the image format from the bytes themselves.
+ *
+ * The Content-Type comes from the remote server, so it decides nothing on its
+ * own: a page can serve `image/png` and hand over ICNS or HEIF, which is
+ * exactly the input class the image-size advisories turn into an endless loop.
+ * Sniffing keeps the accepted set closed to what we can name, and anything
+ * unrecognised is rejected rather than stored under a guessed extension.
+ *
+ * SVG has no binary signature, so it is sniffed as text: a BOM and leading
+ * whitespace are skipped, an optional XML prolog is allowed, and an `<svg`
+ * element must actually open. Returns null when nothing matches.
+ */
+export function imageExtFromBytes(bytes: Uint8Array): string | null {
+    if (bytes.length < 4) return null;
+
+    if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return '.png';
+    if (startsWith(bytes, [0xff, 0xd8, 0xff])) return '.jpg';
+
+    const gif = ascii(bytes, 0, 6);
+    if (gif === 'GIF87a' || gif === 'GIF89a') return '.gif';
+
+    // RIFF is a container: only the WEBP form is an image.
+    if (ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WEBP') return '.webp';
+
+    // ISO-BMFF: the brand at offset 8 separates AVIF from HEIF/HEIC.
+    if (ascii(bytes, 4, 4) === 'ftyp' && AVIF_BRANDS.includes(ascii(bytes, 8, 4).toLowerCase())) {
+        return '.avif';
+    }
+
+    // ascii() yields one char per byte, so a UTF-8 BOM arrives as its three
+    // raw bytes rather than as U+FEFF.
+    const head = ascii(bytes, 0, Math.min(bytes.length, 512))
+        .replace(/^ï»¿/, '')
+        .trimStart()
+        .toLowerCase();
+    if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) return '.svg';
+
+    return null;
+}
+
 /** Fallback: derive an accepted image extension from a URL path. */
 export function imageExtFromUrl(url: string): string | null {
     let pathname: string;

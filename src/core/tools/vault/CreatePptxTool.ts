@@ -429,16 +429,26 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 s.addText(`[Image not found: ${path}]`, { x: MARGIN, y, w: CONTENT_W, h: 1, fontSize: 14, color: '999999', italic: true });
                 return;
             }
-            const buffer = await this.app.vault.readBinary(file);
             const ext = file.extension.toLowerCase();
-            const mime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml' };
+            // pptxgenjs derives the media file extension inside the .pptx from
+            // this MIME type, so an unknown extension must not fall back to a
+            // guess: WEBP or AVIF bytes declared as image/png land as
+            // media/imageN.png and corrupt the deck. clip_web_page writes both
+            // formats into the vault, so they do reach this path.
+            const mime: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp', avif: 'image/avif' };
+            const mimeType = mime[ext];
+            if (!mimeType) {
+                s.addText(`[Unsupported image format: ${path}]`, { x: MARGIN, y, w: CONTENT_W, h: 1, fontSize: 14, color: '999999', italic: true });
+                return;
+            }
+            const buffer = await this.app.vault.readBinary(file);
             const uint8 = new Uint8Array(buffer);
             let bin = '';
             for (let i = 0; i < uint8.length; i++) bin += String.fromCharCode(uint8[i]);
             const rH = SLIDE_H - y - MARGIN;
             const iW = CONTENT_W - 2;
             const iH = Math.min(rH, 3.5);
-            s.addImage({ data: `data:${mime[ext] ?? 'image/png'};base64,${btoa(bin)}`, x: MARGIN + 1, y, w: iW, h: iH, sizing: { type: 'contain', w: iW, h: iH } });
+            s.addImage({ data: `data:${mimeType};base64,${btoa(bin)}`, x: MARGIN + 1, y, w: iW, h: iH, sizing: { type: 'contain', w: iW, h: iH } });
         } catch {
             s.addText(`[Error: ${path}]`, { x: MARGIN, y, w: CONTENT_W, h: 1, fontSize: 14, color: 'CC0000', italic: true });
         }

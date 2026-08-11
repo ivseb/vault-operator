@@ -9,6 +9,29 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A clipped image is now identified by its own bytes.** The format used to
+  come from the `Content-Type` the remote server sent, so a page could declare
+  `image/png` and hand over something else entirely, which then sat in the
+  vault under a `.png` name. The header now only decides whether a response
+  claims to be an image at all; the bytes decide what it is, an image that
+  arrives mislabelled is saved under the right extension, and bytes that match
+  no format we accept are rejected instead of stored.
+- **WEBP and AVIF images no longer break a generated presentation.** Both were
+  embedded while being declared as PNG, so the slide carried a picture no
+  reader could decode. They are declared correctly now, and a format the deck
+  cannot carry shows a visible placeholder instead of a silently broken image.
+
+### Internal
+
+- `pptxgenjs` is declared as a build-time dependency, which is what it has
+  always been: it is excluded from the plugin bundle and compiled only into the
+  optional office asset. The runtime dependency tree is now free of it and of
+  the unpatched `image-size` advisory it carries, so the dependency audit gate
+  passes again. The library itself is unchanged and still ships inside the
+  office asset; both bundles build byte for byte identically.
+
 ## [3.4.0] -- 2026-08-11
 
 ### Added
