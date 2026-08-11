@@ -76,11 +76,11 @@ The first-run wizard suggests OpenAI `text-embedding-3-small` or Google `text-em
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Enable semantic index | Master toggle. Build index is blocked until this is on | Off | `settings.semanticIndexEnabled` |
+| Enable semantic index | Master toggle. Build index is blocked until this is on | Off | `settings.enableSemanticIndex` |
 | Build index | Indexes the vault | n/a | `EmbeddingsTab.ts:230` |
 | Force rebuild | Deletes the index and re-indexes from scratch. Cancel keeps progress | n/a | `EmbeddingsTab.ts:294` |
-| Auto-index trigger | When to re-index automatically: never, on startup, on agent switch | `never` | `settings.semanticAutoIndex` (`settings.ts:1709`) |
-| Auto-reindex on change | Re-index when files change | `false` | `settings.semanticAutoIndexOnChange` (`settings.ts:1720`) |
+| Auto-index trigger | When to re-index automatically: never, on startup, on agent switch | `never` | `settings.semanticAutoIndex` |
+| Auto-reindex on change | Re-index when files change | `false` | `settings.semanticAutoIndexOnChange` |
 
 :::warning Build index is gated
 The Build index button shows "Enable semantic index first." until you turn the master toggle on. Re-indexing on change is off by default. You stay in manual mode unless you opt in.
@@ -91,7 +91,7 @@ The Build index button shows "Enable semantic index first." until you turn the m
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
 | Chunk size | Chunk size for embedding. Small 800, Medium 1200, Standard 2000, Large 3000 | Standard (2000) | `EmbeddingsTab.ts:394-400`, `en.ts:117-120` |
-| Local reranking | Re-rank semantic search results with a local cross-encoder model | On | `settings.enableReranking` (`settings.ts:905`, `EmbeddingsTab.ts:669`) |
+| Local reranking | Re-rank semantic search results with a local cross-encoder model | On | `settings.enableReranking` |
 
 :::info Reranker model
 The reranker uses `Xenova/ms-marco-MiniLM-L-6-v2` and is delivered as an optional asset. If the asset is not installed, the agent falls back silently to the vector score. Install under `Settings > Vault Operator > Advanced > Optional assets`.
@@ -111,13 +111,14 @@ Vault conventions used by the knowledge ingest workflow and vault health check. 
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Category property | Frontmatter key that holds the note's type or category | `Kategorie` | `settings.knowledgeIngestProperties.categoryProperty` (`settings.ts:1723-1730`) |
-| Summary property | Frontmatter key for the short note summary | `Zusammenfassung` | `settings.knowledgeIngestProperties.summaryProperty` |
-| Source naming convention | Filename pattern for source notes created by ingest | `Autor-Jahr_Titel` | `settings.knowledgeIngestProperties.sourceNamingConvention` |
-| MOC properties | Extra frontmatter keys that participate in Maps of Content | Empty | `settings.knowledgeIngestProperties.mocProperties` |
+| Category property | Frontmatter key that holds the note's type or category | `type` | `settings.categoryProperty` |
+| Backlinks property | Frontmatter key that holds reciprocal backlink wikilinks, used by the vault health repair pass | `related` | `settings.backlinksProperty` |
+| Summary property | Frontmatter key for the short note summary | `description` | `settings.summaryProperty` |
+| Source naming convention | Filename pattern for source notes created by ingest | `Author-Year_Title` | `settings.sourceNamingConvention` |
+| MOC properties | Frontmatter keys that participate in Maps of Content | `moc` | `settings.mocPropertyNames` |
 
-:::info Built-in defaults are German
-The built-in templates ship with German defaults (Themen, Konzepte, Personen, Notizen, Meeting-Notes, Quellen). Adapt them in the same panel to match your vault's language and naming.
+:::info Defaults follow the OKF vocabulary
+The defaults (`type`, `description`, `moc`, `related`) follow the OKF frontmatter vocabulary used by the built-in templates. Adapt them in the same panel to match your vault's language and naming; persisted settings always win over the defaults.
 :::
 
 ### Web search
@@ -128,9 +129,9 @@ Enable tools for accessing the internet.
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Enable web tools | Allow the agent to use `web_fetch` and `web_search` | Off | `settings.webToolsEnabled` |
-| Search provider | Which search API to use | Brave | `settings.webSearchProvider` |
-| API key | Key for the selected search provider | None | `settings.webSearchApiKey` |
+| Enable web tools | Allow the agent to use `web_fetch` and `web_search` | Off | `settings.webTools.enabled` |
+| Search provider | Which search API to use: None (`web_fetch` only), Brave, or Tavily | None | `settings.webTools.provider` |
+| API key | Key for the selected search provider; Brave and Tavily each keep their own key | Empty | `settings.webTools.braveApiKey`, `settings.webTools.tavilyApiKey` |
 
 ## Agents group
 
@@ -146,7 +147,7 @@ Configure agents. One built-in agent ships: **Default agent**. You can add custo
 | Custom agents | User-defined agents with custom tool sets and system prompts | Empty | `settings.customModes` |
 | Per-agent model | Override which model an agent uses | Active provider's Main tier | `settings.modeModelKeys` |
 | Per-agent tool overrides | Restrict tool groups for an agent (`modeToolOverrides`) | None | `settings.modeToolOverrides` |
-| Per-agent skills | Attach specific skills to an agent | None | `settings.modeSkillKeys` |
+| Forced workflow | Per-agent forced workflow, set from the workflows menu in chat: the mapped workflow is applied to every message unless the message starts with a slash command | None | `settings.forcedWorkflow` |
 
 :::info There is only one built-in agent
 The earlier Ask + Agent split was removed in v2.11. For read-only behaviour, either restrict a custom agent's tool groups to `read` and `vault`, or set Auto-approve to "ask every time" for the write groups. The mid-conversation mode switcher was removed from the chat header in v2.11.
@@ -189,18 +190,18 @@ Control how the agent loop runs.
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Consecutive error limit | How many consecutive tool errors before the agent stops | 3 | `settings.consecutiveMistakeLimit` |
-| Rate limit | Minimum milliseconds between API calls | 0 | `settings.rateLimitMs` |
-| Max iterations | Maximum tool calls per conversation turn | 25 | `settings.maxIterations` |
-| Context condensing | Summarize older messages when context gets long | On | `settings.condensingEnabled` |
-| Condensing threshold | Percentage of context window before condensing triggers | 80 | `settings.condensingThreshold` (`settings.ts:1769`) |
-| Microcompaction | Compact older tool results in place when their token cost exceeds a threshold | On | `settings.microcompactionEnabled` |
-| Rolling-summary threshold | Percentage of the condensing threshold at which a rolling summary is folded in | 50 | `settings.rollingSummaryThreshold` (`settings.ts:1775`) |
-| Power steering | Re-inject key instructions every N assistant turns (0 disables) | 0 | `settings.powerSteeringFrequency` (`settings.ts:1770`) |
-| Subtask depth | Maximum nesting depth for sub-agents | 2 | `settings.maxSubtaskDepth` (`settings.ts:1772`) |
-| Subtask token budget | Token budget per `new_task` spawn message | 8000 | `settings.subtaskTokenBudget` (`settings.ts:1773`) |
-| Cost-warn threshold | EUR cost threshold per task that triggers a warning (0 disables) | 0 | `settings.costWarnThresholdEur` (`settings.ts:1776`) |
-| Default main-tier model | Which tier the chat loop uses by default | `mid` (Main) | `settings.defaultMainTier` |
+| Consecutive error limit | How many consecutive tool errors before the agent stops | 3 | `settings.advancedApi.consecutiveMistakeLimit` |
+| Rate limit | Minimum milliseconds between API calls | 0 | `settings.advancedApi.rateLimitMs` |
+| Max iterations | Maximum tool calls per conversation turn | 25 | `settings.advancedApi.maxIterations` |
+| Context condensing | Summarize older messages when context gets long | On | `settings.advancedApi.condensingEnabled` |
+| Condensing threshold | Percentage of context window before condensing triggers | 80 | `settings.advancedApi.condensingThreshold` |
+| Microcompaction | Compact older tool results in place when their token cost exceeds a threshold | On | `settings.advancedApi.microcompactionEnabled` |
+| Rolling-summary threshold | Percentage of the condensing threshold at which a rolling summary is folded in | 50 | `settings.advancedApi.rollingSummaryThreshold` |
+| Power steering | Re-inject key instructions every N assistant turns (0 disables) | 0 | `settings.advancedApi.powerSteeringFrequency` |
+| Subtask depth | Maximum nesting depth for sub-agents | 2 | `settings.advancedApi.maxSubtaskDepth` |
+| Subtask token budget | Token budget per `new_task` spawn message | 8000 | `settings.advancedApi.subtaskTokenBudget` |
+| Cost-warn threshold | EUR cost threshold per task that triggers a warning (0 disables) | 0 | `settings.advancedApi.costWarnThresholdEur` |
+| Default main-tier model | Which tier the chat loop uses by default | `mid` (Main) | `settings.defaultMainModelTier` |
 | Task routing (Helper model) | Model used for context condensing, fast-path planning, `plan_presentation`, and recipe promotion | Falls back to active provider's Budget tier | `settings.helperModelKey` |
 
 ### Memory
@@ -211,9 +212,10 @@ Configure how the agent remembers across conversations.
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Chat history | Save conversation history for future reference | On | `settings.chatHistoryEnabled` |
-| Memory extraction | Automatically extract key facts from conversations | On | `settings.memoryExtractionEnabled` |
-| Memory threshold | Minimum relevance score for a memory to be saved | 0.7 | `settings.memoryThreshold` |
+| Chat history | Save conversation history for future reference | On | `settings.enableChatHistory` |
+| Enable memory | Master toggle: allow the agent to build long-term memory from conversations | On | `settings.memory.enabled` |
+| Auto-extract session summaries | Automatically extract memory when a conversation ends. The star button and "remember this" prompts work regardless of this setting | On | `settings.memory.autoExtractSessions` |
+| Minimum messages before extraction | Minimum total messages (user plus assistant) a conversation needs before auto-extraction triggers | 6 | `settings.memory.extractionThreshold` |
 
 :::info Memory model picker removed in FEAT-24-08
 The separate "Memory model" dropdown is gone. The Task routing helper model runs memory extraction.
@@ -274,8 +276,8 @@ Connect external tool servers and expose Vault Operator as a server. The Connect
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Local connector | Vault Operator as MCP server for desktop clients (Claude Desktop, ChatGPT, Perplexity) | Off | `settings.mcpServerEnabled` |
-| Remote access | Cloudflare-tunnelled long-polling endpoint with token-in-URL auth | Off | `settings.remoteTransportEnabled` |
+| Local connector | Vault Operator as MCP server for desktop clients (Claude Desktop, ChatGPT, Perplexity) | Off | `settings.enableMcpServer` |
+| Remote access | Cloudflare-tunnelled long-polling endpoint with token-in-URL auth | Off | `settings.enableRemoteRelay` |
 | External tool server list | MCP servers the agent can call tools on | Empty | `settings.mcpServers` |
 | Add server | Configure a new MCP server connection. Transport types: SSE, streamable-http | n/a | `ManageMcpServerTool.ts:7,51`, `McpTab.ts:372` |
 | Allow local network addresses (per server) | Permit this server to connect to `localhost` or RFC 1918 private network addresses. Off by default. With this off, saving rejects loopback or private-network URLs with a Notice | Off | `mcpServers.<name>.allowLocalUrls`, [src/ui/settings/McpTab.ts](src/ui/settings/McpTab.ts#L386) |
@@ -308,13 +310,14 @@ Vault-level settings, including the agent folder, default output folder, and che
 |---------|--------------|---------|--------|
 | Agent folder | Vault-relative folder where Vault Operator keeps plugin skills, vault-dna snapshot, externalised tmp results, cache, and the local knowledge database | `.vault-operator` | `DEFAULT_AGENT_FOLDER` (`agentFolder.ts:38`) |
 | Pick folder | Fuzzy-picker to choose an existing folder. Type a new path to create on next use | n/a | `VaultTab.ts` |
-| Default output folder | Where the agent writes new notes (including `/ingest` source notes) | `Inbox/` | `settings.defaultOutputFolder` (`settings.ts:1950`) |
+| Default output folder | Where the agent writes new notes (including ingest source notes) | `Inbox/` | `settings.defaultOutputFolder` |
 | Show health badge | Stethoscope icon in the sidebar changes colour when findings exist | On | `AgentSidebarView.ts:287-298` |
-| Auto-apply rule repairs | Auto-fix deterministic rule findings (missing backlinks, category mismatch, inconsistent tags) when the modal opens | Off | `settings.vaultHealth.autoApplyRuleRepairs` (`settings.ts:1565`) |
-| Silence with-context orphans | Hide orphan findings whose only signal is a property-only edge | On | `settings.vaultHealth.silenceWithContextOrphans` (`settings.ts:1587`) |
-| Enable checkpoints | Create snapshots before file modifications | On | `settings.checkpointsEnabled` |
-| Snapshot timeout (s) | Maximum seconds to wait for a checkpoint snapshot to complete | 30 | `settings.checkpointTimeoutSeconds` (`settings.ts:1820`) |
-| Auto-cleanup | Automatically remove old checkpoints | On | `settings.checkpointAutoCleanup` (`settings.ts:1821`) |
+| Silence with-context orphans | Hide orphan findings whose only signal is a property-only edge | On | `settings.vaultHealth.silenceWithContextOrphans` |
+| Task extraction | Detect and extract tasks from agent responses into the task folder | On | `settings.taskExtraction.enabled` |
+| Task folder | Vault folder where extracted task notes are created | `Tasks` | `settings.taskExtraction.taskFolder` |
+| Enable checkpoints | Create snapshots before file modifications | On | `settings.enableCheckpoints` |
+| Snapshot timeout (s) | Maximum seconds to wait for a checkpoint snapshot to complete | 30 | `settings.checkpointTimeoutSeconds` |
+| Auto-cleanup | Automatically remove old checkpoints | On | `settings.checkpointAutoCleanup` |
 
 :::info Agent folder layout
 The agent folder contains `data/` (skills, logs, telemetry, knowledge.db), `cache/` (backups, checkpoints, externalised tmp), and `assets/` (optional assets like the reranker model). Existing files are not auto-migrated when you change the path. The legacy name `.obsidian-agent` is still accepted for back-compat (upgraded in v2.13).
@@ -349,11 +352,10 @@ Appearance, input behaviour, and first-run setup. Inline editor AI actions live 
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Auto-add active file | Include the currently open note as context | On | `settings.autoAddActiveFile` |
-| Send with enter | Enter sends the message. Off means Ctrl/Cmd+Enter sends | On | `settings.sendWithEnter` (`settings.ts:1793`) |
-| Show date/time | Display timestamps in the chat | Off | `settings.showTimestamps` |
-| Chat linking | Link chat sessions to notes for traceability | Off | `settings.chatLinkingEnabled` |
-| Task extraction | Detect and extract tasks from agent responses | Off | `settings.taskExtractionEnabled` |
+| Auto-add active file | Include the currently open note as context | On | `settings.autoAddActiveFileContext` |
+| Send with enter | Enter sends the message. Off means Ctrl/Cmd+Enter sends | On | `settings.sendWithEnter` |
+| Include current time | Add the exact time of day to the system prompt. The calendar date is always included; the exact time changes every call and defeats prompt caching | Off | `settings.includeCurrentTimeInContext` |
+| Chat linking | Link chat sessions to notes for traceability (frontmatter stamping plus semantic titling) | On | `settings.chatLinking.enabled` |
 | Restart setup | Re-runs the first-run wizard. Under the Setup section | n/a | `InterfaceTab.ts:42` |
 
 ### Plugin API
@@ -422,29 +424,13 @@ Chat with the agent directly in the editor. It runs the same agent loop as the s
 
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
-| Inline editor AI actions enabled | Master toggle for the inline menu, hotkey, and command-palette entry | On | `settings.inlineActions.enabled`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L44) |
-| Auto-open floating menu on selection | When on, the menu pops up automatically after you finish selecting text. When off, only the hotkey or command palette opens it | On | `settings.inlineActions.floatingMenuEnabled`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L52) |
-| Use vault knowledge in lookup | Augment the lookup action with semantic-search hits from your vault | On | `settings.inlineActions.vaultRagInLookup`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L60) |
-| Vault knowledge confidence threshold | Cosine similarity slider, range 0 to 1, step 0.05. Lookup falls back to LLM-only when no vault hit meets this threshold | 0.7 | `settings.inlineActions.vaultRagConfidenceThreshold`, [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L67) |
-| Refresh settings view | Re-renders this tab. Useful after changing pins to see the updated state | n/a | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L136) |
+| Inline editor AI actions enabled | Master toggle for the inline menu, hotkey, and command-palette entry | On | `settings.inlineActions.enabled` |
+| Auto-open floating menu on selection | When on, the inline AI affordance appears automatically after you finish selecting text. When off, only the hotkey or command palette opens it | Off | `settings.inlineActions.floatingMenuEnabled` |
+| Use vault knowledge in lookup | Augment the lookup action with semantic-search hits from your vault | On | `settings.inlineActions.vaultRagInLookup` |
+| Vault knowledge confidence threshold | Cosine similarity slider, range 0 to 1. Lookup falls back to LLM-only when no vault hit meets this threshold | 0.7 | `settings.inlineActions.vaultRagConfidenceThreshold` |
+| Inline chat display | How the inline chat renders: block widget in the editor (source and live preview) or a popover overlay that also works in reading view | Block widget | `settings.inlineActions.inlineChatDisplay` |
 
-#### Per-action model pin
-
-Pin a specific model per action; this overrides the main-chat default for inline actions only. Leave an entry empty to use the main-chat default. Model ids come from your configured providers.
-
-| Action | Action id | Source |
-|--------|-----------|--------|
-| Lookup | `lookup` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Rewrite | `rewrite` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Send to chat | `send-to-main-chat` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Translate to English | `translate:english` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Translate to German | `translate:german` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Summarize (short) | `summarize:short` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Summarize (medium) | `summarize:medium` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Find action items | `find-action-items` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-| Chat about this | `inline-chat` | [InlineActionsTab.ts](src/ui/settings/InlineActionsTab.ts#L101) |
-
-Pins are stored in `settings.inlineActions.actionPins` as a record from action id to model id (or `null` to use the main-chat default). The confidence threshold is clamped to the range 0 to 1 and the skill cap is clamped to a non-negative integer at load time (see [src/core/inline/inlineSettings.ts](src/core/inline/inlineSettings.ts#L25)).
+All `inlineActions` fields are optional in `data.json`; missing fields resolve to the defaults above at load time, and the confidence threshold is clamped to the range 0 to 1 (see `src/core/inline/inlineSettings.ts`).
 
 :::info Plugin reload may be needed
 Some changes (action registration in particular) only take effect after reloading the plugin. The tab includes a footer note to this effect.

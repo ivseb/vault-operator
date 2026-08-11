@@ -55,6 +55,7 @@ import { resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import { wireApprovalTimeout } from './sidebar/approvalTimeout';
+import { scheduleRecurring, type RecurringHandle } from '../util/scheduleRecurring';
 import { resolveSourceTarget, openExternalUrl } from './sidebar/sourceLinks';
 import { resolveRunStateButtons } from './sidebar/runStateButtons';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
@@ -671,9 +672,18 @@ export class AgentSidebarView extends ItemView {
         const header = container.createDiv('agent-header');
 
         const titleRow = header.createDiv('agent-title');
+        // Brand mark: the coloured square-slash from the community listing. The
+        // gradient rounded square and the slash are drawn in CSS (no icon-font
+        // dependency, no innerHTML), so the mark renders identically on every
+        // theme. The old monospace "/ Vault Operator" wordmark carried the
+        // slash in text; now the glyph owns it and the wordmark is just the name.
         titleRow.createSpan({
-            cls: 'agent-title-wordmark',
-            text: '/ Vault Operator', // i18n-ignore: brand wordmark
+            cls: 'agent-brand-glyph',
+            attr: { 'aria-hidden': 'true' },
+        });
+        titleRow.createSpan({
+            cls: 'agent-brand-name',
+            text: 'Vault Operator', // i18n-ignore: brand wordmark
         });
 
         const headerRight = header.createDiv('agent-header-right');
@@ -920,6 +930,12 @@ export class AgentSidebarView extends ItemView {
         if (session.chatContainer) return session.chatContainer;
         if (!this.chatWrapper) return null;
         const el = this.chatWrapper.createDiv('chat-messages');
+        // Keeps the pinned-question bar in sync while this tab scrolls --
+        // including the rAF autoscroll during streaming, which dispatches
+        // scroll events like any user scroll. Passive: the handler never
+        // preventDefaults. The listener dies with the element (closeSession
+        // removes the container), so no explicit teardown is needed.
+        el.addEventListener('scroll', this.schedulePinnedQuestionUpdate, { passive: true });
         session.chatContainer = el;
         return el;
     }
@@ -941,6 +957,61 @@ export class AgentSidebarView extends ItemView {
                 if (!owned.has(el as HTMLElement)) el.remove();
             }
         }
+        // Every visibility change routes through here (tab switch, new tab,
+        // close), and a display:none toggle fires no scroll event -- so this
+        // is the one place that re-targets the pinned-question bar at the tab
+        // that just became visible.
+        this.schedulePinnedQuestionUpdate();
+    }
+
+    // ── Pinned question bar (see buildChatContainer for the DOM) ──────────
+
+    private pinnedQuestionBar: HTMLElement | null = null;
+    private pinnedQuestionRafPending = false;
+
+    /** rAF-throttled: scroll events arrive per frame during streaming. */
+    private schedulePinnedQuestionUpdate = (): void => {
+        if (this.pinnedQuestionRafPending) return;
+        this.pinnedQuestionRafPending = true;
+        window.requestAnimationFrame(() => {
+            this.pinnedQuestionRafPending = false;
+            this.updatePinnedQuestion();
+        });
+    };
+
+    /**
+     * Show the bar iff the ACTIVE tab's latest real question (steering bubbles
+     * excluded -- a mid-run correction is not the task being answered) is
+     * scrolled fully above the viewport. Text is re-read every time, so the
+     * bar always mirrors the newest question without bookkeeping per send
+     * path; whitespace is collapsed because the collapsed bar is one line.
+     */
+    private updatePinnedQuestion(): void {
+        const bar = this.pinnedQuestionBar;
+        if (!bar) return;
+        const hide = (): void => {
+            bar.classList.add('agent-u-hidden');
+            bar.classList.remove('vo-pinned-question-expanded');
+        };
+        const container = this.chatContainer;
+        if (!container || container.classList.contains('agent-u-hidden')) { hide(); return; }
+        const questions = container.querySelectorAll<HTMLElement>(':scope > .user-message:not(.chat-message-steering)');
+        const last = questions.length > 0 ? questions[questions.length - 1] : null;
+        if (!last) { hide(); return; }
+        // Rect comparison rather than offsetTop: the container has no
+        // `position`, so offsets would resolve against .chat-wrapper and pick
+        // up any overlay quirks; rects are layout truth either way.
+        const out = last.getBoundingClientRect().bottom <= container.getBoundingClientRect().top + 2;
+        if (!out) { hide(); return; }
+        const text = (last.querySelector<HTMLElement>('.message-content')?.textContent ?? '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!text) { hide(); return; }
+        const textEl = bar.querySelector<HTMLElement>('.vo-pinned-question-text');
+        // setText only on change so text selection inside the expanded bar is
+        // not destroyed by every scroll tick.
+        if (textEl && textEl.getText() !== text) textEl.setText(text);
+        bar.classList.remove('agent-u-hidden');
     }
 
     /** Switch the visible tab to session `index` (show/hide, no rebuild). */
@@ -970,7 +1041,7 @@ export class AgentSidebarView extends ItemView {
             if (msg.role === 'user') {
                 this.addUserMessage(msg.text);
             } else {
-                const mel = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText);
+                const mel = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText, msg.usageFooter);
                 if (mel) assistantPairs.push({ msg, el: mel });
             }
         }
@@ -1048,6 +1119,19 @@ export class AgentSidebarView extends ItemView {
         // Chat container is wrapped in a relative parent so the history panel can overlay it
         const chatWrapper = container.createDiv('chat-wrapper');
         this.chatWrapper = chatWrapper;
+
+        // Pinned question bar: floats over the top of the chat while the
+        // active tab's current question is scrolled out of view, one line with
+        // ellipsis; click toggles the full text. An overlay (not position:
+        // sticky on the bubble) on purpose -- sticky was defeated in the field
+        // by another plugin's unscoped `.message{position:relative}` rule, and
+        // flat sticky siblings would pile up at top:0 anyway. Visibility is
+        // recomputed from scroll position (see updatePinnedQuestion).
+        this.pinnedQuestionBar = chatWrapper.createDiv('vo-pinned-question agent-u-hidden');
+        this.pinnedQuestionBar.createDiv('vo-pinned-question-text');
+        this.registerDomEvent(this.pinnedQuestionBar, 'click', () => {
+            this.pinnedQuestionBar?.classList.toggle('vo-pinned-question-expanded');
+        });
 
         // FEAT-55-01 Phase C: one chat-messages container PER session, all
         // children of chatWrapper. Switching tabs shows/hides containers
@@ -2936,6 +3020,90 @@ export class AgentSidebarView extends ItemView {
         // the previous 80 ms delay before the user saw anything.
         let streamingPara: HTMLElement | null = null;
 
+        // The turn's single status line, pinned at the TOP of the assistant
+        // message: [spinning brand mark] <current activity> <N> Tokens.
+        // It replaces the two rows that used to say nearly the same thing in
+        // two places (a static "working" row and the "analyzing" row).
+        //
+        // It is refreshed on a timer rather than on stream chunks, because
+        // onText/onThinking only fire while the provider stream is open: during
+        // tool execution -- routinely 30s+ per call -- no callback arrives at
+        // all. The token count legitimately stands still there (nothing is
+        // being generated); the spinning mark is what shows the run is alive.
+        const LIVE_CHARS_PER_TOKEN = 4;
+        // Real cumulative output tokens, refreshed after every API turn via
+        // onUsageProgress. Between turns the counter is topped up with a
+        // character-based estimate of the text streamed SINCE that last real
+        // number, so it climbs smoothly while the model writes and then snaps
+        // onto the truth instead of drifting. `liveTokenCharsBase` is the
+        // watermark that keeps the two from double-counting the same text.
+        let liveTokensReal = 0;
+        let liveTokenCharsBase = 0;
+        let liveActivityLabel = t('ui.sidebar.working');
+        const updateLiveMeter = (): void => {
+            if (!messageEl || !messageEl.isConnected) return;
+            let meter = messageEl.querySelector<HTMLElement>(':scope > .vo-live-meter');
+            if (!meter) {
+                meter = createDiv('vo-live-meter');
+                // The spinner IS the brand mark with a rotating slash (CSS), not
+                // a generic lucide loader.
+                meter.createSpan({ cls: 'vo-live-meter-icon vo-brand-mark', attr: { 'aria-hidden': 'true' } });
+                meter.createSpan('vo-live-meter-label');
+                meter.createSpan('vo-live-meter-tokens');
+                // First child: the status belongs above the work it describes,
+                // and staying first keeps it from sliding around as a plan panel
+                // or tool block appears.
+                messageEl.insertBefore(meter, messageEl.firstChild);
+                // Supersedes the static "working" row created at turn start --
+                // same word, now with live numbers. Only that node is removed,
+                // not via removeLoading(), which would also clear the tool rows.
+                contentEl.querySelector('.message-loading')?.remove();
+                contentEl.classList.remove('has-loading');
+            }
+            meter.querySelector<HTMLElement>('.vo-live-meter-label')?.setText(liveActivityLabel);
+            const streamedSinceReal = Math.max(
+                0,
+                accumulatedText.length + accumulatedThinking.length - liveTokenCharsBase,
+            );
+            const tokens = liveTokensReal + Math.ceil(streamedSinceReal / LIVE_CHARS_PER_TOKEN);
+            meter.querySelector<HTMLElement>('.vo-live-meter-tokens')
+                // "Tokens" is a technical term and stays English in every
+                // locale, so this needs no i18n key.
+                ?.setText(tokens > 0 ? `${this.formatTokens(tokens)} Tokens` : '');
+            meter.classList.remove('agent-u-hidden');
+        };
+        // Hide EVERY meter in this run's container, not just the current
+        // bubble's: a question round swaps in a fresh messageEl, and the
+        // previous bubble's chip would otherwise stay frozen on screen.
+        const hideLiveMeter = (): void => {
+            const scope = myContainer ?? messageEl;
+            scope?.querySelectorAll('.vo-live-meter')
+                .forEach((el) => { el.classList.add('agent-u-hidden'); });
+        };
+        // The cost line only existed as runtime DOM (TaskMonitor writes it at
+        // run end), so every bubble rebuilt from history lost it on plugin
+        // reload. Captured verbatim at persist time and stored on the
+        // UiMessage, mirroring toolStepsHtml. Hidden footer = no usage was
+        // reported for this turn; persist nothing rather than an empty line.
+        const captureUsageFooter = (): string | undefined => {
+            if (!footerEl || footerEl.classList.contains('agent-u-hidden')) return undefined;
+            const text = footerEl.getText().trim();
+            return text.length > 0 ? text : undefined;
+        };
+        // FIX-PERF-44 convention: scheduleRecurring, never setInterval -- the
+        // post-build rename in esbuild.config.mjs breaks literal setInterval at
+        // runtime, and a source-level test fails on it. The tick self-cancels
+        // once the bubble loses `message-streaming` (removed on complete, error
+        // and question-swap), so the timer cannot outlive its run even if an
+        // exit path is ever added that forgets to stop it.
+        const elapsedTimer: RecurringHandle = scheduleRecurring(() => {
+            if (!messageEl || !messageEl.isConnected || !messageEl.hasClass('message-streaming')) {
+                elapsedTimer.stop();
+                return;
+            }
+            updateLiveMeter();
+        }, 1000);
+
         // rAF-throttled scroll: collapses many per-chunk scrollTo() calls into one
         // paint-cycle scroll, eliminating repeated forced reflows.
         let scrollPending = false;
@@ -3046,7 +3214,10 @@ export class AgentSidebarView extends ItemView {
             stepsSummaryIconEl = summaryEl.createSpan('steps-icon');
             setIcon(stepsSummaryIconEl, 'loader');
             stepsSummaryLabelEl = summaryEl.createSpan('steps-label');
-            stepsSummaryLabelEl.setText(t('ui.sidebar.working'));
+            // Left empty on purpose. This label's job is the action count, which
+            // updateStepsSummary fills as soon as the first step lands. It used
+            // to be seeded with the current phase ("working"), which now reads
+            // as a duplicate of the turn's status line directly above.
             stepsBodyEl = stepsBlockEl.createDiv('agent-steps-body');
         };
 
@@ -3197,13 +3368,21 @@ export class AgentSidebarView extends ItemView {
                         const row = (stepsBodyEl ?? toolsEl).createDiv('tool-computing-row');
                         setIcon(row.createSpan('tool-computing-icon'), 'loader');
                         row.createSpan('tool-computing-text').setText(t('ui.sidebar.analyzing'));
-                        if (stepsSummaryLabelEl) stepsSummaryLabelEl.setText(t('ui.sidebar.analyzingShort'));
+                        // The phase goes to the turn's status line only. It used
+                        // to ALSO overwrite the steps summary label so a user
+                        // with the block collapsed could see the state; that
+                        // reason is gone now the status line is always visible,
+                        // and writing it in both places printed "Analyzing" twice
+                        // while robbing the summary of its action count.
+                        liveActivityLabel = t('ui.sidebar.analyzing');
+                        updateLiveMeter();
                         scheduleScroll();
                     }
                 },
                 onThinking: (chunk) => {
                     removeLoading();
                     accumulatedThinking += chunk;
+                    updateLiveMeter();
                     if (!isThinking) {
                         // First thinking chunk — build the collapsible section
                         isThinking = true;
@@ -3244,6 +3423,7 @@ export class AgentSidebarView extends ItemView {
                         }, { once: true });
                     }
                     accumulatedText += chunk;
+                    updateLiveMeter();
                     if (!hasTools) {
                         // Q&A streaming: render Markdown incrementally (throttled) so the
                         // user sees formatted text grow at the final bubble size — no raw
@@ -3484,6 +3664,20 @@ export class AgentSidebarView extends ItemView {
                     // FIX-24-05-05: usageByModel carries the per-model
                     // breakdown for correct mixed-model pricing.
                     taskMonitor.onUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode, usageByModel);
+                    // Deliberately NOT hiding the run meter here. onUsage is
+                    // the root run's final tally, but a subtask can forward its
+                    // usage mid-run, which would blank the "still working"
+                    // indicator while the run is very much alive. The meter is
+                    // retired by onComplete / onError instead.
+                },
+                onUsageProgress: (_inputTokens, outputTokens) => {
+                    // Snap the live counter onto the real cumulative output and
+                    // move the estimate watermark to "everything streamed so
+                    // far", so the next tick estimates only the text that comes
+                    // after this point.
+                    liveTokensReal = outputTokens;
+                    liveTokenCharsBase = accumulatedText.length + accumulatedThinking.length;
+                    updateLiveMeter();
                 },
                 onTodoUpdate: (items) => {
                     lastTodoItems = items;
@@ -3605,6 +3799,10 @@ export class AgentSidebarView extends ItemView {
                                 toolStepsHtml: stepsBlockEl?.outerHTML,
                                 taskId,
                                 reasoningText: accumulatedThinking || undefined,
+                                // Mid-run question round: usually still hidden
+                                // (usage reports at run end), but a subtask
+                                // forward may already have written it.
+                                usageFooter: captureUsageFooter(),
                                 // FIX-44-12: persist this turn's markers so they
                                 // rehydrate live after a reload.
                                 checkpoints: turnCheckpoints.length > 0
@@ -3707,6 +3905,8 @@ export class AgentSidebarView extends ItemView {
                 onComplete: () => {
                     // Always clear the loading spinner — covers cases where no text was streamed.
                     removeLoading();
+                    elapsedTimer.stop();
+                    hideLiveMeter();
                     // Auto-complete todos on natural task end (mirrors onAttemptCompletion)
                     if (lastTodoItems.length > 0) {
                         const allDone = lastTodoItems.map((i) => ({ ...i, status: 'done' as const }));
@@ -3906,6 +4106,7 @@ export class AgentSidebarView extends ItemView {
                             toolStepsHtml: stepsBlockEl?.outerHTML,
                             taskId,
                             reasoningText: accumulatedThinking || undefined,
+                            usageFooter: captureUsageFooter(),
                             // FIX-44-12: persist this turn's markers so they
                             // rehydrate live after a reload.
                             checkpoints: turnCheckpoints.length > 0
@@ -3965,6 +4166,8 @@ export class AgentSidebarView extends ItemView {
                 onError: (error) => {
                     // Clean up spinner and computing row
                     removeLoading();
+                    elapsedTimer.stop();
+                    hideLiveMeter();
 
                     // Show error inside the steps block (not as a separate red banner)
                     ensureStepsBlock();
@@ -4995,7 +5198,7 @@ export class AgentSidebarView extends ItemView {
                 if (msg.role === 'user') {
                     this.addUserMessage(msg.text);
                 } else {
-                    const el = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText);
+                    const el = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText, msg.usageFooter);
                     if (el) assistantPairs.push({ msg, el });
                 }
             }
@@ -5129,7 +5332,7 @@ export class AgentSidebarView extends ItemView {
                 if (msg.role === 'user') {
                     this.addUserMessage(msg.text);
                 } else {
-                    const el = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText);
+                    const el = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText, msg.usageFooter);
                     if (el) assistantPairs.push({ msg, el });
                 }
             }
@@ -5284,6 +5487,7 @@ export class AgentSidebarView extends ItemView {
         role: 'assistant' | 'user',
         toolStepsHtml?: string,
         reasoningText?: string,
+        usageFooter?: string,
     ): HTMLElement | null {
         if (!this.chatContainer) return null;
         const msgEl = this.chatContainer.createDiv(`message ${role}-message`);
@@ -5332,6 +5536,11 @@ export class AgentSidebarView extends ItemView {
         }
         const contentEl = msgEl.createDiv('message-content');
         void this.renderMarkdownAndWire(markdown, contentEl);
+        // Restore the persisted usage/cost line. Placed between content and
+        // the action bar, matching the live-stream scaffold order.
+        if (role === 'assistant' && usageFooter) {
+            msgEl.createDiv('message-footer').setText(usageFooter);
+        }
         // Restore action buttons for history messages
         if (role === 'assistant') {
             this.addResponseActions(msgEl, markdown);
@@ -5455,6 +5664,10 @@ export class AgentSidebarView extends ItemView {
         // Action bar: copy + edit/resend
         this.addUserMessageActions(msgEl, text);
         target.scrollTop = target.scrollHeight;
+        // The scrollTop write fires a scroll event only when the position
+        // actually changes; a not-yet-overflowing chat stays silent, so the
+        // bar state is recomputed explicitly for the new question.
+        this.schedulePinnedQuestionUpdate();
     }
 
     /** Add copy and edit+resend action buttons below a user message bubble. */
@@ -6142,7 +6355,13 @@ export class AgentSidebarView extends ItemView {
             messageEl.insertBefore(planBoxEl, toolsEl);
 
             const header = planBoxEl.createDiv('todo-box-header');
-            setIcon(header.createSpan('todo-box-icon'), 'list-checks');
+            // The brand mark stands in for the old `list-checks` icon: it gives
+            // the agent a face INSIDE the panel, which is why the panel no
+            // longer needs a floating marker in the message gutter (that one
+            // could not avoid colliding with the panel's own top-left corner).
+            // Drawn in CSS, so DOMPurify stripping <svg> on rehydration cannot
+            // erase it the way it erases setIcon output.
+            header.createSpan({ cls: 'todo-box-icon vo-brand-mark', attr: { 'aria-hidden': 'true' } });
             header.createSpan('todo-box-title').setText(t('ui.sidebar.plan'));
             header.createSpan('todo-activity-badge');
 

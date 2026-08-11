@@ -76,7 +76,7 @@ You now have semantic search running and can find notes by meaning rather than k
 
 Now that the index exists, two natural next moves:
 
-- [Capture a PDF with `/ingest`](./quick-ingest) to add new material to the vault with provenance intact.
-- [Make sense of a research paper with `/ingest-deep`](./deep-ingest) for material that deserves a guided reading session.
+- [Capture a PDF with quick ingest](./quick-ingest) to add new material to the vault with provenance intact.
+- [Make sense of a research paper with deep ingest](./deep-ingest) for material that deserves a guided reading session.
 
 For the full picture of how search and the knowledge graph fit together, see [knowledge discovery](/guides/knowledge-discovery).

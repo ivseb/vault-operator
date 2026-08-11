@@ -48,11 +48,11 @@ Rules work best for global constraints that should always apply: tone of voice, 
 Skills go further than rules. They are only injected when the agent detects that a conversation is relevant to the skill's domain, which keeps the system prompt lean.
 
 :::tip Bundled skills
-Vault Operator ships with a set of bundled skills you can use right away: `/ingest` (single-pass capture), `/ingest-deep` (multi-turn Karpathy-style sense-making), `/meeting-summary`, `/office-workflow`, `/presentation-design`, `/sandbox-environment`, `/vault-health-batch`, plus a few more. Bundled skills live inside the plugin and update with new releases. They sit alongside any skills you author yourself in your vault.
+Vault Operator ships with four bundled skills you can use right away: `/sandbox-environment` (sandbox API reference for skills that run scripts), `/skill-creator` (guides you through building your own skill), `/vault-health-batch` (works through Vault Health findings in batches), and `/vault-operator-guide` (answers questions about Vault Operator itself). Bundled skills live inside the plugin and update with new releases. They sit alongside any skills you author yourself in your vault. Anything beyond these four you can create as your own user skill, and the skill-creator skill walks you through it.
 :::
 
 To create one:
-1. Create a folder under `.vault-operator/skills/` (e.g., `meeting-notes/`)
+1. Create a folder under `.vault-operator/data/skills/` (e.g., `meeting-notes/`)
 2. Add a `SKILL.md` file with frontmatter:
 
 ```markdown
@@ -113,6 +113,10 @@ To create one:
 ```
 
 Trigger it by typing `/weekly-review` in the chat input. The agent follows the steps in order.
+
+### Forcing a workflow
+
+You can also pin a workflow to an agent profile so it applies automatically. Open the workflow picker (type `/` in the chat) and use the pin control on a workflow entry. While pinned, the workflow's instructions are prepended to every message you send with that agent, and a chip above the input shows that it is active. Messages that already start with an explicit `/` command are sent as typed (your command wins over the pin). Pin the same workflow again to clear it. The pin is stored per agent profile and per vault, and if the pinned workflow file is later deleted or disabled, you get a one-time warning and the picker keeps a row for it so you can unpin.
 
 ## Custom prompts
 

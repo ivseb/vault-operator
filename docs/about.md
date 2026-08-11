@@ -3,8 +3,12 @@ title: About
 description: Sebastian Hanke, creator of Vault Operator, an agentic AI operating layer for Obsidian.
 ---
 
+<script setup>
+import { withBase } from 'vitepress'
+</script>
+
 <div style="display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: 2rem;">
-  <img src="/assets/AD7E0394-7084-4038-99B8-90C331AEF7BF_1_105_c.jpeg" alt="Sebastian Hanke" style="width: 140px; height: 140px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
+  <img :src="withBase('/assets/sebastian-hanke.jpeg')" alt="Sebastian Hanke" style="width: 140px; height: 140px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
   <div>
     <h1 style="margin: 0 0 0.25rem;">Sebastian Hanke</h1>
     <p style="margin: 0; color: var(--vp-c-text-2);">Builder | Product thinker | AI toolmaker</p>

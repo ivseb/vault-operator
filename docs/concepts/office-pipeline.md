@@ -6,7 +6,7 @@ description: How Vault Operator creates and reads PPTX, DOCX, XLSX, and PDF file
 # Office pipeline
 
 :::warning Beta on the creation side
-The reading side of the office pipeline (parsing PPTX, DOCX, XLSX, PDF into structured text the agent can use as context) is production-ready and powers the chat-attachment, `@`-mention, and `/ingest` paths. The creation side (writing those formats back) is beta. It produces working files, but the visual quality of generated PPTX is constrained by a small set of fixed layouts. Real corporate template cloning is not active in this version. See the [office documents guide](/guides/office-documents) for the user-facing implications.
+The reading side of the office pipeline (parsing PPTX, DOCX, XLSX, PDF into structured text the agent can use as context) is production-ready and powers the chat-attachment, `@`-mention, and ingest paths. The creation side (writing those formats back) is beta. It produces working files, but the visual quality of generated PPTX is constrained by a small set of fixed layouts. Real corporate template cloning is not active in this version. See the [office documents guide](/guides/office-documents) for the user-facing implications.
 :::
 
 Vault Operator can create PowerPoint, Word, and Excel files directly in your vault. It can also read them, extracting text and structure from office documents to use as context in conversations.
@@ -62,7 +62,7 @@ The internal LLM call is constrained. It receives the source material and the ca
 
 ## Tools referenced in skills but not yet shipped
 
-The bundled office workflow skill mentions two tools that the current build does not ship:
+Some office workflow skill texts (older bundled versions, or skills you import or write yourself) mention two tools that the current build does not ship:
 
 - **`ingest_template`**: would derive a custom theme catalog from a user-provided `.pptx` file. Not present in this version. Use the three default themes.
 - **`render_presentation`**: would render the generated PPTX to PNG images via headless LibreOffice for visual verification. The renderer library code exists (`src/core/office/pptxRenderer.ts` and `libreOfficeDetector.ts`), but no tool exposes it yet.
@@ -85,7 +85,7 @@ Parsed content returns as structured text the agent can use as context. The agen
 
 Document parsing runs in two places: the `read_document` tool (when the agent explicitly reads a file) and the `AttachmentHandler` (when you drag a file into the chat).
 
-This side of the pipeline is mature. PPTX, DOCX, XLSX, and PDF parsing are the foundation for chat attachments, `@`-mentions, and the `/ingest` workflows.
+This side of the pipeline is mature. PPTX, DOCX, XLSX, and PDF parsing are the foundation for chat attachments, `@`-mentions, and the ingest workflows.
 
 ## Why binary tools can't run in the sandbox
 

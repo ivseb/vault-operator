@@ -639,6 +639,8 @@
   "settings.vault.snapshotTimeoutDesc": "Durée d'attente pour qu'une sauvegarde de fichier se termine avant de l'ignorer. Augmentez si vous avez de très gros fichiers. Par défaut: 30.",
   "settings.vault.autoCleanup": "Nettoyage automatique après la tâche",
   "settings.vault.autoCleanupDesc": "Supprime les copies de sauvegarde une fois la tâche terminée. Économise de l'espace disque. Désactivez si vous voulez examiner les sauvegardes manuellement après une tâche.",
+  "settings.vault.respectObsidianExcluded": "Respecter les fichiers exclus d’Obsidian",
+  "settings.vault.respectObsidianExcludedDesc": "Les fichiers exclus dans Obsidian (Paramètres, Fichiers et liens, Fichiers exclus) sont aussi masqués pour l’agent : pas d’embedding, pas de recherche, pas d’accès. Gérez la liste d’exclusion à un seul endroit. Les fichiers déjà indexés sont filtrés à la recherche ; reconstruisez l’index pour les retirer complètement.",
   "settings.vault.taskExtraction": "Extraction de tâches",
   "settings.vault.sectionTaskExtractionInfo": "Quand l'agent écrit une réponse contenant des cases à cocher de tâches (`- [ ] do something`), Vault Operator peut extraire ces tâches et créer des notes de tâche individuelles avec frontmatter (statut, chat source, échéance si mentionnée). Utile pour les workflows du type \"extraire les todos de ce compte rendu de réunion\".",
   "settings.vault.taskExtractionDesc": "Détecte les tâches (éléments - [ ]) dans les réponses de l'agent et crée des notes de tâche avec un frontmatter structuré.",

@@ -45,6 +45,7 @@ A chatbot reads your prompt and answers. Vault Operator runs a loop: it picks an
 - **Inline AI chat.** Select text in any note and press Cmd+Shift+I (Ctrl+Shift+I on Windows and Linux), or right-click and choose "Inline AI chat", to open a floating chat panel anchored over the selection. The panel runs the same agent loop as the sidebar (skills, MCP, memory) and ships quick actions for Lookup (vault search with optional web fallback), Rewrite, Translate, Summarize, and Find action items. Available since v3.0.0. [Chat interface guide](https://pssah4.github.io/vault-operator/guides/chat-interface).
 - **Run several chats at once.** Open independent conversations in their own tabs, each with its own mode and attachments. A long-running task keeps working in one tab while you start another; interrupted runs resume from history. Available since v3.3.1.
 - **Capture sources with block-level provenance.** Drop a PDF into the chat, get a source note where every key claim links back to the exact paragraph in the original.
+- **Clip web pages into your vault.** Give the agent a URL and it archives the full page as a Markdown note, downloads the images as real vault files, and rewrites the links to point at the local copies. Available since v3.3.6.
 - **Three-layer memory across sessions.** Short-term session summaries, durable facts that survive resets, and a soul profile of how you write and how you want the agent to behave.
 - **Find notes by meaning, not by filename.** Local vector index, full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker, combined with weighted RRF.
 - **Build Word and Excel files, draft PowerPoint decks (PPTX in beta).** Turn project notes into a DOCX, structured data into an XLSX, or meeting notes into a draft PPTX.
@@ -63,8 +64,8 @@ Drop a PDF or a Markdown source into the chat and ask for an ingest. The agent p
 
 Two paths:
 
-- **`/ingest`** for quick capture. Single-pass. One source, one note, about three minutes.
-- **`/ingest-deep`** for sense-making. A five-step guided dialog: triage and decision, output mode selection, deep ingest of the source, write the sense-making notes, set backlinks. Five to fifteen minutes for a real research paper.
+- **"Ingest this PDF as a source note."** Quick capture. Single-pass. One source, one note, about three minutes.
+- **"Do a deep ingest of this paper."** Sense-making. The agent triages the source against what your vault already knows, deep-ingests it with block IDs, writes the sense-making notes, and sets the backlinks. Five to fifteen minutes for a real research paper.
 
 [Sense-making tutorial](https://pssah4.github.io/vault-operator/tutorials/deep-ingest) | [Block-level provenance concept](https://pssah4.github.io/vault-operator/concepts/provenance)
 
@@ -114,7 +115,7 @@ Full documentation lives at [pssah4.github.io/vault-operator](https://pssah4.git
 
 For end users:
 
-- [Tutorials](https://pssah4.github.io/vault-operator/tutorials/getting-started). Step-by-step walkthroughs from first install to sense-making with `/ingest-deep`.
+- [Tutorials](https://pssah4.github.io/vault-operator/tutorials/getting-started). Step-by-step walkthroughs from first install to deep-ingest sense-making.
 - [Guides](https://pssah4.github.io/vault-operator/guides/capabilities). Reference for daily work.
 - [Reference](https://pssah4.github.io/vault-operator/reference/tools). Tools, providers, settings, troubleshooting.
 
@@ -218,6 +219,7 @@ Apache 2.0.
 - **行内 AI 聊天。** 在任意笔记中选中文本并按 Cmd+Shift+I(Windows 和 Linux 上是 Ctrl+Shift+I),或右键选择 "Inline AI chat",即可打开一个锚定在选区上方的悬浮聊天面板。该面板运行与侧边栏相同的智能体循环(skills、MCP、记忆),并附带若干快捷操作:Lookup(知识库搜索,可选网络回退)、Rewrite、Translate、Summarize 和 Find action items。自 v3.0.0 起可用。[Chat interface guide](https://pssah4.github.io/vault-operator/guides/chat-interface)。
 - **同时运行多个聊天。** 在各自的标签页中打开彼此独立的对话,每个对话都有自己的模式和附件。一个长时间运行的任务会在某个标签页里持续工作,同时你可以开启另一个;被中断的运行会从历史记录中恢复。自 v3.3.1 起可用。
 - **以块级溯源捕获来源。** 把一个 PDF 拖进聊天,你会得到一份来源笔记,其中每一条关键论断都链接回原文中确切的段落。
+- **把网页剪藏进你的知识库。** 给智能体一个 URL,它就会把整个页面存档为一份 Markdown 笔记,把其中的图片作为真实的知识库文件下载下来,并把链接改写为指向本地副本。自 v3.3.6 起可用。
 - **跨会话的三层记忆。** 短期会话摘要、在重置后依然保留的持久事实,以及一份 soul 档案,记录你如何写作、以及你希望智能体如何行事。
 - **按含义查找笔记,而不是按文件名。** 本地向量索引、全文关键词搜索、通过 wikilinks 进行的图谱扩展,以及本地 cross-encoder 重排器(reranker),再用加权 RRF 组合在一起。
 - **生成 Word 和 Excel 文件,起草 PowerPoint 演示(PPTX 处于 beta 阶段)。** 把项目笔记变成 DOCX,把结构化数据变成 XLSX,或把会议记录变成 PPTX 草稿。
@@ -236,8 +238,8 @@ Apache 2.0.
 
 两条路径:
 
-- **`/ingest`** 用于快速捕获。单次处理。一个来源、一份笔记,大约三分钟。
-- **`/ingest-deep`** 用于意义构建。一段五步引导式对话:分诊与决策、输出模式选择、对来源做深度 ingest、写出意义构建笔记、设置反向链接。对一篇真正的研究论文来说需要五到十五分钟。
+- **"Ingest this PDF as a source note."** 用于快速捕获。单次处理。一个来源、一份笔记,大约三分钟。
+- **"Do a deep ingest of this paper."** 用于意义构建。智能体会先对来源做分诊,对照你知识库里已有的内容做出决策,然后带着 block ID 做深度 ingest,写出意义构建笔记,并设置反向链接。对一篇真正的研究论文来说需要五到十五分钟。
 
 [Sense-making tutorial](https://pssah4.github.io/vault-operator/tutorials/deep-ingest) | [Block-level provenance concept](https://pssah4.github.io/vault-operator/concepts/provenance)
 
@@ -287,7 +289,7 @@ Vault Operator 需要 Obsidian 1.8.7 或更新版本。
 
 面向终端用户:
 
-- [Tutorials](https://pssah4.github.io/vault-operator/tutorials/getting-started)。从首次安装到用 `/ingest-deep` 做意义构建的分步演练。
+- [Tutorials](https://pssah4.github.io/vault-operator/tutorials/getting-started)。从首次安装到用深度 ingest 做意义构建的分步演练。
 - [Guides](https://pssah4.github.io/vault-operator/guides/capabilities)。日常工作的参考。
 - [Reference](https://pssah4.github.io/vault-operator/reference/tools)。工具、提供商、设置、故障排查。
 

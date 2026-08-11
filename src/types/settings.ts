@@ -1112,6 +1112,15 @@ export interface ObsidianAgentSettings {
     checkpointTimeoutSeconds: number;
     checkpointAutoCleanup: boolean;
 
+    // Governance / file access
+    /**
+     * Respect Obsidian's own "Excluded files" list (Settings > Files & Links,
+     * stored as app.json userIgnoreFilters) as a hard VO ignore: excluded paths
+     * are kept out of the semantic index, out of search, and out of tool access.
+     * Lets the user maintain exclusions in one place (Obsidian's UI).
+     */
+    respectObsidianExcludedFiles: boolean;
+
     // Web Tools (Phase 1.1)
     webTools: WebToolsSettings;
 
@@ -2118,6 +2127,8 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,
     checkpointAutoCleanup: true,
+
+    respectObsidianExcludedFiles: true,
 
     webTools: {
         enabled: false,

@@ -19,7 +19,7 @@ Examples:
 - `create_docx` ships with a smaller list: headings present, sections balanced, tables well-formed.
 - `generate_canvas` checks bounds and node spacing.
 
-Tools opt in via a `qualityGate` flag in `src/core/tools/toolMetadata.ts`. The shared infrastructure lives in `src/core/tools/qualityGates.ts`.
+Tools opt in via a `qualityGate` flag in `src/core/tools/toolMetadata.ts`, and the checklist text lives next to the flag as `qualityGateChecklist`. The agent loop (`src/core/agent/AgentLoopEngine.ts`) appends the checklist to every successful result of a gated tool.
 
 Quality gates catch many shape errors but not subjective ones. A visually correct slide deck can still miss the point. They are a safety net, not a quality guarantee.
 

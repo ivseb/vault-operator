@@ -639,6 +639,8 @@
   "settings.vault.snapshotTimeoutDesc": "파일 백업이 완료될 때까지 기다리는 시간이며, 초과하면 건너뜁니다. 매우 큰 파일이 있으면 늘리십시오. 기본값: 30.",
   "settings.vault.autoCleanup": "작업 후 자동 정리",
   "settings.vault.autoCleanupDesc": "작업이 끝나면 백업 사본을 삭제합니다. 디스크 공간을 절약합니다. 작업 후 백업을 직접 확인하려면 비활성화하십시오.",
+  "settings.vault.respectObsidianExcluded": "Obsidian 제외 파일 존중",
+  "settings.vault.respectObsidianExcludedDesc": "Obsidian에서 제외한 파일(설정, 파일 및 링크, 제외된 파일)은 에이전트에게도 숨겨집니다. 임베딩 없음, 검색 없음, 접근 없음. 제외 목록을 한곳에서 관리하세요. 이미 임베딩된 파일은 검색 시 필터링됩니다. 완전히 제거하려면 인덱스를 다시 작성하세요.",
   "settings.vault.taskExtraction": "작업 추출",
   "settings.vault.sectionTaskExtractionInfo": "에이전트 응답에 작업 체크박스(`- [ ] do something`)가 포함되면 Vault Operator가 해당 작업을 추출하여 frontmatter(상태, 출처 채팅, 언급된 마감일)가 있는 개별 작업 노트를 만들 수 있습니다. \"이 회의록에서 할 일 추출\" 같은 워크플로에 유용합니다.",
   "settings.vault.taskExtractionDesc": "에이전트 응답에서 작업(- [ ] 항목)을 감지하고 구조화된 frontmatter가 있는 작업 노트를 만듭니다.",

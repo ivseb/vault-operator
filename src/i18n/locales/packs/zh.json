@@ -639,6 +639,8 @@
   "settings.vault.snapshotTimeoutDesc": "等待文件备份完成的最长时间，超时则跳过。文件很大时可调高。默认：30。",
   "settings.vault.autoCleanup": "任务结束后自动清理",
   "settings.vault.autoCleanupDesc": "任务完成后删除备份副本，节省磁盘空间。若想在任务后手动检查备份，请关闭此项。",
+  "settings.vault.respectObsidianExcluded": "遵循 Obsidian 的排除文件",
+  "settings.vault.respectObsidianExcludedDesc": "在 Obsidian 中排除的文件（设置、文件与链接、排除的文件）也会对智能体隐藏：不嵌入、不搜索、不访问。排除列表只需在一处维护。已嵌入的文件会在搜索时被过滤；重建索引可将其彻底移除。",
   "settings.vault.taskExtraction": "任务提取",
   "settings.vault.sectionTaskExtractionInfo": "当 Agent 的回复包含任务复选框（`- [ ] do something`）时，Vault Operator 可以将这些任务提取出来，并创建带 Frontmatter（状态、来源聊天、若提及则含截止日期）的独立任务笔记。适用于\"从会议记录中提取待办\"这类工作流。",
   "settings.vault.taskExtractionDesc": "检测 Agent 回复中的任务（- [ ] 条目），并创建带结构化 Frontmatter 的任务笔记。",

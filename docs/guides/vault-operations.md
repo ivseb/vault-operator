@@ -127,6 +127,21 @@ Bases let you work with your notes as structured data, similar to a database vie
 Bases use Obsidian's built-in Bases feature. The Bases core feature requires a recent Obsidian version (Bases shipped in Obsidian 1.9); on older releases the Base tools are unavailable.
 :::
 
+## Clipping web pages
+
+The **clip_web_page** tool archives a web page as a permanent note, similar to the Obsidian Web Clipper. Unlike `web_fetch`, which reads a page into the conversation and truncates long text, the clipper writes the full article into a file.
+
+**Example:** *"Clip https://example.com/article into Sources/Article.md"*
+
+What the tool does:
+
+- Downloads the page and converts it to Markdown. It only sees the served HTML: it does not run JavaScript, so content a page loads in the browser is not clipped, and there is no paywall or login handling.
+- Writes the note in two parts: a header, then the full article text under a literal `## Originaltext` heading. The agent normally writes the header itself (complete frontmatter plus a short summary). If it passes no header, the tool writes minimal frontmatter with `url`, `type: source`, and the page title and description.
+- Downloads the article's images into your vault and rewrites their links to Obsidian embeds (`![[...]]`), so the note renders offline. By default images land in your attachment folder under `clips/{page-slug}/`, which makes deleting a clip and its images one folder operation; the agent can name a different folder. Images that fail to download keep an absolute remote URL.
+- Never overwrites notes: the target path must not exist yet. Image filenames are derived from the image URL, so clipping the same page again reuses the same image files instead of duplicating them.
+
+Safety limits: the page URL and every image URL go through the same guard chain as `web_fetch` (private and internal addresses are blocked, and redirects are re-checked at every hop). Image downloads are capped per image (10 MB), in total (40 MB), and in count (20 by default, up to 50 via `max_images`). Only image content types are accepted, and SVG files are stripped of scripts before they are saved. The approval card names the source URL, the target note, and the image folder before anything is written.
+
 ## Tips
 
 1. Be specific about paths. "The Projects folder" is clearer than "my project notes."

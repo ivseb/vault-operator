@@ -236,7 +236,17 @@ export class McpClient {
         );
     }
 
-    async connect(name: string, config: McpServerConfig, opts?: { ignoreDisabled?: boolean }): Promise<void> {
+    /**
+     * @param opts.interactive Whether the USER started this attempt. Only an
+     * interactive attempt may open a browser for OAuth; automatic connects
+     * (boot, reconnect) stop at 'awaiting-auth' instead. Defaults to false, so
+     * any new caller is silent unless it opts in.
+     */
+    async connect(
+        name: string,
+        config: McpServerConfig,
+        opts?: { ignoreDisabled?: boolean; interactive?: boolean },
+    ): Promise<void> {
         // Skip disabled servers unless an explicit authorize() forces the flow.
         if (config.disabled && !opts?.ignoreDisabled) {
             this.connections.set(name, { name, config, tools: [], status: 'disconnected' });
@@ -296,6 +306,10 @@ export class McpClient {
             // this server; cleared on a successful connect (no redirect needed).
             if (config.authType === 'oauth') {
                 authProvider = this.getOrCreateProvider(name);
+                // Re-decided on every attempt: providers are cached per server,
+                // so a flag left over from an earlier user-driven authorization
+                // must not license a later automatic connect to open a browser.
+                authProvider.setInteractive(opts?.interactive === true);
                 this.pendingByState.set(authProvider.getState(), name);
             }
 
@@ -492,7 +506,9 @@ export class McpClient {
     async authorize(name: string, config: McpServerConfig): Promise<void> {
         const provider = this.getOrCreateProvider(name);
         provider.beginAuth();
-        await this.connect(name, config, { ignoreDisabled: true });
+        // The one entry point that carries real user intent, so the only one
+        // allowed to open a browser window.
+        await this.connect(name, config, { ignoreDisabled: true, interactive: true });
     }
 
     /**

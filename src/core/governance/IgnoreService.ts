@@ -15,10 +15,49 @@ import { safeRegex } from '../utils/safeRegex';
 import { isProtectedAgentConfigPath, isAgentSecretPath } from './agentFolderGuard';
 import { foldPath } from './foldPath';
 
+/**
+ * Match a vault path against Obsidian's own "Excluded files" list
+ * (`userIgnoreFilters` in app.json). Faithful to Obsidian's semantics so VO can
+ * reuse the exclusions the user already maintains in Obsidian's UI:
+ *
+ * - A `/.../`-wrapped entry is a regex, applied case-insensitively (the `i`
+ *   flag, as Obsidian does), over the normalised path. It is compiled through
+ *   safeRegex so a hostile user regex degrades to a literal instead of hanging
+ *   the renderer (AUDIT 2026-07-31 H-1 lesson: never RegExp untrusted input raw).
+ * - Any other entry is a folder / path prefix: the path matches when it equals
+ *   the entry or sits under it (`entry/...`). Both sides are case/unicode-folded
+ *   like every other IgnoreService rule (APFS/NTFS same-file variants).
+ *
+ * Exported standalone so the matching semantics are unit-testable without a Vault.
+ */
+export function matchesObsidianExcluded(rawPath: string, filters: readonly string[]): boolean {
+    if (!filters || filters.length === 0) return false;
+    const normalized = (rawPath ?? '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const foldedPath = foldPath(normalized);
+    for (const raw of filters) {
+        const f = (raw ?? '').trim();
+        if (!f) continue;
+        if (f.length >= 2 && f.startsWith('/') && f.endsWith('/')) {
+            // Regex filter: /pattern/ -> case-insensitive, ReDoS-guarded.
+            const re = safeRegex(f.slice(1, -1), 'i');
+            if (re.test(normalized)) return true;
+            continue;
+        }
+        // Folder / path-prefix filter (case+unicode folded, leading/trailing slash stripped).
+        const ff = foldPath(f.replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''));
+        if (!ff) continue;
+        if (foldedPath === ff || foldedPath.startsWith(`${ff}/`)) return true;
+    }
+    return false;
+}
+
 export class IgnoreService {
     private vault: Vault;
     private ignorePatterns: string[] = [];
     private protectedPatterns: string[] = [];
+    /** Obsidian's own "Excluded files" (app.json userIgnoreFilters), when the user opts to honour them. */
+    private obsidianExcludedFilters: string[] = [];
+    private respectObsidianExcluded = false;
     private loaded = false;
 
     /** Paths always blocked regardless of config (built from vault.configDir) */
@@ -77,7 +116,7 @@ export class IgnoreService {
      * Load (or reload) ignore and protected patterns from vault root files.
      * Called at plugin start and can be re-called if files change.
      */
-    async load(): Promise<void> {
+    async load(respectObsidianExcluded = false): Promise<void> {
         // AUDIT 2026-07-26 H-4: fail-closed on a read failure. `loaded` stays
         // false, so isIgnored/isProtected keep denying everything instead of
         // running with a silently empty ruleset. Both files are read before
@@ -86,8 +125,19 @@ export class IgnoreService {
         try {
             const ignorePatterns = await this.readPatternFile('.obsidian-agentignore');
             const protectedPatterns = await this.readPatternFile('.obsidian-agentprotected');
+            // Obsidian's own "Excluded files" (app.json userIgnoreFilters) are
+            // folded into the ignore gate ONLY when the user opted in, so the
+            // exclusions maintained in Obsidian's UI apply to VO too without a
+            // second list. readObsidianExcludedFilters fails OPEN (returns []),
+            // never closed: a malformed app.json must not lock the user out --
+            // .obsidian-agentignore stays the authoritative deny source.
+            const obsidianExcluded = respectObsidianExcluded
+                ? await this.readObsidianExcludedFilters()
+                : [];
             this.ignorePatterns = ignorePatterns;
             this.protectedPatterns = protectedPatterns;
+            this.obsidianExcludedFilters = obsidianExcluded;
+            this.respectObsidianExcluded = respectObsidianExcluded;
             this.loaded = true;
             // Bumped AFTER the rules are in place, so a cache that reads the
             // generation and then rebuilds cannot capture the old ruleset.
@@ -143,8 +193,16 @@ export class IgnoreService {
             if (lower === b || lower.startsWith(b)) return true;
         }
 
-        // User-defined ignore patterns
-        return this.matchesAnyPattern(normalPath, this.ignorePatterns);
+        // User-defined ignore patterns (.obsidian-agentignore)
+        if (this.matchesAnyPattern(normalPath, this.ignorePatterns)) return true;
+
+        // Obsidian's own "Excluded files" (opt-in): the user maintains the list
+        // in Obsidian's UI and VO honours it as a hard ignore.
+        if (this.respectObsidianExcluded
+            && matchesObsidianExcluded(normalPath, this.obsidianExcludedFilters)) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -228,6 +286,27 @@ export class IgnoreService {
             .split('\n')
             .map((line) => line.trim())
             .filter((line) => line.length > 0 && !line.startsWith('#'));
+    }
+
+    /**
+     * Read Obsidian's "Excluded files" list (`userIgnoreFilters`) from
+     * `<configDir>/app.json`. Fails OPEN (returns []) on a missing/malformed
+     * file: this is an additive convenience, never a security boundary -- a
+     * broken app.json must not deny access the .obsidian-agentignore rules
+     * already govern. Uses vault.configDir (never a hardcoded `.obsidian`).
+     */
+    private async readObsidianExcludedFilters(): Promise<string[]> {
+        try {
+            const appJsonPath = `${this.vault.configDir}/app.json`;
+            if (!(await this.vault.adapter.exists(appJsonPath))) return [];
+            const raw = await this.vault.adapter.read(appJsonPath);
+            const parsed = JSON.parse(raw) as { userIgnoreFilters?: unknown };
+            const filters = parsed.userIgnoreFilters;
+            if (!Array.isArray(filters)) return [];
+            return filters.filter((f): f is string => typeof f === 'string' && f.trim().length > 0);
+        } catch {
+            return [];
+        }
     }
 
     /**

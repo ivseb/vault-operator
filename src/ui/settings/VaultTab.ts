@@ -58,6 +58,19 @@ export class VaultTab {
                 }),
             );
 
+        new Setting(containerEl)
+            .setName(t('settings.vault.respectObsidianExcluded'))
+            .setDesc(t('settings.vault.respectObsidianExcludedDesc'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.respectObsidianExcludedFiles ?? true).onChange(async (v) => {
+                    this.plugin.settings.respectObsidianExcludedFiles = v;
+                    await this.plugin.saveSettings();
+                    // Re-read the rules so the change takes effect immediately.
+                    // This bumps the ignore-rule generation; caches keyed on it rebuild.
+                    await this.plugin.ignoreService.load(v);
+                }),
+            );
+
         addSectionHeading(
             containerEl,
             t('settings.vault.taskExtraction'),

@@ -2,7 +2,7 @@
 import { withBase } from 'vitepress'
 
 /* Keep in sync with manifest.json on every release. */
-const PLUGIN_VERSION = '3.3.6'
+const PLUGIN_VERSION = '3.4.0'
 </script>
 
 <template>
@@ -15,7 +15,7 @@ const PLUGIN_VERSION = '3.3.6'
     >
       <span class="lp-badge-version">v{{ PLUGIN_VERSION }}</span>
       <span class="lp-badge-divider" aria-hidden="true">·</span>
-      <span>Obsidian DOM API compliance</span>
+      <span>Redesigned sidebar</span>
       <svg class="lp-badge-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M7 17 17 7" /><path d="M8 7h9v9" />
       </svg>
@@ -57,7 +57,10 @@ const PLUGIN_VERSION = '3.3.6'
   align-items: center;
   text-align: center;
   padding: 4rem 1.5rem 0.5rem;
-  background: radial-gradient(ellipse 70% 45% at 50% -10%, rgba(124, 58, 237, 0.22), transparent);
+  /* Dual wash echoing the brand ramp: pink from the left, violet from the right. */
+  background:
+    radial-gradient(ellipse 55% 45% at 30% -12%, rgba(230, 84, 127, 0.14), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 70% -12%, rgba(123, 92, 240, 0.20), transparent 60%);
   animation: lp-fade-up 0.4s ease-out both;
 }
 
@@ -102,7 +105,7 @@ const PLUGIN_VERSION = '3.3.6'
   letter-spacing: -0.025em;
   line-height: 1.08;
   margin: 0 0 1.1rem;
-  background: linear-gradient(135deg, var(--vp-c-text-1) 30%, var(--vp-c-brand-1));
+  background: linear-gradient(135deg, var(--vp-c-text-1) 30%, #a24bd8 75%, #7b5cf0 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -145,13 +148,12 @@ const PLUGIN_VERSION = '3.3.6'
 .lp-btn:hover { transform: translateY(-1px); text-decoration: none; }
 
 .lp-btn-primary {
-  background: #7c3aed;
+  background: linear-gradient(145deg, #e6547f 0%, #a24bd8 55%, #7b5cf0 100%);
   color: #fff;
-  border-color: #7c3aed;
+  border-color: transparent;
 }
 .lp-btn-primary:hover {
-  background: #6d28d9;
-  border-color: #6d28d9;
+  filter: brightness(0.93);
   color: #fff;
 }
 

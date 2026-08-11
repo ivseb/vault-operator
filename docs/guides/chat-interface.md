@@ -10,7 +10,7 @@ The Vault Operator sidebar is where you talk to the agent, attach files, browse 
 :::info Two chat surfaces (v3.0.0)
 Vault Operator ships two peer entry-points for the same agent:
 
-- **Sidebar chat** (this page): the full panel on the left, with history, attachments, the activity block, and the workflow picker.
+- **Sidebar chat** (this page): the full panel on the left, with history, attachments, the activity block, and the slash menu.
 - **Inline AI chat** ([guides/inline-chat.md](/guides/inline-chat)): a floating panel over the current editor selection, opened with `Mod+Shift+I` (`Cmd+Shift+I` on macOS, `Ctrl+Shift+I` on Windows and Linux) or via the editor right-click menu entry **Inline AI chat**.
 
 Conversations from the inline panel show up in the same history list as sidebar chats. The list refreshes live via the `vault-operator:conversation-list-changed` event, so a new inline conversation appears without reopening the sidebar.
@@ -30,6 +30,12 @@ Open Vault Operator by clicking its icon in the left sidebar. The panel has four
 - Tab strip below the toolbar: one tab per open conversation (see [Working with several chats at once](#working-with-several-chats-at-once))
 - Message area in the center: your conversation, activity blocks, approval cards
 - Input bar at the bottom: text field, attachment button, send button
+
+### What you see
+
+The header carries the Vault Operator brand mark, a gradient square with a slash, next to the plugin name. While the agent works, a single status line sits at the top of the current response: the mark spins, the line names what the agent is doing right now, and a live token count climbs as the model writes. The count is fed by real API usage, so it reflects what the turn actually consumed. It can pause while a tool runs, because nothing is being generated then; the spinning mark shows the run is still alive.
+
+When the agent lays out a plan, it appears as a card with a timeline running down its side, and each step is a node on that line, marked as it completes. Tool calls render as a thread of steps along a vertical line rather than as boxes, so a long run stays readable. The input area at the bottom is a floating card with a round send button in your theme's accent color. And during a long answer your question stays reachable: once it scrolls out of view, it reappears as a compact bar floating at the top of the chat, and clicking the bar shows the full text.
 
 ## Working with several chats at once (v3.3.1) {#working-with-several-chats-at-once}
 
@@ -113,9 +119,11 @@ Type **@** in the input field to search your vault by file name. A dropdown appe
 
 **Example:** *"Summarize @meeting-notes-march and compare the action items with @project-roadmap"*
 
-## Workflow and prompt picker
+## Slash menu
 
-Type **/** in the input field to open the picker. It lists workflows (multi-step task templates like "research a topic" or "reorganize a folder") and support prompts (pre-written prompts for common tasks). Pick one to insert into your message. You can edit the text before sending.
+Type **/** in the input field to open the slash menu. One list covers everything you can trigger by name: skills, prompts (pre-written prompts for common tasks), and workflows (multi-step task templates like "research a topic" or "reorganize a folder"). Each row carries a type label. Pick an entry to insert it into your message, and edit the text before sending if you like.
+
+When two entries share the same name, a fixed precedence decides what `/name` runs: skills win over prompts, and prompts win over workflows. The losing entry is not hidden. It stays in the list, marked as not reachable under that name, so you can spot the collision and rename one of the two. Typing a name directly and picking it from the list always resolve to the same entry.
 
 ## Activity blocks
 
@@ -170,7 +178,7 @@ The history sidebar groups conversations by source tab: Vault Operator, Claude.a
 Conversations are titled automatically based on their content. You can also jump to linked conversations directly from your notes. See [Memory & Personalization](/guides/memory-personalization) for chat linking.
 
 :::info Attachments live for one turn
-Files you drop into the chat are parsed once and made available for the same turn the user sent. From the next turn on, the parsed text is gone. Skills that need to operate on an attachment across multiple turns (like `/ingest-deep`) save the file to the vault first, then work against the vault path.
+Files you drop into the chat are parsed once and made available for the same turn the user sent. From the next turn on, the parsed text is gone. Workflows that need to operate on an attachment across multiple turns (like a deep ingest) save the file to the vault first, then work against the vault path.
 :::
 
 ## Context display and condensation
@@ -184,7 +192,7 @@ At the top of the message area, a small indicator shows how much of the model's 
 | `Enter` | Send message (configurable) |
 | `Shift+Enter` | New line in input |
 | `@` | Open file mention picker |
-| `/` | Open workflow/prompt picker |
+| `/` | Open the slash menu (skills, prompts, workflows) |
 | `Escape` | Close picker or cancel current input |
 | `Mod+Shift+I` (`Cmd+Shift+I` / `Ctrl+Shift+I`) | Open inline AI chat over the selection |
 

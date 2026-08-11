@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 /*
  * Vault Operator landing-page demo.
@@ -12,9 +12,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
  *   5. Sidebar request: build a Canvas of related notes, edges labeled with connection type
  *   6. Sidebar request: turn the Canvas into a Base with extra Meetings + People columns
  *
- * The window is locked to light mode regardless of the surrounding VitePress theme
- * (explicit `--ed-*` variables in `.ed-window`). The recording GIF in the README is
- * captured from this same component.
+ * The window follows the VitePress theme via explicit `--ed-*` variables in
+ * `.ed-window` (dark overrides in the non-scoped style block). The simulated
+ * sidebar mirrors the plugin's own design layer from styles.css: gradient
+ * square-slash brand mark, floating composer card, plan timeline, tool steps
+ * on a thread rail, live token meter. The recording GIF in the README is
+ * captured from this same component (light mode forced).
  */
 
 const A =
@@ -45,7 +48,6 @@ const ICONS: Record<string, string> = {
   gitFork: `<svg ${A}><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></svg>`,
   link: `<svg ${A}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   tag: `<svg ${A}><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
-  voSquare: `<svg ${A}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="14" y1="8" x2="10" y2="16"/></svg>`,
   panelRight: `<svg ${A}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>`,
   sendToSidebar: `<svg ${A}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><polyline points="7 9 10 12 7 15"/></svg>`,
   stethoscope: `<svg ${A}><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6 6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6 6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>`,
@@ -781,7 +783,12 @@ onMounted(() => {
   }, { threshold: 0.2 })
   observer.observe(rootEl.value)
 })
-onUnmounted(() => { gen++; clearAll(); observer?.disconnect() })
+onUnmounted(() => {
+  gen++
+  clearAll()
+  observer?.disconnect()
+  if (meterTimer !== null) { clearInterval(meterTimer); meterTimer = null }
+})
 
 /* ── derived UI helpers ── */
 /* The tail of the current selection: the last item where the selection ends.
@@ -808,6 +815,40 @@ const gridClass = computed(() => ({
   'g-solo': !showSidebar.value,
   'g-full': showSidebar.value,
 }))
+
+/* ── live meter (mirrors the plugin's .vo-live-meter status line): one pill
+ * per running assistant turn with the spinning brand mark, the current
+ * activity, and a climbing token count. Purely derived from sidebarMsgs so
+ * the scene timeline stays untouched: a turn is "running" from the last
+ * user message until its cost footer lands. ── */
+const liveTokens = ref(0)
+const sidebarActivity = computed<string | null>(() => {
+  const msgs = sidebarMsgs.value
+  let lastUser = -1
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].kind === 'user') { lastUser = i; break }
+  }
+  if (lastUser === -1) return null
+  const turn = msgs.slice(lastUser)
+  if (turn.some((m) => m.kind === 'cost')) return null
+  for (let i = turn.length - 1; i >= 0; i--) {
+    const m = turn[i]
+    if (m.kind === 'tool' && m.status === 'running') return m.tool
+  }
+  return 'Thinking'
+})
+let meterTimer: number | null = null
+watch(sidebarActivity, (active) => {
+  if (active && meterTimer === null) {
+    meterTimer = window.setInterval(() => {
+      liveTokens.value += 9 + Math.floor(Math.random() * 40)
+    }, 250)
+  } else if (!active && meterTimer !== null) {
+    clearInterval(meterTimer)
+    meterTimer = null
+    liveTokens.value = 0
+  }
+})
 </script>
 
 <template>
@@ -834,7 +875,7 @@ const gridClass = computed(() => ({
 
           <div v-if="showSidebar" class="ed-h-vo">
             <span v-for="t in voTabs" :key="t" class="ed-h-ico" v-html="icon(t)" />
-            <span class="ed-h-ico active" v-html="icon('voSquare')" />
+            <span class="ed-mark ed-h-mark" aria-hidden="true" />
             <div class="ed-h-spacer" />
             <span class="ed-h-ico" v-html="icon('panelRight')" />
           </div>
@@ -898,7 +939,7 @@ const gridClass = computed(() => ({
                             <div v-if="m.kind === 'user'" class="ed-msg user">{{ m.text }}</div>
                             <div v-else-if="m.kind === 'text'" class="ed-msg assistant"><div class="ed-msg-text">{{ m.text }}</div></div>
                             <div v-else-if="m.kind === 'plan'" class="ed-todo-box">
-                              <div class="ed-todo-head"><span class="ed-todo-ico" v-html="icon('clipboard')" />Plan</div>
+                              <div class="ed-todo-head"><span class="ed-mark ed-todo-mark" aria-hidden="true" />Plan</div>
                               <div class="ed-todo-list">
                                 <div v-for="(it, k) in m.items" :key="k" class="ed-todo-item" :class="it.status">
                                   <span class="ed-todo-bullet" v-html="icon(it.status === 'done' ? 'checkCircle' : it.status === 'in_progress' ? 'loader' : 'circle')" />
@@ -962,7 +1003,7 @@ const gridClass = computed(() => ({
                           <div v-if="m.kind === 'user'" class="ed-msg user">{{ m.text }}</div>
                           <div v-else-if="m.kind === 'text'" class="ed-msg assistant"><div class="ed-msg-text">{{ m.text }}</div></div>
                           <div v-else-if="m.kind === 'plan'" class="ed-todo-box">
-                            <div class="ed-todo-head"><span class="ed-todo-ico" v-html="icon('clipboard')" />Plan</div>
+                            <div class="ed-todo-head"><span class="ed-mark ed-todo-mark" aria-hidden="true" />Plan</div>
                             <div class="ed-todo-list">
                               <div v-for="(it, k) in m.items" :key="k" class="ed-todo-item" :class="it.status">
                                 <span class="ed-todo-bullet" v-html="icon(it.status === 'done' ? 'checkCircle' : it.status === 'in_progress' ? 'loader' : 'circle')" />
@@ -1108,7 +1149,7 @@ const gridClass = computed(() => ({
 
           <aside v-if="showSidebar" class="ed-vo" :class="sidebarClass">
             <div class="ed-vo-sub">
-              <div class="ed-vo-brand"><span class="ed-vo-slash">/</span>Vault Operator</div>
+              <div class="ed-vo-brand"><span class="ed-mark ed-vo-mark" aria-hidden="true" /><span class="ed-vo-name">Vault Operator</span></div>
               <div class="ed-vo-actions">
                 <span class="ed-vo-ico" v-html="icon('stethoscope')" />
                 <span class="ed-vo-ico" v-html="icon('settings')" />
@@ -1142,7 +1183,7 @@ const gridClass = computed(() => ({
                 <div v-if="b.kind === 'user'" class="ed-msg user">{{ b.text }}</div>
                 <div v-else-if="b.kind === 'text'" class="ed-msg assistant"><div class="ed-msg-text">{{ b.text }}</div></div>
                 <div v-else-if="b.kind === 'plan'" class="ed-todo-box">
-                  <div class="ed-todo-head"><span class="ed-todo-ico" v-html="icon('clipboard')" />Plan</div>
+                  <div class="ed-todo-head"><span class="ed-mark ed-todo-mark" aria-hidden="true" />Plan</div>
                   <div class="ed-todo-list">
                     <div v-for="(it, k) in b.items" :key="k" class="ed-todo-item" :class="it.status">
                       <span class="ed-todo-bullet" v-html="icon(it.status === 'done' ? 'checkCircle' : it.status === 'in_progress' ? 'loader' : 'circle')" />
@@ -1165,6 +1206,11 @@ const gridClass = computed(() => ({
                   <span v-else class="ed-tool-check" v-html="icon('checkCircle')" />
                 </div>
               </template>
+              <div v-if="sidebarActivity" class="ed-live-meter">
+                <span class="ed-mark ed-live-mark" aria-hidden="true" />
+                <span class="ed-live-label">{{ sidebarActivity }}</span>
+                <span v-if="liveTokens" class="ed-live-tokens">· {{ fmtK(liveTokens) }} tokens</span>
+              </div>
             </div>
 
             <div class="ed-vo-compose">
@@ -1199,7 +1245,11 @@ const gridClass = computed(() => ({
 .ed-stage {
   border-radius: 14px;
   padding: clamp(10px, 2vw, 22px);
-  background: radial-gradient(120% 90% at 50% -20%, rgba(124, 58, 237, 0.12), transparent 55%), #f4f4f6;
+  /* Dual wash echoing the brand ramp: pink left, violet right. */
+  background:
+    radial-gradient(90% 80% at 28% -15%, rgba(230, 84, 127, 0.10), transparent 55%),
+    radial-gradient(90% 80% at 72% -15%, rgba(123, 92, 240, 0.12), transparent 55%),
+    #f4f4f6;
   border: 1px solid #e2e2e6;
 }
 /* Dark overrides live in a separate non-scoped <style> block below. */
@@ -1215,12 +1265,19 @@ const gridClass = computed(() => ({
   --ed-text-1: #1f2024;
   --ed-text-2: #565862;
   --ed-text-3: #8c8e98;
-  --ed-brand: #7c5cff;
-  --ed-brand-soft: rgba(124, 92, 255, 0.12);
+  /* Brand: the ramp's violet terminal as accent, the full pink-to-violet
+     ramp only on the mark and brand surfaces (mirrors the plugin, where
+     only the mark carries fixed brand colours). */
+  --ed-brand: #7b5cf0;
+  --ed-brand-soft: rgba(123, 92, 240, 0.12);
+  --ed-pink: #e6547f;
+  --ed-violet-mid: #a24bd8;
+  --ed-brand-grad: linear-gradient(145deg, var(--ed-pink) 0%, var(--ed-violet-mid) 55%, var(--ed-brand) 100%);
+  --ed-user-tint: rgba(31, 32, 36, 0.07);
   --ed-blue: #5b81e0;
   --ed-green: #10b981;
   --ed-yellow: #f5b942;
-  --ed-selection: rgba(124, 92, 255, 0.16);
+  --ed-selection: rgba(123, 92, 240, 0.16);
 
   border: 1px solid var(--ed-divider);
   border-radius: 10px;
@@ -1270,7 +1327,7 @@ const gridClass = computed(() => ({
 .ed-h-ico.active { color: var(--ed-text-1); }
 .ed-h-spacer { flex: 1; }
 .ed-tab { display: flex; align-items: center; gap: 0.4rem; margin-left: 0.5rem; padding: 0 0.5rem 0 0.7rem; font-size: 0.66rem; color: var(--ed-text-1); background: var(--ed-bg); border-radius: 6px 6px 0 0; max-width: 260px; white-space: nowrap; position: relative; align-self: flex-end; height: calc(100% - 6px); }
-.ed-tab.active::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--ed-brand); border-radius: 2px; }
+.ed-tab.active::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--ed-brand-grad); border-radius: 2px; }
 .ed-tab-ico { width: 13px; height: 13px; flex-shrink: 0; color: var(--ed-brand); }
 .ed-tab-name { overflow: hidden; text-overflow: ellipsis; }
 .ed-tab-x { width: 13px; height: 13px; opacity: 0.55; flex-shrink: 0; }
@@ -1317,7 +1374,7 @@ const gridClass = computed(() => ({
 .ed-strategy-num { width: 5px; height: 5px; border-radius: 50%; background: var(--ed-text-3); margin: 0.55em 0 0 0.4em; flex-shrink: 0; }
 .ed-strategy-body { font-size: 0.8rem; line-height: 1.55; color: var(--ed-text-2); }
 .ed-strategy-name { font-weight: 600; color: var(--ed-text-1); margin-right: 0.3em; }
-@keyframes shimmer { 0% { background: rgba(124, 92, 255, 0.20); } 100% { background: transparent; } }
+@keyframes shimmer { 0% { background: rgba(123, 92, 240, 0.20); } 100% { background: transparent; } }
 
 .ed-fade-enter-active, .ed-fade-leave-active { transition: opacity 0.45s, transform 0.45s; }
 .ed-fade-enter-from, .ed-fade-leave-to { opacity: 0; transform: translateY(4px); }
@@ -1425,7 +1482,7 @@ const gridClass = computed(() => ({
 }
 .ed-cursor.shown { opacity: 1; }
 .ed-cursor.clicking {
-  filter: drop-shadow(0 0 2px rgba(124, 92, 255, 0.6)) drop-shadow(0 1px 1.5px rgba(0,0,0,0.35));
+  filter: drop-shadow(0 0 2px rgba(123, 92, 240, 0.6)) drop-shadow(0 1px 1.5px rgba(0,0,0,0.35));
 }
 .ed-cursor :deep(svg) { width: 18px; height: 22px; display: block; }
 
@@ -1447,7 +1504,7 @@ const gridClass = computed(() => ({
   opacity: 0;
   transform-origin: 11px 11px;
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
-  filter: drop-shadow(0 1px 2px rgba(124, 92, 255, 0.35));
+  filter: drop-shadow(0 1px 2px rgba(123, 92, 240, 0.35));
 }
 .ed-action-pill.shown { opacity: 1; }
 .ed-action-pill.clicked {
@@ -1455,7 +1512,7 @@ const gridClass = computed(() => ({
      Vue overrides the inline transform from the style binding, so we
      fake the click feedback via the filter (glow ring) + a subtle
      animation on the SVG instead. */
-  filter: drop-shadow(0 0 5px rgba(124, 92, 255, 0.7));
+  filter: drop-shadow(0 0 5px rgba(123, 92, 240, 0.7));
 }
 .ed-action-pill.clicked :deep(svg) {
   animation: edPillClick 220ms ease-out;
@@ -1479,18 +1536,24 @@ const gridClass = computed(() => ({
   transform: scale(0.85);
   background: var(--ed-brand-soft);
   color: var(--ed-brand);
-  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.35);
+  box-shadow: 0 0 0 2px rgba(123, 92, 240, 0.35);
   transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
 }
 
-/* TODO BOX (mirrors `.agent-todo-box` from styles.css; plan rendering
-   that the sidebar uses to show the agent's task list with checkboxes) */
+/* TODO BOX (mirrors the redesigned `.agent-todo-box`: soft elevated card,
+   brand mark in the head, steps joined by a 2px timeline spine behind round
+   status nodes whose background masks the line) */
 .ed-todo-box {
   align-self: stretch;
+  /* overflow:hidden zeroes the automatic flex minimum size; without
+     flex-shrink:0 the card gets squashed flat in the over-full chat column. */
+  flex-shrink: 0;
   background: var(--ed-bg-soft);
   border: 1px solid var(--ed-divider);
-  border-radius: 10px;
-  padding: 0.55rem 0.7rem 0.6rem;
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.04);
   animation: msgIn 0.3s ease-out;
 }
 .ed-todo-head {
@@ -1498,21 +1561,45 @@ const gridClass = computed(() => ({
   font-size: 0.6rem; font-weight: 700;
   letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--ed-text-3);
-  margin-bottom: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--ed-divider);
 }
-.ed-todo-ico { width: 13px; height: 13px; color: var(--ed-brand); }
-.ed-todo-list { display: flex; flex-direction: column; gap: 0.28rem; }
+.ed-todo-mark { --ed-mark-size: 13px; }
+.ed-todo-list {
+  position: relative;
+  display: flex; flex-direction: column; gap: 0.34rem;
+  padding: 0.5rem 0.7rem 0.6rem;
+}
+/* Timeline spine: runs behind the status-node column, first node to last. */
+.ed-todo-list::before {
+  content: "";
+  position: absolute;
+  left: calc(0.7rem + 7px);
+  top: calc(0.5rem + 8px);
+  bottom: calc(0.6rem + 8px);
+  width: 2px;
+  background: var(--ed-divider);
+}
 .ed-todo-item {
-  display: grid; grid-template-columns: 14px 1fr; align-items: flex-start; gap: 0.5rem;
+  display: grid; grid-template-columns: 16px 1fr; align-items: flex-start; gap: 0.5rem;
   font-size: 0.72rem;
   color: var(--ed-text-2);
 }
-.ed-todo-bullet { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; color: var(--ed-text-3); }
+/* Status icons are round nodes; their surface background masks the spine. */
+.ed-todo-bullet {
+  position: relative; z-index: 1;
+  width: 16px; height: 16px; flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--ed-bg-soft);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ed-text-3);
+}
+.ed-todo-bullet :deep(svg) { width: 12px; height: 12px; }
 .ed-todo-item.done .ed-todo-bullet { color: var(--ed-green); }
 .ed-todo-item.in_progress .ed-todo-bullet { color: var(--ed-brand); animation: spin 1.2s linear infinite; }
 .ed-todo-item.done .ed-todo-text { color: var(--ed-text-3); text-decoration: line-through; text-decoration-color: var(--ed-divider-strong); }
 .ed-todo-item.in_progress .ed-todo-text { color: var(--ed-text-1); font-weight: 500; }
-.ed-todo-text { line-height: 1.4; }
+.ed-todo-text { line-height: 1.4; margin-top: 1px; }
 
 /* COST FOOTER -- mirrors TaskMonitor.onUsage footer line. The real
    plugin renders this as plain footer text inside `.message-footer`
@@ -1565,7 +1652,7 @@ const gridClass = computed(() => ({
 .ed-handoff-ico { width: 12px; height: 12px; }
 .ed-handoff-body { display: flex; flex-direction: column; gap: 0.4rem; }
 .ed-handoff-body .ed-msg { font-size: 0.66rem; }
-.ed-handoff-body .ed-tool { font-size: 0.62rem; padding: 0.25rem 0.45rem; }
+.ed-handoff-body .ed-tool { font-size: 0.62rem; }
 .ed-handoff-enter-active { transition: opacity 0.45s ease, transform 0.45s ease, max-height 0.45s ease; overflow: hidden; }
 .ed-handoff-enter-from { opacity: 0; transform: translateY(-8px); max-height: 0; }
 .ed-handoff-enter-to { opacity: 1; transform: translateY(0); max-height: 30rem; }
@@ -1654,13 +1741,66 @@ const gridClass = computed(() => ({
 .ed-td-fade { color: var(--ed-text-3); opacity: 0.35; transition: opacity 0.4s; }
 .ed-chip { font-size: 0.58rem; color: var(--ed-brand); background: var(--ed-brand-soft); padding: 1px 7px; border-radius: 4px; }
 
+/* BRAND MARK -- pure-CSS port of the plugin's .vo-brand-mark: gradient
+   rounded square (radius = size / 3.6), white slash bar rotated 45deg.
+   Size-parametric via --ed-mark-size; negative-margin centering so spin
+   variants can replace the transform wholesale (rotate only). */
+.ed-mark {
+  --ed-mark-size: 16px;
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--ed-mark-size);
+  height: var(--ed-mark-size);
+  border-radius: calc(var(--ed-mark-size) / 3.6);
+  background: var(--ed-brand-grad);
+}
+.ed-mark::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: calc(var(--ed-mark-size) * 0.58);
+  margin-left: -1px;
+  margin-top: calc(var(--ed-mark-size) * -0.29);
+  border-radius: 1px;
+  background: #ffffff;
+  transform: rotate(45deg);
+}
+.ed-h-mark { --ed-mark-size: 15px; align-self: center; }
+
+/* LIVE METER -- mirrors the plugin's .vo-live-meter: one status pill per
+   running turn, spinning brand mark + activity + climbing token count. */
+.ed-live-meter {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 2px 9px 2px 4px;
+  border-radius: 999px;
+  background: var(--ed-bg-soft);
+  color: var(--ed-text-3);
+  font-family: var(--vp-font-family-mono, ui-monospace, "SF Mono", monospace);
+  font-size: 0.6rem;
+  animation: msgIn 0.25s ease-out;
+}
+.ed-live-mark { --ed-mark-size: 13px; }
+.ed-live-mark::before { animation: edSlashSpin 1.6s linear infinite; }
+@keyframes edSlashSpin {
+  from { transform: rotate(45deg); }
+  to { transform: rotate(405deg); }
+}
+.ed-live-tokens { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 /* SIDEBAR */
 .ed-vo { grid-area: vo; position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--ed-bg); border-left: 1px solid var(--ed-divider); transform: translateX(0); transition: transform 0.45s ease; }
 .ed-vo.is-opening { transform: translateX(20%); }
 .ed-vo.is-open { transform: translateX(0); }
 .ed-vo-sub { display: flex; align-items: center; height: 40px; padding: 0 0.6rem 0 0.85rem; flex-shrink: 0; border-bottom: 1px solid var(--ed-divider); }
-.ed-vo-brand { font-family: var(--vp-font-family-mono, ui-monospace, "SF Mono", monospace); font-size: 0.8rem; font-weight: 700; color: var(--ed-text-1); }
-.ed-vo-slash { color: var(--ed-text-3); margin-right: 0.4rem; font-weight: 400; }
+/* Brand lockup: gradient glyph + wordmark in the UI face (no monospace,
+   no slash in the text -- the glyph owns the slash now). */
+.ed-vo-brand { display: flex; align-items: center; gap: 7px; }
+.ed-vo-mark { --ed-mark-size: 18px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.04); }
+.ed-vo-name { font-size: 0.78rem; font-weight: 600; letter-spacing: -0.01em; color: var(--ed-text-1); }
 .ed-vo-actions { display: flex; align-items: center; gap: 0.7rem; margin-left: auto; }
 .ed-vo-ico { width: 16px; height: 16px; color: var(--ed-text-3); }
 
@@ -1668,23 +1808,66 @@ const gridClass = computed(() => ({
 
 .ed-msg { font-size: 0.7rem; line-height: 1.55; animation: msgIn 0.3s ease-out; max-width: 92%; }
 @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.ed-msg.user { align-self: flex-end; background: var(--ed-brand-soft); color: var(--ed-text-1); padding: 0.5rem 0.7rem; border-radius: 11px 11px 3px 11px; }
-.ed-msg.assistant { align-self: flex-start; }
-.ed-msg.assistant .ed-msg-text { background: var(--ed-bg-soft); border: 1px solid var(--ed-divider); padding: 0.5rem 0.7rem; border-radius: 11px 11px 11px 3px; display: inline-block; color: var(--ed-text-1); }
+/* User bubble: quiet neutral tint (text colour at 7%), not accent -- the
+   question must not shout louder than the answer it introduces. */
+.ed-msg.user { align-self: flex-end; background: var(--ed-user-tint); color: var(--ed-text-1); padding: 0.5rem 0.7rem; border-radius: 12px 12px 4px 12px; }
+/* Assistant answers are unboxed: plain text on the chat ground. */
+.ed-msg.assistant { align-self: stretch; max-width: 100%; }
+.ed-msg.assistant .ed-msg-text { background: transparent; border: none; padding: 0.1rem 0 0.2rem; border-radius: 0; display: block; color: var(--ed-text-1); }
 
-.ed-tool { align-self: stretch; display: grid; grid-template-columns: 15px auto 1fr auto; align-items: center; gap: 0.45rem; background: var(--ed-bg-soft); border: 1px solid var(--ed-divider); padding: 0.38rem 0.55rem; border-radius: 8px; font-family: var(--vp-font-family-mono, ui-monospace, "SF Mono", monospace); font-size: 0.6rem; animation: msgIn 0.25s ease-out; }
-.ed-tool.done { border-color: rgba(124, 92, 255, 0.25); }
-.ed-tool-ico { width: 13px; height: 13px; color: var(--ed-brand); }
+/* TOOL STEPS -- chromeless thread (mirrors the redesigned tool steps: no
+   card at all, a 2px rail joins consecutive steps, round icon nodes mask
+   the rail; muted colours carry the quiet, full opacity the legibility). */
+.ed-tool {
+  position: relative;
+  align-self: stretch;
+  display: grid; grid-template-columns: 14px auto 1fr auto; align-items: center; gap: 0.45rem;
+  background: transparent;
+  border: none;
+  padding: 0.14rem 0.2rem;
+  border-radius: 0;
+  font-family: var(--vp-font-family-mono, ui-monospace, "SF Mono", monospace);
+  font-size: 0.6rem;
+  animation: msgIn 0.25s ease-out;
+}
+/* Rail between consecutive tool rows only (own half + flex gap + prev half). */
+.ed-tool + .ed-tool::before {
+  content: "";
+  position: absolute;
+  left: calc(0.2rem + 6px);
+  bottom: 50%;
+  width: 2px;
+  height: calc(100% + 0.6rem);
+  background: var(--ed-divider);
+}
+.ed-inline-chat .ed-tool + .ed-tool::before { height: calc(100% + 0.5rem); }
+.ed-handoff-body .ed-tool + .ed-tool::before { height: calc(100% + 0.4rem); }
+.ed-tool-ico {
+  position: relative; z-index: 1;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--ed-bg);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ed-text-3);
+}
+.ed-tool-ico :deep(svg) { width: 10px; height: 10px; }
 .ed-tool.running .ed-tool-ico { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
-.ed-tool-name { font-weight: 600; color: var(--ed-text-1); }
+.ed-tool-name { font-weight: 500; color: var(--ed-text-2); }
 .ed-tool-detail { color: var(--ed-text-3); font-size: 0.58rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-spinner { width: 11px; height: 11px; border: 1.5px solid var(--ed-divider); border-top-color: var(--ed-brand); border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .ed-tool-check { width: 12px; height: 12px; color: var(--ed-green); }
 
 .ed-vo-compose { padding: 0.6rem 0.7rem 0.35rem; flex-shrink: 0; }
-.ed-input-box { border: 1px solid var(--ed-divider-strong); border-radius: 12px; background: var(--ed-bg); padding: 0.55rem 0.65rem 0.45rem; }
+/* Composer: floating card (radius + elevation), transparent toolbar band. */
+.ed-input-box {
+  border: 1px solid var(--ed-divider-strong);
+  border-radius: 13px;
+  background: var(--ed-bg);
+  padding: 0.55rem 0.65rem 0.45rem;
+  box-shadow: 0 8px 24px -8px rgba(20, 25, 45, 0.16), 0 2px 6px rgba(20, 25, 45, 0.08);
+}
 .ed-input-render { min-height: 28px; font-size: 0.72rem; line-height: 1.45; color: var(--ed-text-1); word-break: break-word; }
 .ed-input-ph { color: var(--ed-text-3); }
 .ed-input-caret { display: inline-block; width: 2px; height: 1em; background: var(--ed-brand); vertical-align: text-bottom; margin-left: 1px; animation: caretBlink 0.8s step-end infinite; }
@@ -1698,9 +1881,19 @@ const gridClass = computed(() => ({
 .ed-bar-ico.ed-bar-to-sidebar.hot {
   color: var(--ed-brand);
   background: var(--ed-brand-soft);
-  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.25);
+  box-shadow: 0 0 0 2px rgba(123, 92, 240, 0.25);
 }
-.ed-send { width: 17px; height: 17px; color: var(--ed-blue); border: 1px solid var(--ed-divider); border-radius: 6px; padding: 4px; box-sizing: content-box; }
+/* Send button: filled accent pill (mirrors the redesigned send pill). */
+.ed-send {
+  width: 24px; height: 24px;
+  padding: 6px; box-sizing: border-box;
+  background: var(--ed-brand);
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
 .ed-disclaimer { text-align: center; font-size: 0.58rem; color: var(--ed-text-3); margin: 0.5rem 0 0.3rem; padding: 0 22px; line-height: 1.4; }
 .ed-status-dot { position: absolute; right: 0.6rem; bottom: 0.5rem; width: 16px; height: 16px; color: var(--ed-green); }
 
@@ -1724,7 +1917,10 @@ const gridClass = computed(() => ({
 <!-- Dark-mode overrides for the website. The README GIF is captured in light mode only. -->
 <style>
 .dark .ed-stage {
-  background: radial-gradient(120% 90% at 50% -20%, rgba(124, 58, 237, 0.22), transparent 55%), #161618;
+  background:
+    radial-gradient(90% 80% at 28% -15%, rgba(230, 84, 127, 0.16), transparent 55%),
+    radial-gradient(90% 80% at 72% -15%, rgba(123, 92, 240, 0.20), transparent 55%),
+    #161618;
   border-color: #2a2a2e;
 }
 .dark .ed-window {
@@ -1736,13 +1932,19 @@ const gridClass = computed(() => ({
   --ed-text-1: #ecedee;
   --ed-text-2: #b4b6bb;
   --ed-text-3: #818389;
-  --ed-brand: #9c84ff;
-  --ed-brand-soft: rgba(156, 132, 255, 0.18);
+  --ed-brand: #9d85f6;
+  --ed-brand-soft: rgba(157, 133, 246, 0.18);
+  --ed-pink: #ef7ba0;
+  --ed-violet-mid: #b56fe2;
+  --ed-user-tint: rgba(236, 237, 238, 0.08);
   --ed-blue: #7aa0ff;
   --ed-green: #34d399;
-  --ed-selection: rgba(156, 132, 255, 0.22);
+  --ed-selection: rgba(157, 133, 246, 0.22);
 
   border-color: var(--ed-divider);
   box-shadow: 0 14px 48px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+.dark .ed-window .ed-input-box {
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 </style>

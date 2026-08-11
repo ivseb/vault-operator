@@ -55,6 +55,8 @@ Inline styles (`element.style.color = 'red'`) are banned by the review bot. All 
 
 The CSS is authored as a single stylesheet bundled with the plugin. Obsidian's built-in theme variables (`--text-normal`, `--background-primary`, etc.) are used wherever possible so the plugin adapts to light, dark, and custom themes.
 
+On top of those theme variables sits a small design token layer with the `--vo-*` prefix: spacing steps, radii, elevation shadows, surfaces, and status colors used by the sidebar. Most tokens resolve to Obsidian variables (`--vo-surface-1` maps to `--background-secondary`, `--vo-accent` to `--interactive-accent`), so the interactive accent always stays the user's theme accent and community themes keep working. The only fixed colors are the brand mark's gradient. The mark (`.vo-brand-mark`) is drawn in pure CSS rather than as an SVG, partly so it renders identically on every theme and partly because DOMPurify strips `<svg>` when a chat is rehydrated from history.
+
 ## Modal system
 
 Vault Operator uses Obsidian's `Modal` class for dialogs: model configuration, code import, content editing, system prompt preview, task selection, and agent creation. Each modal is a separate class in `src/ui/settings/` or `src/ui/`. Modals follow Obsidian's pattern: extend `Modal`, override `onOpen` and `onClose`, build the DOM in `onOpen`.

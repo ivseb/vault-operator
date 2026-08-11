@@ -8,8 +8,9 @@ const tutorialsSidebar = [
       { text: 'Install Vault Operator', link: '/tutorials/getting-started' },
       { text: 'Your first conversation', link: '/tutorials/first-conversation' },
       { text: 'Search by meaning', link: '/tutorials/search-by-meaning' },
-      { text: 'Capture with /ingest', link: '/tutorials/quick-ingest' },
-      { text: 'Sense-making with /ingest-deep', link: '/tutorials/deep-ingest' },
+      { text: 'Quick capture', link: '/tutorials/quick-ingest' },
+      { text: 'Deep ingest', link: '/tutorials/deep-ingest' },
+      { text: 'Knowledge workflow', link: '/tutorials/knowledge-workflow' },
     ],
   },
 ]
@@ -82,7 +83,7 @@ const conceptsSidebar = [
       { text: 'Tool system', link: '/concepts/tool-system' },
       { text: 'System prompt', link: '/concepts/system-prompt' },
       { text: 'Advisor pattern', link: '/concepts/advisor-pattern' },
-      { text: 'Modes', link: '/concepts/mode-system' },
+      { text: 'Agents (Modes)', link: '/concepts/mode-system' },
     ],
   },
   {
@@ -138,9 +139,17 @@ export default withMermaid(
       esbuild: { target: 'es2022' },
       optimizeDeps: { esbuildOptions: { target: 'es2022' } },
     },
+    // NOTE: head entries are NOT rewritten with `base`, so local asset paths
+    // must carry the /vault-operator/ prefix themselves.
     head: [
+      ['link', { rel: 'icon', type: 'image/svg+xml', href: '/vault-operator/assets/vo-mark.svg' }],
+      ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/vault-operator/assets/favicon-32.png' }],
+      ['link', { rel: 'apple-touch-icon', sizes: '180x180', href: '/vault-operator/assets/apple-touch-icon.png' }],
+      ['meta', { name: 'theme-color', content: '#a24bd8' }],
       ['meta', { property: 'og:title', content: 'Vault Operator, agentic AI operating layer for your vault' }],
       ['meta', { property: 'og:description', content: 'Agentic AI operating layer for your vault. Block-level provenance, cross-surface MCP, semantic search, persistent memory, and full safety controls.' }],
+      ['meta', { property: 'og:image', content: 'https://pssah4.github.io/vault-operator/assets/og-image.png' }],
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ],
 
     appearance: { initialValue: 'dark' },
@@ -150,7 +159,10 @@ export default withMermaid(
     lang: 'en',
 
     themeConfig: {
-      siteTitle: '/ Vault Operator',
+      // Brand lockup: gradient square-slash mark + wordmark in the UI face.
+      // The slash lives in the glyph now, no longer in the title text.
+      logo: '/assets/vo-mark.svg',
+      siteTitle: 'Vault Operator',
       nav: [
         { text: 'Start here', link: '/tutorials/getting-started', activeMatch: '/tutorials/' },
         { text: 'Guides', link: '/guides/capabilities', activeMatch: '/guides/' },

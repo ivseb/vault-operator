@@ -84,7 +84,7 @@ For broad questions like "What do I know about X?", just ask. The agent will run
 
 ## Next steps
 
-The natural next tutorial is [Search your vault by meaning](./search-by-meaning), which gets semantic search running. After that, [Capture a PDF with /ingest](./quick-ingest) and [Sense-making with /ingest-deep](./deep-ingest) cover the two ingest paths.
+The natural next tutorial is [Search your vault by meaning](./search-by-meaning), which gets semantic search running. After that, [Capture a PDF with quick ingest](./quick-ingest) and [Sense-making with deep ingest](./deep-ingest) cover the two ingest paths.
 
 For deeper references: [Choosing a model](/guides/choosing-a-model) for provider comparisons, [Chat interface](/guides/chat-interface) for the full feature set, and [Knowledge discovery](/guides/knowledge-discovery) for the full search and graph story.
 

@@ -639,6 +639,8 @@
   "settings.vault.snapshotTimeoutDesc": "ファイルバックアップの完了をスキップするまで待つ時間です。非常に大きなファイルがある場合は増やしてください。デフォルト: 30。",
   "settings.vault.autoCleanup": "タスク後の自動クリーンアップ",
   "settings.vault.autoCleanupDesc": "タスク完了時にバックアップコピーを削除します。ディスク容量を節約できます。タスク後にバックアップを手動で確認したい場合は無効にしてください。",
+  "settings.vault.respectObsidianExcluded": "Obsidian の除外ファイルを尊重する",
+  "settings.vault.respectObsidianExcludedDesc": "Obsidian で除外したファイル（設定、ファイルとリンク、除外ファイル）はエージェントからも隠されます。埋め込みなし、検索なし、アクセスなし。除外リストは一か所で管理できます。すでに埋め込み済みのファイルは検索時にフィルタされます。完全に削除するにはインデックスを再構築してください。",
   "settings.vault.taskExtraction": "タスク抽出",
   "settings.vault.sectionTaskExtractionInfo": "エージェントの応答にタスクのチェックボックス (`- [ ] do something`) が含まれる場合、Vault Operatorはそれらのタスクを抽出し、Frontmatter (ステータス、元チャット、期日があればそれも) 付きの個別タスクノートを作成できます。「この会議記録からTodoを抽出して」のようなワークフローに便利です。",
   "settings.vault.taskExtractionDesc": "エージェントの応答内のタスク (- [ ] 項目) を検出し、構造化されたFrontmatter付きのタスクノートを作成します。",

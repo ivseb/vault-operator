@@ -11,7 +11,7 @@ The vault health check finds these problems and helps you fix them.
 
 ## The health badge
 
-The badge is a stethoscope icon in the sidebar header, just left of the settings button. It stays hidden until a scan finds something. Once findings exist the icon appears and takes its colour from the highest severity in the result: low is the neutral accent, medium goes orange, high goes red.
+The badge is a stethoscope icon among the action icons on the right side of the sidebar header, just left of the settings button. It stays hidden until a scan finds something. Once findings exist the icon appears and takes its colour from the highest severity in the result: low is the neutral accent, medium goes orange, high goes red.
 
 Click the icon to open the repair modal. To trigger a scan, use the sidebar ellipsis menu or just ask the agent:
 
@@ -32,8 +32,10 @@ Each check is a SQL query against the knowledge graph. Together they cover the w
 | Inconsistent tags | Spelling variants of the same tag, like `#meeting` and `#meetings` | Fragmented tags fragment search and MOC coverage |
 | Category mismatches | A note's category property disagrees with the topic cluster it actually belongs to | Either the note is miscategorized or your ontology needs updating |
 | God nodes | Hub notes with far more connections than they can usefully organize | A hub with eighty backlinks has become a bottleneck |
+| Stale clusters | Topic clusters whose freshness score has dropped below the threshold | Old clusters quietly drift out of date, and the score shows where a refresh pays off |
+| Source concentration | Clusters that draw most of their notes from a single source domain | A one-source cluster inherits that source's blind spots |
 
-Weak clusters and category mismatches need the [semantic index](/guides/knowledge-discovery) to be built. Without the index the check still runs, it just returns fewer findings.
+Weak clusters, category mismatches, and the two cluster-level checks (stale clusters, source concentration) need the [semantic index](/guides/knowledge-discovery) to be built. Without the index the check still runs, it just returns fewer findings.
 
 ## The repair modal
 
@@ -53,13 +55,15 @@ The modal footer shows a count of everything you've dismissed. Click it to open 
 
 ## When to run it
 
-There's no schedule. The scan is cheap enough that you could run it after every session, but in practice most users only run it when something prompts them: after importing a batch of notes, after reorganizing folders, when search results start feeling patchy, or as occasional housekeeping every few weeks.
+The scan runs once automatically when the vault opens; beyond that there is no schedule. It is cheap enough that you could run it after every session, but in practice most users only run it when something prompts them: after importing a batch of notes, after reorganizing folders, when search results start feeling patchy, or as occasional housekeeping every few weeks.
 
 Once you've done a few of these, a session settles into a rhythm. Open the modal, deal with the red (high-severity) items first. Batch-repair the obvious mechanical stuff. Use discuss on the few findings that actually need you to think. Dismiss the ones that were fine all along. Come back another day if there's still orange left over.
 
 ## Configuration
 
-The health check reads a few vault conventions from [Settings > Vault Operator > Providers > Embeddings](/reference/settings#knowledge-properties) so it can validate category and summary properties correctly. Set those once and the check uses them for every scan. The god-node threshold is also configurable if fifty connections feels too strict or too loose for your vault size.
+The health check reads a few vault conventions from [Settings > Vault Operator > Providers > Embeddings](/reference/settings#knowledge-properties) so it can validate category and summary properties correctly. Set those once and the check uses them for every scan. The god-node threshold is currently fixed at fifty connections.
+
+The stale-cluster check has an optional companion: an external freshness verification that checks aging notes against the web on a weekly schedule or on demand. It is off by default and lives under **Settings > Vault**. The [vault health concept page](/concepts/vault-health) describes how it works.
 
 For mechanical, low-risk repairs (like reformatting a malformed wikilink), you can let the agent apply them without asking. Toggle "Vault health auto-fix" under [Settings > Vault Operator > Vault > Vault](/reference/settings#vault). Anything ambiguous still goes through Discuss.
 

@@ -51,7 +51,7 @@ function toggleTheme() {
     </template>
 
     <template #doc-after>
-      <footer class="obsilo-doc-footer">
+      <footer class="vo-doc-footer">
         <p>
           <a href="https://github.com/pssah4/vault-operator/blob/main/LICENSE">Apache 2.0</a>
           <span class="sep">|</span>
@@ -158,7 +158,7 @@ function toggleTheme() {
 }
 
 /* Footer */
-.obsilo-doc-footer {
+.vo-doc-footer {
   margin-top: 3rem;
   padding: 1.5rem 0 0;
   border-top: 1px solid var(--vp-c-divider);
@@ -166,18 +166,18 @@ function toggleTheme() {
   font-size: 0.8rem;
   color: var(--vp-c-text-3);
 }
-.obsilo-doc-footer a {
+.vo-doc-footer a {
   color: var(--vp-c-text-2);
   text-decoration: none;
 }
-.obsilo-doc-footer a:hover {
+.vo-doc-footer a:hover {
   color: var(--vp-c-brand-1);
 }
-.obsilo-doc-footer .sep {
+.vo-doc-footer .sep {
   margin: 0 0.5rem;
   opacity: 0.4;
 }
-.obsilo-doc-footer .disclaimer {
+.vo-doc-footer .disclaimer {
   opacity: 0.7;
 }
 </style>

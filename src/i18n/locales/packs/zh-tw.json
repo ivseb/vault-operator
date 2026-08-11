@@ -639,6 +639,8 @@
   "settings.vault.snapshotTimeoutDesc": "等待檔案備份完成多久後放棄並略過。若你有非常大的檔案可調高。預設：30。",
   "settings.vault.autoCleanup": "任務結束後自動清理",
   "settings.vault.autoCleanupDesc": "任務完成後刪除備份副本，節省磁碟空間。若你想在任務後手動檢視備份，請停用。",
+  "settings.vault.respectObsidianExcluded": "遵循 Obsidian 的排除檔案",
+  "settings.vault.respectObsidianExcludedDesc": "在 Obsidian 中排除的檔案（設定、檔案與連結、排除的檔案）也會對代理隱藏：不嵌入、不搜尋、不存取。排除清單只需在一處維護。已嵌入的檔案會在搜尋時被過濾；重建索引可將其完全移除。",
   "settings.vault.taskExtraction": "任務擷取",
   "settings.vault.sectionTaskExtractionInfo": "當代理程式的回應包含任務核取方塊（`- [ ] do something`）時，Vault Operator 可以將這些任務抽取出來，建立帶有 frontmatter（狀態、來源聊天、若有提及則含到期日）的個別任務筆記。適合「從這份會議逐字稿擷取待辦事項」這類工作流程。",
   "settings.vault.taskExtractionDesc": "偵測代理程式回應中的任務（- [ ] 項目），並建立含結構化 frontmatter 的任務筆記。",

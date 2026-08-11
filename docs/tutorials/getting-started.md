@@ -105,8 +105,8 @@ Continue with [Your first conversation](/tutorials/first-conversation) to learn 
 Then walk the knowledge tutorials in order:
 
 1. [Search your vault by meaning](/tutorials/search-by-meaning)
-2. [Capture a PDF with /ingest](/tutorials/quick-ingest)
-3. [Sense-making with /ingest-deep](/tutorials/deep-ingest)
+2. [Capture a PDF with quick ingest](/tutorials/quick-ingest)
+3. [Sense-making with deep ingest](/tutorials/deep-ingest)
 
 For deeper references, see [Choosing a model](/guides/choosing-a-model) and [Safety and control](/guides/safety-control).
 

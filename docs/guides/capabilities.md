@@ -25,11 +25,21 @@ Drop a PDF, web clip, or Office file into the chat. Vault Operator runs a fast t
 
 The resulting sense-making note carries a `↗` link at the end of every claim. The link jumps back to the exact block in the source. No more "I have a note about this somewhere" without a path back to where the claim came from.
 
-You drive this from chat with `/ingest` (single-pass capture) or `/ingest-deep` (triage, topic pick, source markup, sense-making note, backlinks). The five-step `/ingest-deep` flow stops at each question and waits for you.
+You drive this from chat in plain language: "Ingest this PDF" runs the quick single-pass capture, "Do a deep ingest of this paper" starts the deep path (triage, topic pick, source markup, sense-making note, backlinks). The five-step deep flow stops at each question and waits for you.
 
 > **Example prompt:** "Deep-ingest this research paper. Focus on the methodology section."
 
 [Quick ingest tutorial](/tutorials/quick-ingest) | [Deep ingest tutorial](/tutorials/deep-ingest) | [Knowledge ingest guide](/guides/knowledge-ingest) | [Block-level provenance](/concepts/provenance)
+
+## Clip web pages into permanent notes
+
+*Available since v3.3.6.*
+
+Ask the agent to clip an article and it archives the page the way the Obsidian Web Clipper does: the full text converted to Markdown, the images downloaded into your vault with the links rewritten to local embeds, and a header the agent writes on top (frontmatter plus its own summary). This goes further than `web_fetch`, which reads a page into the conversation, keeps images as remote URLs, and truncates long text. The page URL and every image URL pass the same network guard chain as `web_fetch`.
+
+> **Example prompt:** "Clip this article into Sources/ and write a short summary into the header: https://example.com/article"
+
+[Vault operations](/guides/vault-operations#clipping-web-pages) | [Safety and control](/guides/safety-control)
 
 ## Three-layer memory across sessions
 

@@ -11,7 +11,7 @@ Generated from src/core/tools/toolMetadata.ts. Do not edit by hand. Regenerate w
 node scripts/generate-tools-reference.mjs
 ```
 
-Total: 81 tools across seven groups.
+Total: 82 tools across seven groups.
 
 ## Read
 
@@ -81,6 +81,7 @@ Total: 81 tools across seven groups.
 | Tool | Signature | Description | When to use |
 | --- | --- | --- | --- |
 | `anti_echo_search` | `anti_echo_search(cluster, source_domain)` | Active web search for counter-positions to a cluster dominated by one source domain. Returns findings that contradict or qualify the dominant view. | When a knowledge cluster looks one-sided and the user asked for balance. Used by the periodic knowledge-maintenance job. |
+| `clip_web_page` | `clip_web_page(url, target_path, header_content?, attachments_folder?, max_images?)` | Archive a web page into the vault like the Obsidian Web Clipper: full text as Markdown, images downloaded as real vault files with links rewritten. You write header_content; the tool appends the full text under "## Originaltext". Deferred: activate with find_tool("clip web page").<br>Example: `clip_web_page("https://example.com/article", "Sources/Article.md", "---\ntype: source\n---\n## Summary\n...")` | To permanently save an article/source with its images, offline-readable. Unlike web_fetch (reads into context, keeps remote image URLs, truncates), this writes a full archival note. |
 | `web_fetch` | `web_fetch(url, maxLength?, startIndex?)` | Fetch a URL and return its content as Markdown. Use for reading documentation, articles, or any public page. maxLength defaults to 20000 chars; use startIndex to paginate.<br>Example: `web_fetch("https://docs.example.com/api", 5000)` | To read a specific URL. Follow up from web_search results or user-provided links. |
 | `web_search` | `web_search(query, numResults?)` | Search the web and return titles, URLs, and snippets. Follow up with web_fetch to read a full page. Only available when Web Tools are enabled in settings.<br>Example: `web_search("obsidian plugin dataview API", 5)` | For external/current information ("latest", "aktuell", "im Internet"). NOT for vault content. |
 

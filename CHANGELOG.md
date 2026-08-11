@@ -9,6 +9,87 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [3.4.0] -- 2026-08-11
+
+### Added
+
+- **The sidebar has its own design layer.** The chat panel now carries a brand
+  mark and wordmark in its header, a plan panel that draws its steps along a
+  timeline, tool steps threaded on a single line instead of stacked boxes, a
+  composer that reads as a floating card, and one status line per turn that
+  shows the current activity together with a live token count. Your theme's
+  accent colour is still the accent everywhere it matters, so community themes
+  keep working; only the brand mark carries fixed colours, the way an app icon
+  does.
+- **Obsidian's "Excluded files" list is honoured as a hard boundary.** With
+  "Respect Obsidian excluded files" on (the default), anything you excluded in
+  Obsidian's own settings is invisible to the agent: not listed, not searched,
+  not read, not written, and skipped when the semantic index is built.
+  `.obsidian-agentignore` remains the authoritative list for paths that must
+  never be touched.
+
+### Fixed
+
+- **Reloading Obsidian no longer opens a browser sign-in page on its own.** A
+  stale MCP OAuth token made the automatic reconnect escalate to a full
+  authorization and open the provider's login without anyone asking for it.
+  Authorization now happens only after an explicit action; an automatic
+  reconnect that cannot refresh silently just reports that it is waiting for
+  you.
+- **The completion result no longer runs into the preceding sentence.** A
+  finished task's summary was appended to the streamed narration without a
+  break, producing text like "...von Wesel.Der Bürgermeister...".
+- **The token and cost footer survives a reload.** It was built only while a
+  message streamed, so reopening a conversation from history showed the answer
+  without its usage line. Conversations from before this fix stay without a
+  footer, because the numbers were never recorded.
+
+### Documentation
+
+- The website mirrors the new design: brand mark, wordmark, favicon, social
+  preview image, and a landing demo that shows the redesigned sidebar.
+- Content brought up to the current feature set: the web clipper, the connector
+  catalog, the unified slash menu, the excluded-files boundary, a corrected
+  settings reference, and vault health checks that match the code. Tutorials no
+  longer teach slash commands that stopped shipping with 3.3.3; the same flows
+  are shown as plain requests to the agent.
+
+## [3.3.6] -- 2026-07-31
+
+### Added
+
+- **Clip a web page into your vault.** `clip_web_page` saves an article as a
+  Markdown note and downloads its images into the vault, rewriting the links to
+  the local copies. Page and images pass the same address checks as any other
+  web request, images are capped in count and size, and an existing note is
+  never overwritten.
+
+### Fixed
+
+- Timers in the web tools use the window-scoped variants so they keep working
+  in popped-out windows.
+
+## [3.3.5] -- 2026-07-31
+
+### Internal
+
+- Element creation uses the `createDiv` / `createSpan` shorthands required by
+  the newer review-bot lint rules. No behaviour change.
+
+## [3.3.4] -- 2026-07-31
+
+### Fixed
+
+- **Approving a sandbox script no longer approves a different one.** A granted
+  approval is now bound to the hash of the script's bytes, so an edited script
+  asks again instead of inheriting the old grant. A tampered sandbox verdict no
+  longer produces a per-script grant at all.
+
+### Internal
+
+- Element creation moved to the `createEl` helpers throughout the UI, and the
+  performance-budget job builds before it tests so the generated modules exist.
+
 ## [3.3.3] -- 2026-07-30
 
 ### Changed

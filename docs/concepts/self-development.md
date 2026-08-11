@@ -34,13 +34,11 @@ These tools sit in the `agent` and `web` groups, depending on what they touch. T
 
 ## Sandbox isolation
 
-Dynamic tools (tier 2) run in a sandbox, not in the plugin's main process. The isolation strategy depends on the platform.
+Dynamic tools (tier 2) run in a sandbox, not in the plugin's main process. The isolation mechanism is the same on every platform: a Chromium iframe sandbox.
 
-On desktop (Electron), `ProcessSandboxExecutor` (`src/core/sandbox/ProcessSandboxExecutor.ts`) spawns a separate Node.js child process with a 128 MB heap limit. The sandbox communicates with the main plugin through a message bridge. If the sandboxed code crashes or exceeds memory, the child process is killed and respawned (up to 3 times). After three failed respawns, the executor returns an error to the calling tool. The heap limit prevents a runaway script from consuming all system memory.
+`IframeSandboxExecutor` (`src/core/sandbox/IframeSandboxExecutor.ts`) creates a hidden iframe with an opaque origin, `sandbox="allow-scripts"` without `allow-same-origin`, and a locked-down content security policy. Chromium enforces those restrictions identically on Mac, Windows, Linux, and mobile. Communication happens via `postMessage`, and the plugin authenticates incoming messages by their `event.source`. The sandbox has no filesystem access and no native modules; the bridge is the only channel out.
 
-On mobile, `IframeSandboxExecutor` (`src/core/sandbox/IframeSandboxExecutor.ts`) creates a hidden iframe with restricted permissions. Communication happens via `postMessage`. Mobile sandboxes have tighter constraints: no filesystem access, no native modules. The iframe approach works on both iOS and Android versions of Obsidian.
-
-Platform selection happens automatically in `createSandboxExecutor.ts`, which checks whether Electron is available and picks the right executor. Both executors implement the same `ISandboxExecutor` interface, so dynamic tools don't need to care which platform they're running on.
+The factory in `createSandboxExecutor.ts` used to pick a Node child-process executor on desktop. That variant was removed after a security audit showed it was not a real boundary (Node's `vm` module is documented as no security mechanism, and sandboxed code could reach the host process). The iframe executor now serves every platform behind the same `ISandboxExecutor` interface, so dynamic tools don't need to care where they're running.
 
 The sandbox can do text processing, JSON manipulation, vault batch operations via the bridge, and HTTP requests via the bridge. It cannot do binary file generation (DOCX, PPTX, XLSX) because those require Buffer/stream/JSZip, which aren't available in the sandboxed environment. Binary formats are handled by built-in tools in the plugin's main process.
 

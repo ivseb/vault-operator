@@ -41,6 +41,12 @@ export interface McpOAuthProviderDeps {
 export class McpOAuthProvider implements OAuthClientProvider {
     private _state: string;
     private _codeVerifier?: string;
+    /**
+     * Whether the connect in flight was started BY THE USER. Defaults to false
+     * so an automatic connect can never open a browser window; see
+     * redirectToAuthorization.
+     */
+    private _interactive = false;
 
     constructor(private readonly deps: McpOAuthProviderDeps) {
         this._state = deps.randomState();
@@ -95,7 +101,37 @@ export class McpOAuthProvider implements OAuthClientProvider {
         await this.deps.saveSession({ tokens });
     }
 
+    /**
+     * Marks whether the CURRENT connect attempt may open a browser. Set per
+     * connect by McpClient, defaulting to false, so the decision is re-made
+     * every time instead of lingering from an earlier flow.
+     */
+    setInteractive(interactive: boolean): void {
+        this._interactive = interactive;
+    }
+
+    /**
+     * The SDK calls this for any authorization it cannot complete silently --
+     * including the boot connect, where a stale token yields a 401 and the
+     * refresh does not produce usable tokens.
+     *
+     * Opening the system browser there means a plugin reload spawns a login
+     * page the user never asked for, so the browser is opened ONLY when the
+     * user explicitly started an authorization (McpClient.authorize). On an
+     * automatic connect we return without opening anything: the SDK then
+     * reports REDIRECT, the transport raises UnauthorizedError, and McpClient
+     * puts the server into 'awaiting-auth', which the MCP settings tab already
+     * renders with an Authorize action. Nothing is lost, the user just decides
+     * when the login happens.
+     */
     async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+        if (!this._interactive) {
+            console.debug(
+                '[McpOAuth] Authorization required, but this connect was automatic. ' +
+                'Not opening a browser; the server is marked awaiting-auth.',
+            );
+            return;
+        }
         await this.deps.openBrowser(authorizationUrl.toString());
     }
 

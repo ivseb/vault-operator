@@ -1,30 +1,30 @@
 ---
-title: Sense-making with /ingest-deep
+title: Sense-making with deep ingest
 description: Walk through a guided five-step reading session that turns a research paper into sense-making notes with block-level provenance.
 ---
 
-# Sense-making with /ingest-deep
+# Sense-making with deep ingest
 
-`/ingest-deep` is the deep path: a guided, five-step dialog that turns a serious source into one or more sense-making notes. Five to fifteen minutes per source, including reading time.
+The deep ingest is the thorough path: a guided, five-step dialog that turns a serious source into one or more sense-making notes. Five to fifteen minutes per source, including reading time.
 
 Use it for research papers, long reports, domain-specific PPTX or DOCX, or anything where the answer to "what did this source actually say?" matters more than capture speed.
 
 **Before you start:**
 
-- Vault Operator installed, a model configured, semantic search built, and the quick ingest path tried at least once. If not, do [Capture a PDF with /ingest](./quick-ingest) first. The deep path builds on the same building blocks.
+- Vault Operator installed, a model configured, semantic search built, and the quick ingest path tried at least once. If not, do [Capture a PDF with quick ingest](./quick-ingest) first. The deep path builds on the same building blocks.
 - One source you genuinely want to read. The output is only as useful as the source.
 
 ## The five steps in one paragraph
 
-The skill walks you through five user-visible steps. First it runs triage and asks for a decision (ingest, defer, or discard). Then it asks for the output mode and which topics to extract. After that the agent runs `ingest_deep` to set block ids in the source, writes the sense-making note or zettel, and finally sets backlinks in the source. The agent stops and waits for your answer at three points: after triage, after the topic table, and at output mode selection.
+The agent walks you through five user-visible steps. First it runs triage and asks for a decision (ingest, defer, or discard). Then it asks for the output mode and which topics to extract. After that the agent runs `ingest_deep` to set block ids in the source, writes the sense-making note or zettel, and finally sets backlinks in the source. The agent stops and waits for your answer at three points: after triage, after the topic table, and at output mode selection.
 
 Now the same flow, step by step, with what you see and what to do.
 
 ## Step 1: Triage and decision
 
-Drag the source into the chat. PDF, DOCX, PPTX, XLSX, or a Markdown file already in the vault all work. If you drag a file from outside the vault, Vault Operator saves it to your attachment folder first and points the skill at the vault path.
+Drag the source into the chat. PDF, DOCX, PPTX, XLSX, or a Markdown file already in the vault all work. If you drag a file from outside the vault, Vault Operator saves it to your attachment folder first and points the agent at the vault path.
 
-Type `/ingest-deep` (or "Deep-ingest this paper" works too). The agent calls `ingest_triage` and shows the triage card. The card includes:
+Ask for the deep path in plain language: "Deep-ingest this paper" or "Do a deep ingest of this PDF into my Sources folder". The agent calls `ingest_triage` and shows the triage card. The card includes:
 
 - Cluster match, tension hint, source diversity, recommendation.
 - Related notes from your vault. Semantic search hits, top results.

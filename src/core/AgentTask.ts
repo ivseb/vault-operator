@@ -136,6 +136,23 @@ export interface AgentTaskCallbacks {
          */
         usageByModel?: UsageByModel,
     ) => void;
+    /**
+     * Live progress tally, fired after EVERY usage chunk (roughly once per API
+     * turn) with the run's cumulative totals so far. Purely informational: it
+     * exists so the UI can count tokens up while a run is in flight.
+     *
+     * Deliberately separate from `onUsage`, which stays the single
+     * authoritative end-of-run report that drives cost, the footer and
+     * telemetry. Those must not be recomputed per turn, and the totals here
+     * exclude auxiliary usage (condensing, FastPath) that is merged in only at
+     * the end -- so these numbers are a live lower bound, not a final bill.
+     */
+    onUsageProgress?: (
+        inputTokens: number,
+        outputTokens: number,
+        cacheReadTokens: number,
+        cacheCreationTokens: number,
+    ) => void;
     /** Called when the task is complete (attempt_completion or natural end) */
     onComplete: () => void;
     /** Called when attempt_completion fires — triggers todo auto-complete */
@@ -1442,6 +1459,16 @@ export class AgentTask {
                         // serving THIS iteration is the one to bill.
                         addUsage(this.usageByModel, this.api.getModel().id,
                             inputTokens, outputTokens, cacheRead, cacheCreation);
+                        // Live tally for the UI. The engine has already folded
+                        // this chunk into loopState (AgentLoopEngine updates the
+                        // state totals before invoking this port), so these are
+                        // the run's cumulative numbers, not this chunk's delta.
+                        this.taskCallbacks.onUsageProgress?.(
+                            loopState.totalInputTokens,
+                            loopState.totalOutputTokens,
+                            loopState.totalCacheReadTokens,
+                            loopState.totalCacheCreationTokens,
+                        );
                     },
                 });
                 const { textParts, toolUses, toolErrors, thinking: thinkingCollector } = streamResult;
@@ -1663,7 +1690,15 @@ export class AgentTask {
                     this.taskCallbacks.onAttemptCompletion?.();
                     const resultText = loopState.completionResult.trim();
                     if (resultText && (!loopState.hasStreamedText || resultText.length > loopState.streamedTextChars)) {
-                        this.taskCallbacks.onText?.(resultText);
+                        // Consumers append every onText chunk verbatim, so after
+                        // streamed narration the result has to bring its own
+                        // paragraph break -- otherwise the two run together
+                        // mid-sentence ("...von Wesel.Der Bürgermeister..."),
+                        // which is also invalid markdown for a new block.
+                        // Extra blank lines are harmless: markdown collapses them.
+                        this.taskCallbacks.onText?.(
+                            loopState.hasStreamedText ? `\n\n${resultText}` : resultText,
+                        );
                     }
                     break;
                 }

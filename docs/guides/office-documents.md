@@ -6,7 +6,7 @@ description: Create PPTX, DOCX, and XLSX files from your notes. Read existing Of
 # Office documents
 
 :::warning Beta feature
-Office document creation is a beta feature. Reading existing Office files (the parsing side used by `/ingest`, `@`-mentions, and chat attachments) is solid and production-ready. Creation produces working files, but the visual quality is closer to a clean default deck than to a brand-matched corporate output. Read the [What works today](#what-works-today) and [What does not work yet](#what-does-not-work-yet) sections before you rely on it for client deliverables.
+Office document creation is a beta feature. Reading existing Office files (the parsing side used by the ingest workflows, `@`-mentions, and chat attachments) is solid and production-ready. Creation produces working files, but the visual quality is closer to a clean default deck than to a brand-matched corporate output. Read the [What works today](#what-works-today) and [What does not work yet](#what-does-not-work-yet) sections before you rely on it for client deliverables.
 :::
 
 You will need: Vault Operator installed, a configured AI provider, and (for PPTX creation) the office optional asset enabled under `Settings > Vault Operator > Advanced > Optional assets`.
@@ -29,13 +29,13 @@ Drop a file into the chat, mention it with `@filename.pptx`, or ask the agent to
 
 Once parsed, the content behaves like any other note in the conversation. The agent can summarize it, extract action items, compare it to other material, or feed it into an ingest workflow.
 
-For deeper capture into the vault, see [Knowledge ingest](/guides/knowledge-ingest). PDFs and Office files are first-class sources for `/ingest` and `/ingest-deep`.
+For deeper capture into the vault, see [Knowledge ingest](/guides/knowledge-ingest). PDFs and Office files are first-class sources for both the quick ingest and the deep ingest.
 
 ## Creating Office files (beta)
 
 ### What works today
 
-You invoke creation by asking in the chat or via the bundled office workflow skill. Under the hood the agent calls three tools by name:
+You invoke creation by asking in the chat. Under the hood the agent calls three tools by name:
 
 - `create_docx` writes a `.docx` file with headings, paragraphs, bullet lists, numbered lists, and tables. Output is clean, readable, and stable.
 - `create_xlsx` writes an `.xlsx` file with sheets, headers, data rows, formulas, and column widths. Stable.

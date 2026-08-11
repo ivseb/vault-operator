@@ -105,6 +105,17 @@ export interface UiMessage {
      */
     toolStepsHtml?: string;
     /**
+     * The rendered usage/cost footer line of this assistant turn
+     * ("18:55 · 6 in · 176 out · 37.537 cached · 49% hit · 0,049 €"),
+     * captured verbatim from the live footer when the turn is persisted.
+     * Stored as display text on purpose: recomputing from raw token counts
+     * would drift whenever model pricing changes, while the historical line
+     * should show what the run actually cost at the time. Optional -- turns
+     * saved before 2026-08-10 and runs whose provider reported no usage
+     * omit it, and their reloaded bubbles simply stay footer-less.
+     */
+    usageFooter?: string;
+    /**
      * Stable task id for assistant turns. Used by FIX-01-07-02 to
      * re-render the checkpoint markers and undo-bar when an old
      * conversation is re-opened (the sidebar otherwise only renders

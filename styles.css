@@ -14,7 +14,20 @@
     border: 0;
 }
 
-/* Sidebar Container */
+/* Sidebar Container
+ *
+ * This block also carries the --vo-* design tokens: the "own layer" of the
+ * redesign, a single-source token set on top of Obsidian's theme variables so
+ * spacing, radius, elevation and status colours come from one place instead of
+ * hand-set pixels. The INTERACTIVE accent deliberately stays the user's theme
+ * (--interactive-accent) so custom community themes keep working. Only shadows
+ * need an explicit light/dark pair; everything else maps to theme-aware
+ * Obsidian vars. Dark overrides follow the same `.theme-dark` selector pattern
+ * the diff tokens already use.
+ *
+ * The tokens live INSIDE this rule rather than in a second
+ * `.obsidian-agent-sidebar` block on purpose: the Obsidian review bot's CSS
+ * lint (tier 7) fails on any duplicated bare selector. */
 .obsidian-agent-sidebar {
     display: flex;
     flex-direction: column;
@@ -23,6 +36,44 @@
     /* Allow text selection in chat (override Obsidian's default sidebar behavior) */
     user-select: text;
     -webkit-user-select: text;
+
+    /* Spacing scale */
+    --vo-space-1: 4px;
+    --vo-space-2: 8px;
+    --vo-space-3: 12px;
+    --vo-space-4: 16px;
+    --vo-space-5: 20px;
+    --vo-space-6: 24px;
+
+    /* Radii */
+    --vo-radius-sm: 8px;
+    --vo-radius-md: 12px;
+    --vo-radius-lg: 15px;
+    --vo-radius-pill: 999px;
+
+    /* Surfaces + hairlines (theme-aware via Obsidian vars) */
+    --vo-surface-1: var(--background-secondary);
+    --vo-surface-2: var(--background-secondary-alt);
+    --vo-line: var(--background-modifier-border);
+    --vo-line-strong: var(--background-modifier-border-hover, var(--background-modifier-border));
+
+    /* Elevation. Light values here, dark overridden below. */
+    --vo-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.04);
+    --vo-shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.08);
+
+    /* Accent stays the user's theme; a soft tint for fills/backgrounds. */
+    --vo-accent: var(--interactive-accent);
+    --vo-accent-soft: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+
+    /* Status colours (theme-aware; used by tool activity + step timeline) */
+    --vo-status-run: var(--color-orange);
+    --vo-status-ok: var(--color-green);
+    --vo-status-err: var(--color-red);
+}
+
+.theme-dark .obsidian-agent-sidebar {
+    --vo-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --vo-shadow-md: 0 12px 30px -10px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 /* Header */
@@ -30,7 +81,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    /* Left padding matches the tab labels below (~12px) so the brand glyph
+     * lines up flush-left with the tab strip instead of sitting indented. */
+    padding: 12px 12px;
     border-bottom: 1px solid var(--background-modifier-border);
     flex-shrink: 0;
 }
@@ -38,20 +91,44 @@
 .agent-title {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 15.5px;
-    font-weight: 700;
-    font-family: Consolas, monospace;
+    gap: 9px;
     color: var(--text-normal);
 }
 
-/* Sidebar header wordmark: monospace text in the form "/ Vault Operator". */
-.agent-title-wordmark {
-    display: inline-block;
-    font-family: Consolas, "SF Mono", Menlo, Monaco, "Courier New", monospace;
+/* Brand glyph: pink → violet gradient rounded square carrying a diagonal
+ * slash, the coloured square-slash mark from the Obsidian community listing.
+ * Brand colours are fixed by design (not theme-tinted) so the mark stays
+ * recognisable on every theme, the way an app icon does. */
+.agent-brand-glyph {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border-radius: 7px;
+    background: linear-gradient(145deg, #e6547f 0%, #a24bd8 55%, #7b5cf0 100%);
+    box-shadow: var(--vo-shadow-sm);
+}
+
+/* The slash, a rotated white bar, so we depend on no icon font. rotate(45deg)
+ * of a vertical bar leans bottom-left → top-right, i.e. a forward slash. */
+.agent-brand-glyph::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 2px;
+    height: 13px;
+    border-radius: 2px;
+    background: #ffffff;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* Wordmark: the product name in the UI face, no longer monospace. */
+.agent-brand-name {
+    font-family: var(--font-interface);
     font-size: 15px;
     font-weight: 600;
-    letter-spacing: 0.01em;
+    letter-spacing: -0.01em;
     color: var(--text-normal);
 }
 
@@ -453,11 +530,11 @@
 .chat-messages {
     height: 100%;
     overflow-y: auto;
-    padding: 10px 12px;
+    padding: var(--vo-space-3) var(--vo-space-4);
     padding-bottom: 140px;  /* Safety margin: Input-Container ist ~120px hoch */
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--vo-space-3);
 }
 
 .message {
@@ -468,10 +545,10 @@
 
 .message-content {
     padding: 7px 10px;
-    border-radius: 8px;
+    border-radius: var(--vo-radius-sm);
     max-width: 100%;
-    line-height: 1.45;
-    font-size: 13px;
+    line-height: 1.55;
+    font-size: 14px;
     user-select: text;
     cursor: text;
     transition: opacity 150ms ease-out;
@@ -598,20 +675,76 @@
     margin-bottom: 4px;
 }
 
+/* Keeping the question reachable is handled by the pinned-question BAR (see
+ * .vo-pinned-question), not by position: sticky on the bubble. Sticky was
+ * shipped first and failed in the field for a reason worth recording: the
+ * Copilot plugin ships an unscoped `.message{position:relative}` rule that
+ * outranks a same-specificity `.user-message` sticky purely by stylesheet
+ * order -- and, independently, flat sticky siblings would all pile up at
+ * top: 0 because they share one containing block. An overlay bar has neither
+ * problem. */
+.user-message {
+    align-items: flex-end;
+}
+
+/* The prompt keeps its bubble (it is the marker the answer hangs off), but a
+ * neutral, quiet one. It used to be tinted with ~20% of the theme accent,
+ * which made the question shout louder than the answer it introduces. The
+ * answer stays unboxed and full width, so the two never compete. */
 .user-message .message-content {
-    /* Light blue tint that mirrors the Chrome DevTools "selected line"
-       highlight: ~20% of the Obsidian accent over the chat background.
-       Picks up whatever --interactive-accent resolves to so users with
-       a custom accent in Appearance settings get their colour
-       automatically. */
-    background: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-primary));
+    /* A very light grey box, mixed from the text colour rather than taken from
+     * a surface token: the chat ground IS --background-secondary, so a surface
+     * token rendered the bubble invisible. Mixing against the text colour keeps
+     * it a faint tint of the ground in light AND dark themes.
+     * The text itself stays --text-normal; muted made the question read like a
+     * disabled control next to the full-strength answer. */
+    background: color-mix(in srgb, var(--text-normal) 7%, transparent);
     color: var(--text-normal);
     align-self: flex-end;
     max-width: 85%;
     border-radius: 12px 12px 4px 12px;
-    padding: 6px 11px;
+    padding: 7px 11px;
     font-size: 13px;
     cursor: text;
+}
+
+/* Pinned question bar: floats at the top of the chat while the CURRENT
+ * question is scrolled out of view, so the prompt stays reachable during a
+ * long answer (Claude-Code pattern). One line with ellipsis; click toggles
+ * the full text. Lives in .chat-wrapper (position: relative), z-index below
+ * the history panel's 10. Styled as a floating card on --background-primary,
+ * the same treatment the active tab uses, so it reads as deliberately ON
+ * TOP of the chat rather than as a band trying to blend in. */
+.vo-pinned-question {
+    position: absolute;
+    top: var(--vo-space-2);
+    left: var(--vo-space-4);
+    right: var(--vo-space-4);
+    z-index: 3;
+    padding: 6px 12px;
+    background: var(--background-primary);
+    border: 1px solid var(--vo-line);
+    border-radius: var(--vo-radius-md);
+    box-shadow: var(--vo-shadow-md);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    font-size: 13px;
+    color: var(--text-normal);
+}
+
+.vo-pinned-question-text {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Expanded: full question, wrapped; very long prompts scroll inside the bar
+ * instead of covering the whole conversation. */
+.vo-pinned-question.vo-pinned-question-expanded .vo-pinned-question-text {
+    white-space: normal;
+    max-height: 12em;
+    overflow-y: auto;
 }
 
 /* FEAT-24-08 / ADR-114 Steering-Hook: distinct visual for mid-run
@@ -694,8 +827,105 @@
     border: none;
     color: var(--text-normal);
     padding: 2px 0 4px;
-    font-size: 13px;
+    font-size: 14px;
     cursor: text;
+}
+
+/* Reusable brand mark: the pink → violet rounded square carrying the slash,
+ * the same square-slash used in the sidebar header and the community listing.
+ * A floating marker in the message gutter was tried first and had to be
+ * dropped: absolutely positioned beside a panel, it always collided with that
+ * panel's top-left corner. The mark now lives INSIDE the surfaces it belongs
+ * to (currently the plan panel header), which makes the collision structurally
+ * impossible. Sized by the element it is applied to via --vo-mark-size.
+ *
+ * Drawn in CSS on purpose: DOMPurify strips <svg> when a chat is rehydrated
+ * from history, so an icon-font/SVG mark would vanish in reloaded chats. */
+.vo-brand-mark {
+    --vo-mark-size: 16px;
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+    width: var(--vo-mark-size);
+    height: var(--vo-mark-size);
+    border-radius: calc(var(--vo-mark-size) / 3.6);
+    background: linear-gradient(145deg, #e6547f 0%, #a24bd8 55%, #7b5cf0 100%);
+}
+
+/* The slash: a thin bar, centred then rotated. A gradient colour-band was
+ * tried first and renders as a chunky diagonal split of the square at these
+ * sizes, not as a slash; a fixed bar stays crisp at any size. */
+.vo-brand-mark::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 2px;
+    height: calc(var(--vo-mark-size) * 0.58);
+    margin-left: -1px;
+    margin-top: calc(var(--vo-mark-size) * -0.29);
+    border-radius: 1px;
+    background: #ffffff;
+    transform: rotate(45deg);
+}
+
+/* Live token meter: ticks the estimated output while the model streams
+ * (Claude-Code-style count-up). The exact per-turn total still lands in the
+ * footer via TaskMonitor; this is the in-flight estimate for the current turn. */
+.vo-live-meter {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vo-space-1);
+    width: fit-content;
+    margin: 2px 0 6px;
+    padding: 2px 8px;
+    border-radius: var(--vo-radius-pill);
+    background: var(--vo-surface-2);
+    color: var(--text-muted);
+    font-family: var(--font-monospace);
+    font-size: 11px;
+}
+
+/* Activity animation: the mark's own slash spins inside the icon box. More
+ * distinctive than a generic spinner, and it ties the running state to the
+ * product's mark. Only the bar rotates; the gradient square stays put. */
+.vo-live-meter-icon {
+    --vo-mark-size: 14px;
+}
+
+.vo-live-meter-icon::before {
+    animation: vo-slash-spin 1.6s linear infinite;
+}
+
+/* Starts at the mark's resting 45deg so there is no jump when it begins. */
+@keyframes vo-slash-spin {
+    from { transform: rotate(45deg); }
+    to   { transform: rotate(405deg); }
+}
+
+.vo-live-meter-label {
+    color: var(--text-muted);
+}
+
+/* Token count, secondary to the activity word. Hidden until the model has
+ * produced output, so no stray separator shows during the first tool phase.
+ * Tabular figures keep the digits from jittering as the number climbs. */
+.vo-live-meter-tokens {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.vo-live-meter-tokens:empty {
+    display: none;
+}
+
+.vo-live-meter-tokens::before {
+    content: "\00b7";
+    margin: 0 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vo-live-meter-icon::before { animation: none; }
 }
 
 .message-section {
@@ -1064,10 +1294,11 @@
 .chat-input-wrapper {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
+    border: 1px solid var(--vo-line-strong);
+    border-radius: var(--vo-radius-lg);
     background: var(--input-background);
     overflow: hidden;
+    box-shadow: var(--vo-shadow-md);
 }
 
 /* Prevent themes from adding a focus ring/border-color change that creates a
@@ -1109,9 +1340,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 10px;
-    border-top: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary-alt);
+    padding: var(--vo-space-2) var(--vo-space-3);
+    border-top: 1px solid var(--vo-line);
+    background: transparent;
 }
 
 .chat-toolbar-left {
@@ -1306,16 +1537,20 @@
  * the bordered look wins over the borderless .toolbar-button.toolbar-button
  * base without !important. */
 .toolbar-button.send-button.send-button {
-    background: none;
-    color: var(--interactive-accent);
-    border: 1px solid var(--background-modifier-border);
-    padding: 3px 8px;
+    background: var(--vo-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: var(--vo-radius-pill);
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    justify-content: center;
 }
 
 .toolbar-button.send-button.send-button:hover {
-    background: var(--background-modifier-hover);
-    color: var(--interactive-accent);
-    border-color: var(--interactive-accent);
+    background: var(--interactive-accent-hover);
+    color: var(--text-on-accent);
+    border: none;
 }
 
 .toolbar-button.send-button:active {
@@ -1341,8 +1576,12 @@
 .toolbar-button.stop-button.stop-button {
     background: none;
     color: var(--text-muted);
-    border: 1px solid var(--background-modifier-border);
-    padding: 3px 8px;
+    border: 1px solid var(--vo-line-strong);
+    border-radius: var(--vo-radius-pill);
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    justify-content: center;
 }
 
 .toolbar-button.stop-button.stop-button:hover {
@@ -1450,7 +1689,10 @@
     margin: 1px 0;
     font-size: 11px;
     overflow: hidden;
-    opacity: 0.65;
+    /* Redesign: tool steps read calmly but are no longer half-hidden. The old
+     * opacity:.65 made the agent's actual work near-invisible; muted colours
+     * carry the "quiet" now, full opacity carries the legibility. */
+    opacity: 1;
     transition: opacity 100ms ease-out;
 }
 
@@ -1468,7 +1710,7 @@
     gap: 4px;
     padding: 2px 6px;
     cursor: pointer;
-    color: var(--text-faint);
+    color: var(--text-muted);
     list-style: none;
     user-select: none;
     font-size: 11px;
@@ -1476,6 +1718,25 @@
 
 .tool-call-summary::-webkit-details-marker {
     display: none;
+}
+
+/* Each step icon is a node ON the thread line: a fixed 14px box (centre x=13,
+ * matching .agent-steps-body::before) whose opaque background masks the line
+ * so the step reads as a point on it, not a row crossed by it. The fixed width
+ * matters twice: it holds the node geometry, and it keeps the row aligned in
+ * REHYDRATED chats, where DOMPurify strips the <svg> and an auto-width span
+ * would collapse to 0 and drag the row left. */
+.tool-call-summary .tool-icon {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--background-primary);
 }
 
 .tool-call-summary .tool-icon svg {
@@ -1516,6 +1777,10 @@
     font-size: 10px;
     width: 10px;
     text-align: center;
+    /* Reset the 8px top margin the legacy .tool-card rule sets on .tool-status.
+     * In this flex row it pushed the status dot below the text baseline; only
+     * visible as slight sloppiness before, plainly wrong against the thread. */
+    margin-top: 0;
 }
 
 .tool-call-summary .tool-running::after {
@@ -1727,10 +1992,11 @@
 /* ── Model button (toolbar) — no border, label + chevron, compact ───────── */
 .model-button {
     flex-shrink: 0;
-    background: none;
+    background: var(--vo-surface-2);
     border: none;
+    border-radius: var(--vo-radius-pill);
     color: var(--text-muted);
-    padding: 3px 5px;
+    padding: 4px 10px;
     font-size: 11px;
 }
 
@@ -2999,12 +3265,9 @@
    specific selectors below remain unique to this section) ──────────── */
 
 /* User message: right-aligned pill, compact */
-.user-message {
-    align-items: flex-end;
-}
-
-/* user-message .message-content base styles merged into the earlier
-   block (line 383 area); only context-specific selectors remain below. */
+/* .user-message base styles (incl. align-items and the sticky pinning) are
+   merged into the earlier block; only context-specific selectors remain
+   below, so the bare selector is defined exactly once in this file. */
 
 /* Selection highlight: deeper tint of the accent so text stays readable
    against the very light user-message bubble. */
@@ -3062,14 +3325,26 @@
     margin-bottom: 2px;
 }
 
+/* The wrapper is created for EVERY assistant turn, including pure text answers
+ * that never call a tool. As an empty in-flow flex item it still contributed
+ * its margin plus the parent's gap, pushing the answer down ~6px and leaving
+ * the brand mark floating too high. Collapsing it when empty makes the mark
+ * align identically for text turns and tool turns. */
+.message-tools:empty {
+    display: none;
+}
+
 /* ── Agent steps block ──────────────────────────────────────────────────── */
 /* All tool calls for one turn are grouped under a single collapsible block. */
 /* A thin left border replaces the old individual card borders.               */
+/* Redesign: no card. The steps are a thread, drawn as one vertical line with a
+ * node per step (see .agent-steps-body below) -- a box around the agent's work
+ * competed with the message bubbles for attention and boxed in the brand mark
+ * sitting in the gutter. No border, no fill, no radius: only the line carries
+ * the grouping. Top margin is 0 so the block's first row lines up with the
+ * brand mark beside it. */
 .agent-steps-block {
-    border-left: 2px solid var(--background-modifier-border);
-    padding-left: 8px;
-    margin: 2px 0 4px;
-    border-radius: 4px;  /* Subtile Abrundung */
+    margin: 0 0 var(--vo-space-2);
 }
 
 /* Hide the native disclosure triangle */
@@ -3080,12 +3355,14 @@
     display: none;
 }
 
-/* Summary line: icon + label, single row */
+/* Summary line: icon + label, single row. The 7px left pad puts the 12px
+ * summary icon's centre on x=13, the same axis the step nodes below use, so
+ * the header reads as the top of the thread. */
 .agent-steps-summary {
     display: flex;
     align-items: center;
     gap: 5px;
-    padding: 2px 0;
+    padding: 2px 0 2px 7px;
     cursor: pointer;
     user-select: none;
     color: var(--text-muted);
@@ -3117,15 +3394,39 @@
 
 /* Body: individual tool call <details> elements */
 .agent-steps-body {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 1px;
     padding-top: 3px;
 }
 
+/* The thread line. It is drawn HERE and not on .tool-call-details, because
+ * those clip their overflow (see .tool-call-details) and would cut the line at
+ * every row boundary. Inset top and bottom so it spans first node to last
+ * rather than running into the rows above and below. */
+.agent-steps-body::before {
+    content: "";
+    position: absolute;
+    left: 12px;
+    top: 9px;
+    bottom: 9px;
+    width: 2px;
+    background: var(--vo-line);
+}
+
 /* Individual tool entries inside the block are slightly more compact */
 .agent-steps-body .tool-call-details {
     margin: 0;
+}
+
+/* Once a plan exists, renderTodoBox MOVES the whole .message-tools subtree into
+ * the plan box, which paints its own surface. The step nodes mask the thread
+ * line with a background colour, so that colour has to follow the surface they
+ * now sit on, otherwise each node shows as a light dot on a darker panel. */
+.todo-activity-log .tool-call-summary .tool-icon,
+.todo-activity-log .tool-computing-icon {
+    background: var(--vo-surface-1);
 }
 
 /* ── Auto-approve bar ─────────────────────────────────────────────────── */
@@ -3161,64 +3462,101 @@
 
 /* ── Question card (Kilo Code style) ─────────────────────────────────── */
 /* ── Todo Box ────────────────────────────────────────────────────────────── */
+/* Plan view: a clean card on the token system. The old heavy 3px accent bar
+ * and 4px radius are replaced by a soft-elevated surface, and the steps are
+ * connected by a vertical timeline spine so the plan reads as a sequence. */
 .agent-todo-box {
-    margin: 4px 0 2px;
-    border: 1px solid var(--background-modifier-border);
-    border-left: 3px solid var(--interactive-accent);
-    border-radius: 4px;
-    background: var(--background-secondary);
+    /* No top margin: the panel is the first thing in the turn, so it starts
+     * flush with the turn instead of drifting down away from it. */
+    margin: 0 0 var(--vo-space-2);
+    border: 1px solid var(--vo-line);
+    border-radius: var(--vo-radius-md);
+    background: var(--vo-surface-1);
     overflow: hidden;
+    box-shadow: var(--vo-shadow-sm);
 }
 
 .todo-box-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 8px 4px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    gap: var(--vo-space-2);
+    padding: var(--vo-space-2) var(--vo-space-3);
+    border-bottom: 1px solid var(--vo-line);
 }
 
+/* The panel's leading icon is the brand mark (see .vo-brand-mark), which
+ * replaced the generic checklist glyph so the agent has a face here. */
 .todo-box-icon {
-    font-size: 12px;
-    color: var(--interactive-accent);
+    --vo-mark-size: 16px;
 }
 
 .todo-box-title {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--text-muted);
 }
 
 .todo-box-list {
-    padding: 4px 0;
+    position: relative;
+    padding: var(--vo-space-3) 0;
+}
+
+/* Timeline spine: a hairline behind the status-icon column, inset top and
+ * bottom so it runs between the first and last node, not to the box edges.
+ * left = icon-column centre (item padding-left + half the 16px node). */
+.todo-box-list::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--vo-space-3) + 7px);
+    top: calc(var(--vo-space-3) + 8px);
+    bottom: calc(var(--vo-space-3) + 8px);
+    width: 2px;
+    background: var(--vo-line);
 }
 
 .todo-item {
+    position: relative;
     display: flex;
-    align-items: baseline;
-    gap: 7px;
-    padding: 2px 10px;
-    font-size: 12px;
-    line-height: 1.5;
+    align-items: center;
+    gap: var(--vo-space-2);
+    padding: var(--vo-space-1) var(--vo-space-3);
+    font-size: 12.5px;
+    line-height: 1.45;
 }
 
+/* Each status icon is a node on the spine; its surface-coloured background
+ * masks the line so every step reads as a distinct point on the timeline. */
 .todo-item-icon {
-    font-size: 10px;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
-    min-width: 10px;
+    border-radius: 50%;
+    background: var(--vo-surface-1);
+    color: var(--text-faint);
+}
+
+.todo-item-icon svg {
+    width: 13px;
+    height: 13px;
 }
 
 .todo-item-text {
     color: var(--text-normal);
 }
 
-.todo-done .todo-item-icon  { color: #4caf50; }
+.todo-done .todo-item-icon  { color: var(--vo-status-ok); }
 .todo-done .todo-item-text  { color: var(--text-muted); text-decoration: line-through; }
 
-.todo-in-progress .todo-item-icon { color: var(--interactive-accent); }
-.todo-in-progress .todo-item-text { color: var(--text-normal); font-weight: 500; }
+.todo-in-progress .todo-item-icon { color: var(--vo-accent); }
+.todo-in-progress .todo-item-icon svg { animation: thinking-spin 1.4s linear infinite; }
+.todo-in-progress .todo-item-text { color: var(--text-normal); font-weight: 600; }
 
 .todo-pending .todo-item-icon { color: var(--text-faint); }
 .todo-pending .todo-item-text { color: var(--text-muted); }
@@ -4373,9 +4711,11 @@ h4.agent-settings-section {
 
 /* ── Thinking / Reasoning block ──────────────────────────────────────── */
 .thinking-block {
-    margin-bottom: 5px;
-    border-left: 2px solid var(--background-modifier-border);
-    padding-left: 8px;
+    margin: var(--vo-space-1) 0 var(--vo-space-2);
+    /* Same accent-tinted spine as the tool steps so reasoning and actions read
+     * as one connected thread. */
+    border-left: 2px solid color-mix(in srgb, var(--vo-accent) 35%, var(--vo-line));
+    padding-left: var(--vo-space-3);
     transition: opacity 150ms ease-out;
 }
 
@@ -4618,8 +4958,12 @@ h4.agent-settings-section {
 }
 
 /* ── Between-iteration "Analyzing results…" indicator ──────────────── */
+/* The transient "analyzing" row is a duplicate now: the turn's status line at
+ * the top says the same thing, with the token count next to it. Kept in the
+ * DOM (several code paths create and clear it) but not shown twice, so the
+ * former flex layout below is inert and left only as a record of its shape. */
 .tool-computing-row {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 5px;
     padding: 2px 6px;
@@ -4627,9 +4971,19 @@ h4.agent-settings-section {
     color: var(--text-faint);
 }
 
+/* Same node geometry as a finished step, so the transient "analyzing" row sits
+ * on the thread line instead of hanging beside it. */
 .tool-computing-icon {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--background-primary);
 }
 
 .tool-computing-icon svg {

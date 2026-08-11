@@ -28,7 +28,35 @@ Any MCP-compatible server works. A few common examples:
 
 There are two kinds of server. A **remote server** you reach over a URL (SSE or Streamable HTTP). A **local (stdio) server** is a command Vault Operator launches on your machine. The two have different setup flows and different trust models.
 
+### Connector catalog
+
+For common services, Vault Operator ships a curated connector catalog so you do not have to look up endpoint URLs or create API keys. Open **Settings > Vault Operator > Customize > Connectors > External tool servers > Add a connector** and search for a name or a topic. Curated connectors carry an **Official** badge. The same search also finds community servers from the official MCP registry (registry.modelcontextprotocol.io); registry listings are not audited, so review the publisher before adding one of those. Click **Details** to review a connector, then **Add**. A freshly added connector starts switched off; turning its toggle on in the server list connects it, including the browser sign-in when the connector uses OAuth.
+
+The catalog contains:
+
+| Connector | What it provides | Connection |
+|-----------|------------------|------------|
+| Notion | Search and read your Notion workspace | Remote, OAuth sign-in |
+| Exa | Semantic web and research-paper search | Remote, OAuth sign-in |
+| Tavily | Real-time web search and content extraction | Remote, OAuth sign-in |
+| Readwise | Answer from your highlights and Reader documents | Remote, OAuth sign-in |
+| Atlassian | Jira issues and Confluence pages | Remote, OAuth sign-in |
+| Plaud | Your Plaud recordings, transcripts and AI notes | Remote, OAuth sign-in |
+| Microsoft Learn | Microsoft and Azure documentation and training content | Remote, no sign-in |
+| Icons8 | Free PNG icons and illustrations for canvas and diagrams | Remote, no sign-in |
+| Azure DevOps | Work items, repositories and pipelines from your Azure DevOps organization | Local (stdio), personal access token, Desktop only |
+
+The OAuth connectors use OAuth 2.1 with dynamic client registration: you sign in with your existing account in the browser instead of creating and pasting an API key, and the returned tokens are stored encrypted. The sign-in page opens only after an explicit action from you, such as turning the connector's toggle on or clicking its retry action; an automatic reconnect, for example when Obsidian starts, never opens a browser on its own and instead waits in the server list until you sign in.
+
+Azure DevOps is the one local (stdio) entry. Adding it runs a guided setup that asks for your organization and a personal access token, stores both only on this device, and follows the stdio trust rules described below.
+
+Added catalog connectors behave like any other server. They appear in the server list with the **Official** badge, and in the chat sidebar's tool picker (options menu, then **Tools & MCP servers**) under **Protocol servers**, where you can switch each one on or off per agent.
+
+The catalog is data-driven; the current list lives in `src/core/mcp/connectorCatalog.ts`.
+
 ### Setup for a remote server
+
+Manual setup is the generic path for any MCP-compatible server, whether or not the catalog or the registry search knows it. If you already have the server's endpoint URL, add it here:
 
 1. Open **Settings > Vault Operator > Customize > Connectors > External tool servers**
 2. Click **"+ Add Server"**

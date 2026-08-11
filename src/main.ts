@@ -1359,7 +1359,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // folder root so its config zone (settings, mcp config, provenance
         // manifest) is write-protected against the agent's own vault tools.
         this.ignoreService = new IgnoreService(this.app.vault, getInternalAgentFolderPath(this));
-        await this.ignoreService.load();
+        await this.ignoreService.load(this.settings.respectObsidianExcludedFiles ?? true);
 
         // Rules loader (Sprint 3.2) — now uses global storage
         this.rulesLoader = new RulesLoader(this.globalFs);

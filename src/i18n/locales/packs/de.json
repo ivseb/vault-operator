@@ -639,6 +639,8 @@
   "settings.vault.snapshotTimeoutDesc": "Wie lange auf den Abschluss einer Dateisicherung gewartet wird, bevor sie übersprungen wird. Erhöhen bei sehr großen Dateien. Standard: 30.",
   "settings.vault.autoCleanup": "Automatisches Aufräumen nach Aufgabe",
   "settings.vault.autoCleanupDesc": "Löscht die Sicherungskopien, sobald eine Aufgabe abgeschlossen ist. Spart Speicherplatz. Deaktivieren, wenn du die Sicherungen nach einer Aufgabe manuell prüfen möchtest.",
+  "settings.vault.respectObsidianExcluded": "Obsidians ausgeschlossene Dateien respektieren",
+  "settings.vault.respectObsidianExcludedDesc": "In Obsidian ausgeschlossene Dateien (Einstellungen, Dateien und Links, Ausgeschlossene Dateien) werden auch vor dem Agenten verborgen: kein Embedding, keine Suche, kein Zugriff. Ausschlussliste an einer Stelle pflegen. Bereits eingebettete Dateien werden bei der Suche gefiltert; Index neu aufbauen, um sie ganz zu entfernen.",
   "settings.vault.taskExtraction": "Aufgaben-Extraktion",
   "settings.vault.sectionTaskExtractionInfo": "Wenn der Agent eine Antwort mit Aufgaben-Checkboxen (`- [ ] etwas erledigen`) schreibt, kann Vault Operator diese Aufgaben herausziehen und einzelne Aufgaben-Notizen mit Frontmatter anlegen (Status, Quell-Chat, Fälligkeitsdatum falls erwähnt). Nützlich für Workflows wie \"Extrahiere die Todos aus diesem Meeting-Protokoll\".",
   "settings.vault.taskExtractionDesc": "Erkennt Aufgaben (- [ ] Einträge) in Agenten-Antworten und erstellt Aufgaben-Notizen mit strukturiertem Frontmatter.",

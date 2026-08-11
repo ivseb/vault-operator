@@ -863,6 +863,8 @@ export const en = {
     'settings.vault.snapshotTimeoutDesc': 'How long to wait for a file backup to finish before skipping it. Increase if you have very large files. Default: 30.',
     'settings.vault.autoCleanup': 'Auto-cleanup after task',
     'settings.vault.autoCleanupDesc': 'Delete the backup copies once a task finishes. Saves disk space. Disable if you want to review the backups manually after a task.',
+    'settings.vault.respectObsidianExcluded': 'Respect Obsidian excluded files',
+    'settings.vault.respectObsidianExcludedDesc': 'Files you exclude in Obsidian\'s own excluded-files setting are also hidden from the agent: no embedding, no search, no access. Maintain the exclusion list in one place. Already-embedded files are filtered at search time; rebuild the index to remove them fully.',
 
     // =========================================================================
     // Settings -- Vault Tab: Task Extraction

@@ -1,13 +1,13 @@
 ---
-title: Capture a PDF with /ingest
+title: Capture a PDF with quick ingest
 description: Drop a PDF into the chat and end up with a clean source note that links every claim back to the right page.
 ---
 
-# Capture a PDF with /ingest
+# Capture a PDF with quick ingest
 
 This tutorial shows the fastest ingest path: drop a single PDF into the chat, get a clean source note with page-level links back to the original.
 
-About three minutes per source. Use `/ingest` when you want the material captured for later, without spending a full reading session on it right now.
+About three minutes per source. Use the quick ingest when you want the material captured for later, without spending a full reading session on it right now.
 
 **Before you start:**
 
@@ -18,9 +18,9 @@ About three minutes per source. Use `/ingest` when you want the material capture
 
 Drag the PDF onto the chat input. The file uploads, and Vault Operator writes it into your Obsidian attachment folder (whatever you set in Obsidian's Files and links settings). The chat shows a file chip with the saved vault path. You did not need to save the PDF manually first.
 
-## Step 2: Run /ingest and approve the write
+## Step 2: Ask for the ingest and approve the write
 
-Type `/ingest` (or "ingest this report") and send.
+Type "Ingest this report" and send. Any phrasing that asks for a capture works, "Add this PDF to my vault as a source note" does the same.
 
 The agent makes one tool call to `ingest_document` and asks for write approval. Approve, and one Markdown note lands in your default output folder (set in **Settings > Vault Operator > Vault > Vault > Default output folder**, default `Inbox/`). The note contains:
 
@@ -29,7 +29,7 @@ The agent makes one tool call to `ingest_document` and asks for write approval. 
 - A `## Key Take-Aways` section. Each take-away ends with a `↗` link that resolves to the exact page of the source.
 - The full original PDF text, appended automatically.
 
-That is the entire quick path. No triage card, no ingest/defer/discard choice. If you want that decision step plus sense-making notes and backlinks, use [Make sense of a research paper with `/ingest-deep`](./deep-ingest) instead.
+That is the entire quick path. No triage card, no ingest/defer/discard choice. If you want that decision step plus sense-making notes and backlinks, use [Make sense of a research paper with deep ingest](./deep-ingest) instead.
 
 ## Step 3: Click a take-away
 
@@ -53,7 +53,7 @@ You now know the quick ingest path. One drop, one approval, one source note with
 
 For material that deserves a real reading session (a research paper, a long report, a domain-specific Office document), use the deep path:
 
-- [Make sense of a research paper with `/ingest-deep`](./deep-ingest)
+- [Make sense of a research paper with deep ingest](./deep-ingest)
 
 For the full reference on both paths, including configuration:
 
