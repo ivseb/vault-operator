@@ -21,6 +21,7 @@ import { BUNDLED_SKILLS } from '../../_generated/bundled-skills';
 import { castGenerated } from '../utils/runtime';
 import { isSafePathSegment } from '../utils/safePathName';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
+import { TRUSTED_SKILL_TIERS } from '../skills/SkillProvenanceStore';
 import { isHostAllowed } from '../governance/webHostGrants';
 import type { ToolRegistry } from '../tools/ToolRegistry';
 import type {
@@ -88,28 +89,15 @@ export function readAwareOutputCap(toolName: string, windowTokens?: number): num
 }
 
 /**
- * AUDIT-034 L-17 cross-module gate. Mirrors `TRUSTED_SKILL_SOURCES` in
- * `src/core/tools/agent/InvokeSkillTool.ts`. Duplicated here (instead of
- * imported) because InvokeSkillTool pulls heavy subtask-spawning + mode
- * registry deps that the Pipeline does not need; we keep the trust set
- * local and pin both sites with a comment so a future change has to update
- * both places. Sources NOT in this set are treated as imported content and
- * the autoApproval.skills flag is ignored for them -- the per-skill prompt
- * in InvokeSkillTool (sessionApprovedImportedSkills + askImportedSkillApproval)
- * remains the user-facing approval surface.
- *
- * Keep this set tight. Adding `agent`/`learned`/etc here would silently
- * widen the trust boundary for every `invoke_skill` auto-approval path.
- *
- * `pro` (monetized publisher skills) is trusted here to mirror
- * TRUSTED_SKILL_SOURCES in InvokeSkillTool.ts. SECURITY CONTRACT: sound
- * only while `source: pro` is written exclusively by a verified installer
- * (dev install today, hash-pinned download later). The download flow MUST
- * verify integrity before stamping `source: pro`.
+ * AUDIT-034 L-17 cross-module gate. L-1 (AUDIT 2026-08-13): this used to hold a
+ * local copy of the trusted-source set, a third independent definition that had
+ * to be kept in sync by comment. It now imports the single source of truth,
+ * SkillProvenanceStore.TRUSTED_SKILL_TIERS ({builtin, bundled}), which is a
+ * dependency-free module, so this gate cannot drift from the store and
+ * InvokeSkillTool. Sources NOT in the set are imported content: the
+ * autoApproval.skills flag is ignored for them and the per-skill prompt in
+ * InvokeSkillTool remains the user-facing approval surface.
  */
-const PIPELINE_TRUSTED_SKILL_SOURCES: ReadonlySet<string> = new Set([
-    'builtin', 'bundled',
-]);
 
 /**
  * Cap an oversized tool-result string at {@link HARD_TOOL_OUTPUT_CAP_CHARS},
@@ -1672,7 +1660,7 @@ export class ToolExecutionPipeline {
             // Malformed call -- let the tool itself reject it.
             if (targetName.length === 0) return true;
             const source = this.plugin.selfAuthoredSkillLoader?.getSkill(targetName)?.source ?? 'user';
-            return PIPELINE_TRUSTED_SKILL_SOURCES.has(source);
+            return TRUSTED_SKILL_TIERS.has(source);
         }
 
         return true;

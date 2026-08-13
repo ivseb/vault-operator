@@ -9,6 +9,13 @@ Most AI tools sit outside your knowledge base and wait for you to copy and paste
 
 This page is the short tour. Each section links out to the guide that goes deep.
 
+Prefer to watch? This 7-minute animated explainer walks through the agent from the inside: the loop, the harness with its five gates, tools, skills, and MCP, then one real job crossing every layer.
+
+<video controls preload="metadata" poster="https://github.com/pssah4/vault-operator/releases/download/media/explainer-poster.jpg" style="width:100%; border-radius:12px; margin:20px 0;">
+  <source src="https://github.com/pssah4/vault-operator/releases/download/media/vault-operator-explainer.mp4" type="video/mp4">
+  Your browser does not support embedded video. <a href="https://github.com/pssah4/vault-operator/releases/download/media/vault-operator-explainer.mp4">Download the explainer</a> instead.
+</video>
+
 ## Inline AI chat in the editor
 
 *Available since v3.0.0.*

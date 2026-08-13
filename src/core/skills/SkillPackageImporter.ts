@@ -170,6 +170,12 @@ export async function importSkillPackage(
     if (!destExists) await input.adapter.mkdir(destFolder);
 
     const writtenFiles: string[] = [];
+    // L-3 (AUDIT 2026-08-13): the pre-flight size check above trusts the zip's
+    // DECLARED uncompressed size (getUncompressedSize), which a crafted central
+    // directory can under-report. Re-check the ACTUAL decompressed bytes here so
+    // a package that lied about its size is rejected before it is written,
+    // instead of inflating unbounded into the vault.
+    let actualBytes = 0;
     for (const { path: relPath, file } of whitelisted) {
         const absPath = `${destFolder}/${relPath}`;
         const parentDir = absPath.slice(0, absPath.lastIndexOf('/'));
@@ -177,6 +183,13 @@ export async function importSkillPackage(
             await input.adapter.mkdir(parentDir);
         }
         const data = await file.async('arraybuffer');
+        actualBytes += data.byteLength;
+        if (actualBytes > limit) {
+            throw new SkillPackageImportError(
+                `Zip actual decompressed size exceeds ${limit} bytes.`,
+                'ZIP_BOMB',
+            );
+        }
         await input.adapter.writeBinary(absPath, data);
         writtenFiles.push(relPath);
     }

@@ -132,6 +132,14 @@ export function parseCatalog(raw: unknown): RegistryCatalog {
         if (!/^[0-9a-f]{64}$/.test(sha)) {
             throw new RegistryError(`Catalogue entry ${i} has no usable checksum.`);
         }
+        const file = str('file', true);
+        // L-2 (AUDIT 2026-08-13): `file` is concatenated into the download URL.
+        // Even bounded to the registry host, refuse anything but a plain relative
+        // path so a catalogue entry can never reshape the fetch -- no scheme
+        // (colon), no leading slash, no backslash, no `..` traversal.
+        if (!/^[A-Za-z0-9._-][A-Za-z0-9._/-]*$/.test(file) || file.includes('..')) {
+            throw new RegistryError(`Catalogue entry ${i} has an unsafe file path.`);
+        }
         return {
             slug: str('slug', true),
             name: str('name', true),
@@ -139,7 +147,7 @@ export function parseCatalog(raw: unknown): RegistryCatalog {
             trigger: str('trigger', false),
             components: Array.isArray(e.components) ? e.components.map(String) : [],
             version: str('version', false) || '1.0.0',
-            file: str('file', true),
+            file,
             bytes: typeof e.bytes === 'number' ? e.bytes : 0,
             sha256: sha,
             // Never empty. An install asks the user to accept a licence, and a

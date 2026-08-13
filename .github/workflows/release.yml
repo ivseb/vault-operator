@@ -101,6 +101,7 @@ jobs:
         with:
           subject-path: |
             release-assets/main.js
+            release-assets/manifest.json
             release-assets/styles.css
             optional-assets/ort-wasm-simd-threaded.wasm
             optional-assets/plugin-source.json

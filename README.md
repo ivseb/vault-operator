@@ -14,6 +14,18 @@ Free. Open source. Local-first. Works with cloud models, with your existing Chat
 
 [Documentation](https://pssah4.github.io/vault-operator) | [Install from Obsidian](obsidian://show-plugin?id=vault-operator) | [Community page](https://community.obsidian.md/plugins/vault-operator)
 
+## Watch: how the agent works, from the inside
+
+A 7-minute animated tour through the whole machine: the agent loop, the harness with its five gates, tools, skills, and MCP, then one real job crossing every layer. Click to watch:
+
+<p align="center">
+  <a href="https://github.com/pssah4/vault-operator/releases/download/media/vault-operator-explainer.mp4">
+    <img src="https://github.com/pssah4/vault-operator/releases/download/media/explainer-poster.jpg" alt="Inside Vault Operator: a 7-minute animated explainer of the agent loop, harness, tools, skills, and MCP" width="820">
+  </a>
+</p>
+
+Also embedded on the [capabilities page](https://pssah4.github.io/vault-operator/guides/capabilities) of the docs.
+
 ---
 
 ## What people are saying
@@ -190,6 +202,16 @@ Apache 2.0.
 免费。开源。本地优先。可以配合云端模型使用,可以用你现有的 ChatGPT 或 Copilot 订阅,也可以借助 Ollama 或 LM Studio 完全离线运行。
 
 [文档](https://pssah4.github.io/vault-operator) | [从 Obsidian 安装](obsidian://show-plugin?id=vault-operator) | [社区页面](https://community.obsidian.md/plugins/vault-operator)
+
+## 观看:智能体的内部工作原理
+
+一部 7 分钟的动画短片,带你走进整个系统:智能体循环、带五道闸门的 harness、工具、技能与 MCP,以及一个真实任务如何穿过每一层。点击观看(英文):
+
+<p align="center">
+  <a href="https://github.com/pssah4/vault-operator/releases/download/media/vault-operator-explainer.mp4">
+    <img src="https://github.com/pssah4/vault-operator/releases/download/media/explainer-poster.jpg" alt="Inside Vault Operator:7 分钟动画讲解智能体循环、harness、工具、技能与 MCP" width="820">
+  </a>
+</p>
 
 ---
 

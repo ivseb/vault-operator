@@ -28,6 +28,7 @@ import { BaseTool, defangBoundaryTags, sanitizeDirectoryEntry } from '../BaseToo
 import type { ToolDefinition, ToolExecutionContext, ToolName } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { SelfAuthoredSkill } from '../../skills/SelfAuthoredSkillLoader';
+import { TRUSTED_SKILL_TIERS } from '../../skills/SkillProvenanceStore';
 import { isSkillEnabled } from '../../skills/skillToggleGate';
 import { isSafePathSegment } from '../../utils/safePathName';
 import {
@@ -54,19 +55,13 @@ interface InvokeSkillArgs {
  * to the model as if their instructions can override the host's approval
  * rules.
  */
-// `pro` = publisher-curated monetized skills. Host-trusted so a paying
-// user does not hit the provenance gate on every invoke. SECURITY
-// CONTRACT: this trust is only sound while `source: pro` is written
-// exclusively by a verified installer -- dev install today, hash-pinned
-// on-demand download later. The download flow MUST verify integrity
-// (catalog hash pin, analogous to the language packs) BEFORE stamping
-// `source: pro`, otherwise a downloaded skill could spoof the marker to
-// escalate trust. Mirror any change in ToolExecutionPipeline.ts.
-// EPIC-31: only bundle-shipped bytes are trusted. `registry` is deliberately
-// absent -- a downloaded skill is a foreign skill and runs through the normal
-// approval chain, whatever its badge says. `pro` is gone with the tier.
-// Mirrored in SkillProvenanceStore.TRUSTED_SKILL_TIERS and the pipeline.
-const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled']);
+// L-1 (AUDIT 2026-08-13): the trusted-source set is defined ONCE, in
+// SkillProvenanceStore.TRUSTED_SKILL_TIERS ({builtin, bundled}), and imported
+// here. It used to be redefined locally, so this gate and the store could drift
+// apart -- add a tier to one and not the other and the gate is decorative. Only
+// bundle-shipped bytes are trusted; `registry` is deliberately absent -- a
+// downloaded skill is a foreign skill and runs through the normal approval
+// chain, whatever its badge says.
 
 /**
  * Per-process record of which imported skills the user has already approved
@@ -208,7 +203,7 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
         // construction. Anything else (user-imported `.md` / `.zip`, agent-
         // written via skill-translator, plugin-managed skills) goes through
         // the per-session approval prompt the first time it is invoked.
-        const isImported = !TRUSTED_SKILL_SOURCES.has(skill.source);
+        const isImported = !TRUSTED_SKILL_TIERS.has(skill.source);
         if (isImported && !sessionApprovedImportedSkills.has(skillName)) {
             const approved = await this.askImportedSkillApproval(skill, context);
             if (!approved) {

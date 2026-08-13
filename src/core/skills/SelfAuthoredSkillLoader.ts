@@ -320,7 +320,7 @@ export class SelfAuthoredSkillLoader {
      * a privilege bug.
      *
      * FIX-44-05: a frontmatter `source:` is NOT trusted verbatim. A trusted tier
-     * (builtin | bundled | pro) is honoured only when the provenance manifest
+     * (builtin | bundled) is honoured only when the provenance manifest
      * confirms the plugin materialized this exact SKILL.md (name + content hash);
      * otherwise it drops to 'user'. This is what stops a third-party skill from
      * forging `source: pro` to inherit paid-skill trust. Non-trusted declarations

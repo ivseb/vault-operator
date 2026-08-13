@@ -43,6 +43,7 @@ with the community plugin maintainer on request.
 | The LLM provider (Anthropic, OpenAI, etc.) | Untrusted output | LLM responses are treated as adversarial input |
 | Third-party MCP servers | Untrusted | The user can configure remote MCP servers (HTTP / SSE) and, since FEAT-04-13, local stdio servers (Desktop-only, device-local config, per-device human trust -- see "Shell execution"); their responses are treated as adversarial |
 | npm packages loaded from `esm.sh` / `cdn.jsdelivr.net` / `unpkg.com` / `registry.npmjs.org` | Untrusted | User-initiated; mitigated by sandbox + SHA-256 integrity pinning (TOFU + build-time) |
+| The public skill registry (`raw.githubusercontent.com/pssah4/vault-operator-skill-registry`, EPIC-31) | Untrusted | User-initiated (never fetched on boot); each package is size-capped and SHA-256-pinned against the catalogue before any file is written, then installs as the `registry` MANAGED tier, which runs through the same approval chain as a user-authored skill and grants no elevated trust (see [SkillProvenanceStore](src/core/skills/SkillProvenanceStore.ts)) |
 | Local files outside the vault and outside the plugin data dir | Out of scope | The plugin must never read or write them |
 
 ### Primary trust boundaries

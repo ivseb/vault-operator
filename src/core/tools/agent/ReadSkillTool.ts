@@ -174,7 +174,7 @@ export class ReadSkillTool extends BaseTool<'read_skill'> {
     /**
      * FIX-44-23: frame a skill body according to its trust.
      *
-     * Only a plugin-managed skill (builtin | bundled | pro, verified by the
+     * Only a plugin-managed skill (builtin | bundled, verified by the
      * provenance manifest, FIX-44-05) may be presented as authoritative -- one
      * that OVERRIDES tool selection and guidelines. An imported or user-authored
      * skill is untrusted third-party content: its instructions are a workflow to
