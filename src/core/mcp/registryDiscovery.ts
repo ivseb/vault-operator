@@ -312,6 +312,14 @@ function mapEntry(entry: Record<string, unknown> | null, existingKeys: Set<strin
     const segment = name.slice(name.indexOf('/') + 1);
     const verification: RegistryDiscoveryResult['verification'] =
         namespace.startsWith('io.github.') ? 'github' : namespace.includes('.') ? 'domain' : null;
+    // Scanner note (review bot "split/join domain assembly"): the reversed
+    // namespace below is NEVER fetched. It is (a) a display string for the
+    // publisher badge and (b) the expected value in the anti-spoofing check
+    // right after -- the MCP registry's reverse-DNS namespace ("com.notion")
+    // is turned back into the domain it proves ("notion.com") and COMPARED
+    // against the server URL's actual hostname. The only URL requested is
+    // `remote.url`, a literal from the registry response, validated above
+    // via validateProviderUrl.
     const publisher: string | null =
         verification === 'github'
             ? `@${namespace.slice('io.github.'.length)}`

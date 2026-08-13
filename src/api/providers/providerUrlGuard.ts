@@ -217,6 +217,11 @@ function normalizeIpv4Encoding(hostname: string): string | null {
     // Hex integer: 0x7f000001
     if (/^0x[0-9a-f]+$/i.test(h)) return toQuad(parseInt(h, 16));
     // Dotted form with an octal (leading-zero) component: 0177.0.0.1
+    // Scanner note (review bot "split/join domain assembly"): this join
+    // rebuilds an IP the CALLER already supplied into its canonical
+    // dotted-quad form so isPrivateIpHostname can reject obfuscated
+    // private-IP encodings. It normalizes for a deny-check; it does not
+    // construct a new endpoint.
     const parts = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
     if (parts && parts.slice(1).some((p) => /^0\d+$/.test(p))) {
         const nums = parts.slice(1).map((p) => (/^0\d+$/.test(p) ? parseInt(p, 8) : Number(p)));

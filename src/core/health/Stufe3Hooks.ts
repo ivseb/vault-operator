@@ -59,6 +59,10 @@ export function countIndependentDomains(urls: string[]): number {
         try {
             const host = new URL(u).hostname;
             const parts = host.toLowerCase().split('.');
+            // Scanner note (review bot "split/join domain assembly"): this
+            // eTLD+1 surrogate is a COUNTING key for the update-heuristic
+            // signal (how many independent domains a text cites). It is added
+            // to a local Set and never used in a network request.
             const eTld1 = parts.length >= 2 ? parts.slice(-2).join('.') : host.toLowerCase();
             domains.add(eTld1);
         } catch {

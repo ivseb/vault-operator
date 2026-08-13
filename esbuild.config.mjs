@@ -1,5 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
+import { execSync } from "node:child_process";
 import { builtinModules as builtins } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { createHash } from "crypto";
@@ -753,6 +754,13 @@ if (prod) {
     // Emit language-pack SHAs + release-asset copies BEFORE the main bundle
     // so locale-hashes.ts is compiled in (FEAT-42-05).
     generateLocaleHashes();
+    // Typecheck AFTER generation, BEFORE the main bundle. A clean checkout has
+    // no src/_generated/ yet (gitignored, written by the generators above), so
+    // a tsc that runs first dies with TS2307 -- exactly what the community
+    // review bot's build verification does (`npm run build` in a clean clone).
+    // Running tsc here keeps the gate: a type error still blocks the bundle
+    // emit and the vault deploy that hangs off it.
+    execSync("npx tsc -noEmit -skipLibCheck", { stdio: "inherit" });
     // Single-shot build with up-to-date generated files
     await esbuild.build(mainBuildOptions);
     process.exit(0);
