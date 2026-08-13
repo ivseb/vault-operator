@@ -108,9 +108,7 @@ export function readAwareOutputCap(toolName: string, windowTokens?: number): num
  * verify integrity before stamping `source: pro`.
  */
 const PIPELINE_TRUSTED_SKILL_SOURCES: ReadonlySet<string> = new Set([
-    'builtin',
-    'bundled',
-    'pro',
+    'builtin', 'bundled',
 ]);
 
 /**

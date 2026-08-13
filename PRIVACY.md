@@ -68,6 +68,26 @@ are triggered only by an explicit click in Settings, are fetched from
 this plugin's GitHub release page and are stored inside your vault under
 `.vault-operator/assets/`. You can remove them via Settings at any time.
 
+## The skill registry
+
+Opening the Skill Registry in Settings does nothing on its own. When you press
+Load catalogue the plugin reads one file, `catalog.json`, from the public
+registry repository on `raw.githubusercontent.com`. Pressing Install fetches one
+more file, the skill package itself.
+
+Both requests are plain reads of public files. No account, no token, no
+identifier, and nothing about you or your vault travels with them, beyond what
+any HTTP request unavoidably reveals to GitHub (your IP address and the fact
+that a file was requested). Nothing is fetched when the plugin starts.
+
+A downloaded package is checked against the checksum recorded in the catalogue
+before a single file is written. If it does not match, nothing is installed.
+
+Skills installed this way are marked `Registry` and are not privileged: the
+agent asks for approval before one of them changes anything, exactly as it does
+for a skill you wrote yourself. If you edit an installed skill it becomes a
+`User` skill.
+
 ## Questions
 
 Open an issue at https://github.com/pssah4/vault-operator/issues if you

@@ -332,13 +332,23 @@ export class SelfAuthoredSkillLoader {
      * 'user' default.
      */
     private async resolveSkillSource(parsedSource: string, skillFolder: string, content: string): Promise<string> {
+        const skillName = skillFolder.slice(skillFolder.lastIndexOf('/') + 1);
+
+        // The manifest outranks the frontmatter, always. It is written by the
+        // materializer or by a verified installer, both of them plugin code
+        // writing into a zone the sandbox cannot reach; the frontmatter is a
+        // file anyone may edit. Consulting it FIRST is what lets a registry
+        // skill resolve as `registry` even though its package carries no source
+        // line -- and it is why an edit that breaks the content hash drops the
+        // skill back to the frontmatter's own claim, or to `user`.
+        const verified = this.provenance?.getVerifiedSource(skillName, content);
+        if (verified) return verified;
+
         if (parsedSource.length > 0) {
             if (TRUSTED_SKILL_TIERS.has(parsedSource)) {
-                const skillName = skillFolder.slice(skillFolder.lastIndexOf('/') + 1);
-                const verified = this.provenance?.getVerifiedSource(skillName, content);
-                // No manifest (e.g. tests without wiring) is fail-closed: a
-                // trusted-tier claim we cannot verify becomes 'user'.
-                return verified ?? 'user';
+                // A trusted claim with no matching manifest entry is fail-closed:
+                // unverifiable means untrusted, not "believe the file".
+                return 'user';
             }
             return parsedSource;
         }

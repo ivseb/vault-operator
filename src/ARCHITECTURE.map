@@ -10,7 +10,7 @@
 # entry-point file and the relevant ADR number.
 #
 # Status, phase, last-change live in the backlog row, not here.
-# Run `grep "ADR-NNN" _devprocess/context/10_backlog.md` for status.
+# Run `grep "ADR-NNN" _devprocess/context/BACKLOG.md` for status.
 #
 # Format Section 1: `concept | entry-point | adr | how-to-extend`
 # Format Section 2: `ADR-NNN | topic | title`
@@ -179,14 +179,13 @@ plugin-entry              | src/main.ts                                         
 # INLINE EDITOR AI (EPIC-33, planned in /coding)
 # Concept rows below mark planned entry-points. Files exist after /coding implements them.
 # JSDoc header per file is the source of truth for current paths. See ADRs ADR-138..144 for design.
-inline-trigger-resolver   | src/core/inline/trigger/InlineTriggerResolver.ts      | ADR-138         | new action: register in InlineActionRegistry, add Floating-Menu entry plus Hotkey via Settings
-inline-floating-menu      | src/core/inline/trigger/InlineFloatingMenu.ts         | ADR-138         | new action entry: register in InlineActionRegistry, set output_mode hint
-inline-diff-renderer      | src/core/inline/diff/InlineDiffRenderer.ts            | ADR-139         | new diff-output mode: extend StateField effects, see Decoration.mark+widget pattern
-inline-diff-state         | src/core/inline/diff/InlineDiffStateField.ts          | ADR-139         | extend hunk map shape: keep RangeSet.map(tr.changes) invariant
+inline-trigger-resolver   | src/core/inline/InlineTriggerResolver.ts            | ADR-138         | new action: register in InlineActionRegistry, add Floating-Menu entry plus Hotkey via Settings
+inline-floating-menu      | src/core/inline/InlineFloatingMenu.ts                  | ADR-138         | new action entry: register in InlineActionRegistry, set output_mode hint
+inline-diff-renderer      | src/core/inline/diff/InlineDiffEngine.ts                  | ADR-139         | new diff algorithm: extend the engine; rendering lives in CodeMirrorDiffAdapter
+inline-diff-state         | src/core/inline/diff/CodeMirrorDiffAdapter.ts           | ADR-139         | extend hunk map shape: keep RangeSet.map(tr.changes) invariant
 inline-lookup-rag         | src/core/inline/lookup/VaultRagPipeline.ts            | ADR-142         | new RAG variant: extend confidence filter or augmenter, reuse VectorStore.findNoteVectors
-inline-chat-block         | src/core/inline/chat/InlineChatBlockRenderer.ts       | ADR-143         | new fence version: bump tag vault-operator-chat-vN, add migration in InlineChatBlockParser
-inline-settings-snapshot  | src/core/inline/settings/InlineActionSettingsSnapshot.ts | ADR-140      | new snapshot field: add to settings cache invalidation, propagate through Per-Action-Pin
-inline-telemetry          | src/core/inline/telemetry/InlineActionTelemetry.ts    | ADR-144         | new event type: add to OperationLogger event-type enum, sanitize before persist
+inline-chat-block         | src/core/inline/chat/mount/CodeMirrorBlockMount.ts       | ADR-143         | new mount variant: extend InlineChatMountAdapter, block widget reserves its own layout line
+inline-settings-snapshot  | src/core/inline/inlineSettings.ts | ADR-140      | new snapshot field: add to settings cache invalidation, propagate through Per-Action-Pin
 agent-task-runner         | src/core/agent/AgentTaskRunner.ts                     | ADR-138         | new caller site: provide ToolCallbacks, AgentTaskRunConfig, call runner instead of new AgentTask
 
 # Parallel chat sessions (EPIC-55, concept rows added with /coding once code lands)
@@ -380,3 +379,34 @@ ADR-169 | parallel-sessions     | Multi-Leaf-Session-Modell -- N Leaves eines Vi
 ADR-170 | parallel-sessions     | Per-Session-Ownership von Mode/Attachments/Session-Flags -- pro View/Run statt global, kein State-Bleed
 ADR-171 | parallel-sessions     | Concurrency-safe Run-Identity + serialisierte atomare Persistenz -- kollisionsfreie Ids, per-File-Queue mit tmp+rename
 ADR-172 | parallel-sessions     | Geteilte API-Kapazitaets-Koordination -- Rate-Limiter/Circuit/Auth bleiben geteilt, parallel-mit-Backoff bei einem Key
+
+# dia-realign catalog backfill (added 2026-08-11): 27 ADRs fehlten im Katalog.
+# Text = Frontmatter-Titel der jeweiligen ADR-Datei.
+ADR-130 | stigmergy             | Stigmergy als externer Recall-Layer in VO
+ADR-131 | stigmergy             | VO-Selektor-Vorrang vor Stigmergy-Suggestion
+ADR-132 | stigmergy             | Stigmergy-Pinned-Sequence Direct Recipe Promotion
+ADR-133 | mastery               | Episode-Recording im finally-Block plus indexEpisode-Success-Gate
+ADR-134 | providers             | Bedrock-Gateway-Auth-Mode (Custom-Header statt SigV4 hinter Enterprise-APIM)
+ADR-135 | knowledge-maintenance | Verdict-Confidence-Routing und ZDR-Pflicht fuer Note-Verifier
+ADR-136 | knowledge-db          | KnowledgeDB Domain-Diskriminator und Migration v12 zu v13
+ADR-137 | knowledge-db          | KnowledgeDB Domain-Access-Pattern (Helper + Lint-Regel)
+ADR-145 | agent-loop            | ADR-145-agent-loop-engine-state-machine
+ADR-146 | providers             | ADR-146-provider-resilience-layer
+ADR-147 | modell-routing        | ADR-147-model-capabilities-registry
+ADR-148 | model-metadata        | ADR-148-deploy-free-model-metadata
+ADR-149 | agent-loop            | ADR-149-inflight-persistence-immutable-log
+ADR-150 | providers             | ADR-150-provider-wire-adapters
+ADR-151 | fast-path             | ADR-151-fastpath-trust-levels
+ADR-152 | skills                | ADR-152-pro-skill-grandfathering
+ADR-153 | governance            | ADR-153-effekt-basiertes-approval-gate
+ADR-160 | config                | forcedWorkflow wird vault-lokal statt global gespeichert
+ADR-161 | mcp                   | MCP-Aktivierung pro Agent (vault-lokal) statt global
+ADR-162 | layout-migration      | Layout-Konsolidierung automatisch für Frischinstallationen
+ADR-163 | vault-health          | Freshness-Verifikation als on-demand Teilcheck von Vault Health
+ADR-164 | vault-health          | Gemeinsames Prädikat pro Finding-Klasse (Check = Plan = Verify)
+ADR-165 | governance            | Plan-Approval für Mass-Writes auch im Modal-Pfad
+ADR-166 | vault-health          | Write-Extract-Verify als atomare, event-basierte Sequenz
+ADR-167 | vault-health          | Deterministische Findings, Options-Chokepoint und Snapshot-Lesen
+ADR-168 | mcp                   | Nativer stdio-Support fuer ausgehende MCP-Connectors (device-lokal, ask-Gate, keine OS-Sandbox)
+ADR-173 | context               | ADR-173-token-counting-strategy
+ADR-174 | governance            | Skill-Skript-Approval -- Wirkungs-Gate statt byte-genauem Ausführungs-Gate

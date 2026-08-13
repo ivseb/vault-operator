@@ -32,7 +32,12 @@
  * they were a plugin-id entry.
  */
 export const USER_SKILL_SOURCES: ReadonlySet<string> = new Set([
-    'user', 'agent', 'learned', 'builtin', 'bundled', 'pro',
+    'user', 'agent', 'registry', 'builtin',
+    // Legacy, read but never written. `bundled` predates the materializer's
+    // normalisation to `builtin`, `learned` predates `agent`, and `pro` is the
+    // abandoned monetization tier. Dropping any of them here would filter
+    // existing on-disk skills out of the list, which reads as data loss.
+    'bundled', 'learned', 'pro',
 ]);
 
 /**
@@ -50,22 +55,33 @@ export function isUserSkillSource(source: string | null | undefined): boolean {
 }
 
 /**
- * Three top-level labels surfaced in the Source column of the
- * SkillsTab. Unknown values fall through unchanged so plugin-id badges
- * keep their raw discriminator.
+ * Four top-level labels surfaced in the Source column of the SkillsTab.
+ * Unknown values fall through unchanged so plugin-id badges keep their raw
+ * discriminator.
+ *
+ * The label says where a skill came from. It does NOT say what the skill is
+ * allowed to do: only `builtin` is trusted, and everything else runs through
+ * the normal approval chain regardless of badge. A user who edits a Registry
+ * skill breaks its content hash and it resolves to `user` from then on, which
+ * is the tier demotion working as intended rather than a separate mechanism.
  */
 export function getSourceLabel(source: string): string {
     switch (source) {
         case 'bundled':
         case 'builtin':
             return 'Built-in';
+        case 'registry':
+            return 'Registry';
         case 'agent':
         case 'learned':
             return 'Agent';
         case 'user':
             return 'User';
         case 'pro':
-            return 'Pro';
+            // A pre-EPIC-31 Pro skill was never checked against a registry
+            // catalogue and has no installer provenance. Calling it Registry
+            // would claim an origin it does not have, so it degrades to User.
+            return 'User';
         default:
             return source;
     }
@@ -77,6 +93,6 @@ export function getSourceLabel(source: string): string {
  */
 export const SOURCE_TOOLTIP =
     'Built-in: ships with the plugin. ' +
-    'Agent: created via the skill-creator workflow (quality-gated). ' +
-    'User: manually written, copied or imported by you. ' +
-    'Pro: purchased premium skill, installed on demand.';
+    'Registry: installed from the public skill registry. ' +
+    'Agent: created for you by the skill-creator workflow. ' +
+    'User: written, copied or imported by you, or a skill you have edited.';

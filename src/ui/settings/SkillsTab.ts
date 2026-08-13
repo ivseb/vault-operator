@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- File-level disable: interacts with Obsidian internals and Electron where untyped values are unavoidable. Inputs are validated at boundaries via type guards. The six other rules this used to silence are no longer triggered here. */
 import { App, Menu, Notice, setIcon, setTooltip } from 'obsidian';
 import JSZip from 'jszip';
 import type ObsidianAgentPlugin from '../../main';
@@ -15,8 +15,10 @@ import {
     getSelfAuthoredSkillsDir,
 } from '../../core/utils/agentFolder';
 import { importSkill, detectSourceFromFile, SkillPackageImportError, SkillFolderImportError } from '../../core/skills/SkillImportRouter';
-import { confirmModal } from '../modals/PromptModal';
+import { confirmModal, chooseModal, promptModal } from '../modals/PromptModal';
 import { t } from '../../i18n';
+import { SkillRegistryModal } from './SkillRegistryModal';
+import { SkillRegistryClient } from '../../core/skills/SkillRegistryClient';
 
 interface ElectronDialog {
     showOpenDialog(options: {
@@ -71,13 +73,34 @@ export class SkillsTab {
         return getPluginSkillsDir(this.plugin);
     }
 
-    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+    /**
+     * Filter text for everything this tab lists. The registry has its own
+     * window; this covers what the vault already holds, on both sides of the
+     * separator. A skill is a skill to the person looking for one, and having
+     * to know in advance which of the two lists it lives in defeats the search.
+     */
+    private query = '';
+
+    /** Set by the two sections so the shared filter can redraw both. */
+    private refreshInstalled: (() => Promise<void>) | null = null;
+    private refreshPlugins: (() => void) | null = null;
+
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {
+        // The client lives on the plugin, not on this tab: the settings tab is
+        // rebuilt on every rerender, and a catalogue held in a tab-scoped
+        // instance would be thrown away the moment loading finished.
+        this.plugin.skillRegistryClient ??= new SkillRegistryClient(plugin);
+    }
 
     build(containerEl: HTMLElement): void {
         // -- Introduction: What are Skills? --
         this.buildIntroSection(containerEl);
 
-        // -- Unified Skills Section (merged Manual + Vault Skills) --
+        // -- Controls first: the four ways to get a skill on one line, the
+        //    filter over everything below them (FEAT-31-01).
+        this.buildControlsRow(containerEl);
+
+        // -- Installed skills --
         this.buildUnifiedSkillsSection(containerEl);
 
         // -- Separator --
@@ -85,6 +108,82 @@ export class SkillsTab {
 
         // -- Obsidian Plugin Skills (PAS-1) --
         this.buildPluginSkillsSection(containerEl);
+    }
+
+    /**
+     * The action row and the filter, above both lists.
+     *
+     * Buttons on their own line, filter on the next. Sharing one line meant the
+     * input shrank whenever a language wrote longer labels, and the filter
+     * belongs with what it filters rather than with the things that add to it.
+     *
+     * Both sections register a redraw with this class, so the handlers here can
+     * be written before either list exists.
+     */
+    private buildControlsRow(containerEl: HTMLElement): void {
+        const actions = containerEl.createDiv({ cls: 'agent-skill-actions-row' });
+
+        const browseBtn = actions.createEl('button', { cls: 'mod-cta agent-registry-open-btn' });
+        setIcon(browseBtn.createSpan('agent-registry-open-btn__icon'), 'library-big');
+        browseBtn.createSpan({ text: t('settings.skills.registryBrowse') });
+        browseBtn.addEventListener('click', () => {
+            const client = this.plugin.skillRegistryClient;
+            if (!client) return;
+            new SkillRegistryModal(this.plugin, client, () => this.rerender()).open();
+        });
+
+        const createBtn = actions.createEl('button', { text: t('settings.skills.create') });
+        createBtn.addEventListener('click', () => { void this.runCreateSkill(); });
+
+        // FEATURE-2202: universal import. Accepts a single .md, a .skill/.zip
+        // or a folder via the native picker; the router detects which.
+        const importBtn = actions.createEl('button', { text: t('settings.skills.import') });
+        importBtn.addEventListener('click', () => {
+            void this.runUniversalImport(() => this.refreshInstalled?.() ?? Promise.resolve());
+        });
+
+        // FEATURE-2207: needed when a SKILL.md was edited outside Obsidian
+        // (iCloud lag, external editor) and the watcher missed it.
+        const reloadBtn = actions.createEl('button', {
+            text: t('settings.skills.reload'),
+            attr: { 'aria-label': t('settings.skills.reloadAriaLabel') },
+        });
+        reloadBtn.addEventListener('click', () => { void this.runReloadSkills(reloadBtn); });
+
+        const filterRow = containerEl.createDiv({ cls: 'agent-skill-filter-row' });
+        const filterInput = filterRow.createEl('input', {
+            type: 'text',
+            cls: 'agent-skill-filter-input',
+            attr: {
+                placeholder: t('settings.skills.filterPlaceholder'),
+                'aria-label': t('settings.skills.filterPlaceholder'),
+            },
+        });
+        filterInput.addEventListener('input', () => {
+            this.query = filterInput.value;
+            void this.refreshInstalled?.();
+            this.refreshPlugins?.();
+        });
+    }
+
+    /** Reload from disk. Feedback on the button, because the rescan is slow. */
+    private async runReloadSkills(button: HTMLButtonElement): Promise<void> {
+        const loader = this.plugin.selfAuthoredSkillLoader;
+        if (!loader) { new Notice(t('settings.skills.loaderNotReady')); return; }
+        const original = button.textContent ?? t('settings.skills.reload');
+        button.disabled = true;
+        button.setText(t('settings.skills.scanning'));
+        try {
+            await loader.refresh();
+            await this.refreshInstalled?.();
+            new Notice(t('settings.skills.rescanned', { count: loader.getAllSkills().length }));
+        } catch (e) {
+            console.error('[SkillsTab] Reload skills failed:', e);
+            new Notice(t('settings.skills.loaderNotReady'));
+        } finally {
+            button.disabled = false;
+            button.setText(original);
+        }
     }
 
     // -- Introduction --
@@ -96,73 +195,47 @@ export class SkillsTab {
         const infoText = intro.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.skills.introTitle') });
         infoText.createEl('p', { text: t('settings.skills.introDesc') });
-        infoText.createEl('p', { text: t('settings.skills.introDiff') });
+    }
+
+    /**
+     * Filter the installed list by the query typed above it.
+     *
+     * Matches name and description. An empty query shows everything, which is
+     * the right default for a list of things you already have.
+     */
+    private filterByQuery<T extends { name: string; description?: string }>(skills: T[]): T[] {
+        const q = this.query.trim().toLowerCase();
+        if (!q) return skills;
+        const terms = q.split(/\s+/);
+        return skills.filter((s) => {
+            const hay = `${s.name} ${s.description ?? ''}`.toLowerCase();
+            return terms.every((t) => hay.includes(t));
+        });
     }
 
     // -- Unified Skills Section --
 
     private buildUnifiedSkillsSection(containerEl: HTMLElement): void {
-        containerEl.createEl('h3', { text: t('settings.skills.headingManual') });
-
-        const skillsManager = this.plugin.skillsManager;
-
-        // -- Create new skill --
-        const createRow = containerEl.createDiv({ cls: 'agent-rules-create-row' });
-        const nameInput = createRow.createEl('input', {
-            type: 'text', placeholder: t('settings.skills.placeholder'),
-            cls: 'agent-rules-name-input',
+        containerEl.createEl('h3', {
+            text: t('settings.skills.headingInstalled'),
+            cls: 'agent-skill-heading',
         });
-        const createBtn = createRow.createEl('button', { text: t('settings.skills.create'), cls: 'mod-cta' });
-
-        // FEATURE-2202: universal import button. Accepts single .md, .skill/.zip
-        // or a folder via native picker. Format detection in SkillImportRouter.
-        const importSkillBtn = createRow.createEl('button', {
-            text: t('settings.skills.import'),
-            cls: 'agent-rules-import-btn',
-        });
-        importSkillBtn.addEventListener('click', () => {
-            void this.runUniversalImport(refreshList);
-        });
-
-        // FEATURE-2207: Reload skills. Needed when SKILL.md was edited outside
-        // Obsidian (iCloud sync lag, external editor) so the file-watcher
-        // didn't pick up the change.
-        const reloadSkillsBtn = createRow.createEl('button', {
-            text: t('settings.skills.reload'),
-            cls: 'agent-rules-import-btn',
-            attr: { 'aria-label': t('settings.skills.reloadAriaLabel') },
-        });
-        reloadSkillsBtn.addEventListener('click', () => { void (async () => {
-            const loader = this.plugin.selfAuthoredSkillLoader;
-            if (!loader) { new Notice(t('settings.skills.loaderNotReady')); return; }
-            // Feedback while the (possibly multi-minute, iCloud) rescan runs, so
-            // the click is visibly acknowledged and the user knows it is working
-            // rather than wondering if VO hung. Mirrors the Rescan button below.
-            const originalText = reloadSkillsBtn.textContent ?? t('settings.skills.reload');
-            reloadSkillsBtn.disabled = true;
-            reloadSkillsBtn.setText(t('settings.skills.scanning'));
-            try {
-                await loader.refresh();
-                await refreshList();
-                const count = loader.getAllSkills().length;
-                new Notice(t('settings.skills.rescanned', { count }));
-            } catch (e) {
-                console.error('[SkillsTab] Reload skills failed:', e);
-                new Notice(t('settings.skills.loaderNotReady'));
-            } finally {
-                reloadSkillsBtn.disabled = false;
-                reloadSkillsBtn.setText(originalText);
-            }
-        })(); });
-
-        // -- Skill list --
         const listEl = containerEl.createDiv({ cls: 'agent-rules-list' });
 
         const refreshList = async () => {
             listEl.empty();
 
             // Collect and merge skills from both sources
-            const unified = await this.collectUnifiedSkills();
+            const all = await this.collectUnifiedSkills();
+            const unified = this.filterByQuery(all);
+
+            if (all.length > 0 && unified.length === 0) {
+                listEl.createEl('p', {
+                    cls: 'agent-empty-state',
+                    text: t('settings.skills.searchNoHits', { query: this.query }),
+                });
+                return;
+            }
 
             if (unified.length === 0) {
                 listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.skills.empty') });
@@ -274,26 +347,69 @@ export class SkillsTab {
             this.renderRejectedSkills(listEl);
         };
 
-        createBtn.addEventListener('click', () => { void (async () => {
-            const name = nameInput.value.trim();
-            if (!name || !skillsManager) return;
-            const safeName = name.replace(/[^a-zA-Z0-9_ -]/g, '').trim();
-            const dir = `${skillsManager.skillsDir}/${safeName}`;
-            const skillPath = `${dir}/SKILL.md`;
-            const template = `---\nname: ${safeName}\ndescription: Describe when this skill applies\nkeywords: []\n---\n\n# ${safeName}\n\n<!-- Describe what this skill does and when to use it. The agent reads this file when the skill is relevant. -->\n\n`;
-            try {
-                await skillsManager.createSkill(dir, template);
-                nameInput.value = '';
-                await refreshList();
-                new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: safeName }), template, (content) => {
-                    return skillsManager.writeFile(skillPath, content);
-                }).open();
-            } catch {
-                new Notice(t('settings.skills.createFailed'));
-            }
-        })(); });
-
+        this.refreshInstalled = refreshList;
         void refreshList();
+    }
+
+
+    /**
+     * Create a skill: write it yourself, or have the agent build it.
+     *
+     * The choice belongs to the user, so the button asks instead of picking.
+     */
+    private async runCreateSkill(): Promise<void> {
+        const skillsManager = this.plugin.skillsManager;
+        if (!skillsManager) { new Notice(t('settings.skills.createFailed')); return; }
+
+        // Two ways to get a skill, and the choice belongs to the user:
+        // write it yourself, or have the agent interview you and build it.
+        const route = await chooseModal(this.app, {
+            title: t('settings.skills.createChooseTitle'),
+            options: [
+                {
+                    id: 'scratch',
+                    label: t('settings.skills.createFromScratch'),
+                    description: t('settings.skills.createFromScratchDesc'),
+                },
+                {
+                    id: 'creator',
+                    label: t('settings.skills.createWithCreator'),
+                    description: t('settings.skills.createWithCreatorDesc'),
+                },
+            ],
+        });
+        if (!route) return;
+
+        if (route === 'creator') {
+            // Hand off to the chat: close settings, start the skill-creator
+            // skill, and let the dialogue take it from there.
+            this.app.setting?.close();
+            await this.plugin.sendMessageToAgent('/skill-creator');
+            return;
+        }
+
+        // Always ask. The box above is a filter now, and borrowing whatever
+        // sits in it as the new skill's name would be a guess the user
+        // never made.
+        const name = ((await promptModal(this.app, {
+            title: t('settings.skills.createNameTitle'),
+            placeholder: t('settings.skills.placeholder'),
+        })) ?? '').trim();
+        if (!name) return;
+        const safeName = name.replace(/[^a-zA-Z0-9_ -]/g, '').trim();
+        if (!safeName) { new Notice(t('settings.skills.createFailed')); return; }
+        const dir = `${skillsManager.skillsDir}/${safeName}`;
+        const skillPath = `${dir}/SKILL.md`;
+        const template = `---\nname: ${safeName}\ndescription: Describe when this skill applies\nkeywords: []\n---\n\n# ${safeName}\n\n<!-- Describe what this skill does and when to use it. The agent reads this file when the skill is relevant. -->\n\n`;
+        try {
+            await skillsManager.createSkill(dir, template);
+            await this.refreshInstalled?.();
+            new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: safeName }), template, (content) => {
+                return skillsManager.writeFile(skillPath, content);
+            }).open();
+        } catch {
+            new Notice(t('settings.skills.createFailed'));
+        }
     }
 
     // -- Helpers for unified skills --
@@ -704,7 +820,10 @@ export class SkillsTab {
         const registry = this.plugin.skillRegistry;
 
         if (!scanner || !registry) {
-            containerEl.createEl('h3', { text: t('settings.skills.headingPlugin') });
+            containerEl.createEl('h3', {
+                text: t('settings.skills.headingPlugin'),
+                cls: 'agent-skill-heading',
+            });
             containerEl.createEl('p', {
                 cls: 'agent-settings-desc',
                 text: t('settings.skills.pluginDisabled'),
@@ -717,7 +836,10 @@ export class SkillsTab {
         const allSkills = scanner.getAllPluginSkills();
 
         // Header with stats
-        containerEl.createEl('h3', { text: t('settings.skills.headingPlugin') });
+        containerEl.createEl('h3', {
+            text: t('settings.skills.headingPlugin'),
+            cls: 'agent-skill-heading',
+        });
         const statsEl = containerEl.createEl('p', { cls: 'agent-settings-desc' });
         statsEl.setText(
             t('settings.skills.pluginStats', { active: activeSkills.length, disabled: disabledSkills.length, total: allSkills.length }),
@@ -765,17 +887,38 @@ export class SkillsTab {
             }
         })(); });
 
-        // Core Skills section (collapsible)
-        const coreSkills = allSkills.filter((s) => s.source === 'core');
-        if (coreSkills.length > 0) {
-            this.buildCollapsibleSkillGroup(containerEl, t('settings.skills.corePlugins', { count: coreSkills.length }), coreSkills);
-        }
+        // The groups redraw on every keystroke in the filter above, so they
+        // live in their own container. The stats line does not: it describes
+        // the vault, not the query, and a total that moved while typing would
+        // stop being a total.
+        const groupsEl = containerEl.createDiv({ cls: 'agent-skill-groups' });
 
-        // Community Skills section (collapsible)
-        const communitySkills = allSkills.filter((s) => s.source !== 'core');
-        if (communitySkills.length > 0) {
-            this.buildCollapsibleSkillGroup(containerEl, t('settings.skills.communityPlugins', { count: communitySkills.length }), communitySkills);
-        }
+        const renderGroups = () => {
+            groupsEl.empty();
+            const core = this.filterByQuery(allSkills.filter((s) => s.source === 'core'));
+            const community = this.filterByQuery(allSkills.filter((s) => s.source !== 'core'));
+
+            if (core.length === 0 && community.length === 0) {
+                groupsEl.createEl('p', {
+                    cls: 'agent-empty-state',
+                    text: allSkills.length === 0
+                        ? t('settings.skills.pluginNone')
+                        : t('settings.skills.searchNoHits', { query: this.query }),
+                });
+                return;
+            }
+            if (core.length > 0) {
+                this.buildCollapsibleSkillGroup(
+                    groupsEl, t('settings.skills.corePlugins', { count: core.length }), core);
+            }
+            if (community.length > 0) {
+                this.buildCollapsibleSkillGroup(
+                    groupsEl, t('settings.skills.communityPlugins', { count: community.length }), community);
+            }
+        };
+
+        this.refreshPlugins = renderGroups;
+        renderGroups();
     }
 
     private buildCollapsibleSkillGroup(containerEl: HTMLElement, title: string, skills: PluginSkillMeta[]): void {

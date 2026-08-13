@@ -10,12 +10,31 @@ export interface PromptOptions {
     cancelLabel?: string;
 }
 
+export interface ChooseOption {
+    id: string;
+    label: string;
+    description?: string;
+}
+
+export interface ChooseOptions {
+    title: string;
+    message?: string;
+    options: ChooseOption[];
+    cancelLabel?: string;
+}
+
 export interface ConfirmOptions {
     title: string;
     message: string;
     confirmLabel?: string;
     cancelLabel?: string;
     destructive?: boolean;
+    /**
+     * A document the user should be able to read before deciding, rendered as
+     * a link under the message. Terms you are asked to accept and cannot open
+     * are not terms, so anything the message names has somewhere to point.
+     */
+    link?: { label: string; url: string };
 }
 
 class PromptModalImpl extends Modal {
@@ -103,6 +122,13 @@ class ConfirmModalImpl extends Modal {
             body.appendText(line);
         }
 
+        if (opts.link) {
+            contentEl.createEl('p', { cls: 'agent-confirm-link' }).createEl('a', {
+                text: opts.link.label,
+                attr: { href: opts.link.url, target: '_blank', rel: 'noopener' },
+            });
+        }
+
         new Setting(contentEl)
             .addButton((btn) => btn
                 .setButtonText(opts.cancelLabel ?? 'Cancel')
@@ -124,6 +150,58 @@ class ConfirmModalImpl extends Modal {
         this.contentEl.empty();
         if (!this.decided) this.resolve(false);
     }
+}
+
+/**
+ * Pick one of several routes.
+ *
+ * Distinct from confirmModal: that one asks yes or no about a thing already
+ * decided, this one asks which thing. Each option carries a description,
+ * because a bare pair of buttons makes the user guess what the difference is.
+ * Resolves to null when dismissed.
+ */
+class ChooseModalImpl extends Modal {
+    private decided = false;
+
+    constructor(
+        app: App,
+        private opts: ChooseOptions,
+        private resolve: (value: string | null) => void,
+    ) {
+        super(app);
+    }
+
+    onOpen(): void {
+        const { contentEl } = this;
+        contentEl.createEl('h3', { text: this.opts.title });
+        if (this.opts.message) contentEl.createEl('p', { text: this.opts.message });
+
+        for (const opt of this.opts.options) {
+            const setting = new Setting(contentEl).setName(opt.label);
+            if (opt.description) setting.setDesc(opt.description);
+            setting.addButton((b) => b
+                .setButtonText(opt.label)
+                .setCta()
+                .onClick(() => {
+                    this.decided = true;
+                    this.resolve(opt.id);
+                    this.close();
+                }));
+        }
+
+        new Setting(contentEl).addButton((b) => b
+            .setButtonText(this.opts.cancelLabel ?? 'Cancel')
+            .onClick(() => this.close()));
+    }
+
+    onClose(): void {
+        this.contentEl.empty();
+        if (!this.decided) this.resolve(null);
+    }
+}
+
+export function chooseModal(app: App, opts: ChooseOptions): Promise<string | null> {
+    return new Promise((resolve) => new ChooseModalImpl(app, opts, resolve).open());
 }
 
 export function promptModal(app: App, opts: PromptOptions): Promise<string | null> {

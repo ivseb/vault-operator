@@ -31,8 +31,13 @@ export interface SkillMeta {
     name: string;
     /** Description used for keyword matching */
     description: string;
-    /** Source: 'learned' (agent-created), 'user' (manual), 'pro' (purchased premium), or undefined (legacy) */
-    source?: 'learned' | 'user' | 'bundled' | 'pro';
+    /**
+     * Where the skill came from. `builtin` ships with the plugin, `registry` was
+     * installed from the public catalogue, `agent` was created by the
+     * skill-creator workflow, `user` was written or imported by hand.
+     * `learned`, `bundled` and `pro` are legacy values that still resolve.
+     */
+    source?: 'builtin' | 'registry' | 'agent' | 'user' | 'learned' | 'bundled' | 'pro';
     /** Optional trigger regex for fast-path matching */
     trigger?: string;
     /**

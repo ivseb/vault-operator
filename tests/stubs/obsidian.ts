@@ -87,6 +87,10 @@ export class Modal {
         this.modalEl = { addClass: () => { /* no-op */ } };
     }
 
+    /** Obsidian's title setter. Recorded so a test can assert the heading. */
+    title = '';
+    setTitle(title: string): this { this.title = title; return this; }
+
     open(): void { this.onOpen(); }
 
     close(): void {

@@ -62,7 +62,11 @@ interface InvokeSkillArgs {
 // (catalog hash pin, analogous to the language packs) BEFORE stamping
 // `source: pro`, otherwise a downloaded skill could spoof the marker to
 // escalate trust. Mirror any change in ToolExecutionPipeline.ts.
-const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled', 'pro']);
+// EPIC-31: only bundle-shipped bytes are trusted. `registry` is deliberately
+// absent -- a downloaded skill is a foreign skill and runs through the normal
+// approval chain, whatever its badge says. `pro` is gone with the tier.
+// Mirrored in SkillProvenanceStore.TRUSTED_SKILL_TIERS and the pipeline.
+const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled']);
 
 /**
  * Per-process record of which imported skills the user has already approved

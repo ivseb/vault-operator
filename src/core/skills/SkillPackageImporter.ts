@@ -57,6 +57,11 @@ const WHITELIST_PATTERNS: RegExp[] = [
     /^references\/.+$/,
     /^assets\/.+$/,
     /^[^/]+\.skill\.md$/,
+    // The licence travels with the skill. Dropping it on import would leave a
+    // folder in the vault whose terms the user accepted at install time and
+    // then has no copy of, which is the one file a redistributable package
+    // must not lose. Root only, inert text, no execution path.
+    /^LICEN[CS]E(\.[A-Za-z0-9.-]+)?$/,
 ];
 
 export class SkillPackageImportError extends Error {

@@ -34,6 +34,7 @@ import { GlobalFileService } from './core/storage/GlobalFileService';
 import * as safeFs from './core/security/safeFs';
 import { getPluginSkillsDir, getSelfAuthoredSkillsDir, getAgentDataDir, getInternalAgentFolderPath } from './core/utils/agentFolder';
 import { SkillProvenanceStore } from './core/skills/SkillProvenanceStore';
+import { SkillRegistryClient } from './core/skills/SkillRegistryClient';
 import { isSafePathSegment } from './core/utils/safePathName';
 import { confirmModal } from './ui/modals/PromptModal';
 import { GlobalSettingsService, resolveVaultForcedWorkflow, resolveModeMcpOverrides } from './core/storage/GlobalSettingsService';
@@ -371,6 +372,10 @@ export default class ObsidianAgentPlugin extends Plugin {
     /** FIX-PERF-29: central vault-event dispatcher with self-write suppression. */
     vaultEventDispatcher: import('./core/vault-events/VaultEventDispatcher').VaultEventDispatcher | null = null;
     selfAuthoredSkillLoader: SelfAuthoredSkillLoader | null = null;
+    /** Provenance authority. Set during onload; the registry installer stamps through it. */
+    skillProvenance: SkillProvenanceStore | null = null;
+    /** Registry client, cached here so the fetched catalogue survives a settings rerender. */
+    skillRegistryClient: SkillRegistryClient | null = null;
     skillSnapshotService: SkillSnapshotService | null = null;
     skillWriteInterceptor: SkillWriteInterceptor | null = null;
     sandboxExecutor: ISandboxExecutor | null = null;
@@ -1552,8 +1557,18 @@ export default class ObsidianAgentPlugin extends Plugin {
                 normalizePath(`${getAgentDataDir(this)}/skill-provenance.json`),
             );
             await provenanceStore.load();
-            await provenanceStore.reconcile(getSelfAuthoredSkillsDir(this), report.written);
+            // The bundle, not the disk, decides what may be grandfathered after
+            // a lost manifest. Passing the shipped skill names closes the
+            // "plant a folder, delete the manifest, restart" bypass.
+            await provenanceStore.reconcile(
+                getSelfAuthoredSkillsDir(this),
+                report.written,
+                new Set(Object.keys(BUNDLED_SKILLS)),
+            );
             this.selfAuthoredSkillLoader.setProvenanceStore(provenanceStore);
+            // Kept on the plugin so the registry installer can stamp provenance
+            // after a verified download (FEAT-31-02).
+            this.skillProvenance = provenanceStore;
         } catch (e) {
             console.warn('[Plugin] Builtin skill materialization failed (non-fatal):', e);
         }

@@ -1,12 +1,11 @@
 /**
- * SkillProvenanceStore (FIX-44-05)
+ * SkillProvenanceStore (FIX-44-05, EPIC-31)
  *
- * The trust class of a skill -- `builtin`, `bundled`, `pro` -- decides whether
- * it may run without a per-skill approval prompt and whether its instructions
- * are treated as operator-level rather than untrusted content. Before this
- * store, that class was read straight from the SKILL.md frontmatter, so any
- * third-party skill could write `source: pro` and inherit the paid-skill trust.
- * That is the boundary the whole Pro-Skill monetization rests on.
+ * The trust class of a skill decides whether it may run without a per-skill
+ * approval prompt and whether its instructions are treated as operator-level
+ * rather than untrusted content. Before this store, that class was read
+ * straight from the SKILL.md frontmatter, so any third-party skill could write
+ * a trusted tier and inherit its privileges.
  *
  * This store is the authority instead. Only the BuiltinSkillMaterializer (plugin
  * code) records an entry, and only into a manifest that lives in the agent's
@@ -16,17 +15,41 @@
  * the match and drops it back to `user`.
  *
  * ADR-152 grandfathering: on first run after this fix the manifest is absent, so
- * we seed it once from whatever trusted skills are already on disk. That keeps
- * premium skills a user already installed (and that may since have left the
- * bundle) trusted. From then on the manifest is authoritative and a newly
- * planted `source: pro` is not honoured.
+ * we seed it once from whatever trusted skills are already on disk. From then on
+ * the manifest is authoritative and a newly planted trusted tier is not honoured.
+ *
+ * EPIC-31 splits the one set into two, because the registry needs provenance
+ * without privilege:
+ *
+ *   MANAGED  what the store records and hash-pins. `registry` is in here so the
+ *            badge can say "this is still the version you installed" and so an
+ *            update can be detected -- a user edit breaks the hash and the skill
+ *            resolves to `user`, which is the tier demotion working as designed.
+ *   TRUSTED  what actually skips the approval prompt. Only skills whose bytes
+ *            came out of the compiled bundle. A registry skill is a foreign
+ *            skill: the download says where it came from, not that it is safe.
+ *
+ * `pro` is gone from both. It was the monetization tier; a skill still carrying
+ * it on disk has no installer provenance and resolves to `user`.
  */
 
-/** The tiers that grant elevated trust. Kept in sync with the pipeline / InvokeSkillTool. */
-export const TRUSTED_SKILL_TIERS: ReadonlySet<string> = new Set(['builtin', 'bundled', 'pro']);
+/**
+ * Tiers the store records and hash-pins. A superset of TRUSTED_SKILL_TIERS:
+ * being tracked is not the same as being trusted.
+ */
+export const MANAGED_SKILL_TIERS: ReadonlySet<string> = new Set(['builtin', 'bundled', 'registry']);
+
+/**
+ * The tiers that grant elevated trust: no approval prompt, allowedTools left
+ * unclamped, authoritative prompt framing. Kept in sync with the pipeline and
+ * InvokeSkillTool -- all three must name the same set or the gate is decorative.
+ *
+ * Only bundle-shipped bytes. `registry` is deliberately absent.
+ */
+export const TRUSTED_SKILL_TIERS: ReadonlySet<string> = new Set(['builtin', 'bundled']);
 
 interface ProvenanceEntry {
-    /** The managed source tier (builtin | bundled | pro). */
+    /** The managed source tier (builtin | bundled | registry). */
     source: string;
     /** Non-cryptographic content hash of the SKILL.md when it was recorded. */
     hash: string;
@@ -114,7 +137,9 @@ export class SkillProvenanceStore {
     getVerifiedSource(skillName: string, content: string): string | null {
         const entry = this.entries[skillName];
         if (!entry) return null;
-        if (!TRUSTED_SKILL_TIERS.has(entry.source)) return null;
+        // MANAGED, not TRUSTED: a registry skill gets a verified badge and
+        // update detection without inheriting any privilege.
+        if (!MANAGED_SKILL_TIERS.has(entry.source)) return null;
         if (entry.hash !== hashSkillContent(content)) return null;
         return entry.source;
     }
@@ -131,12 +156,24 @@ export class SkillProvenanceStore {
      * are preserved verbatim. On a first run without a manifest, existing trusted
      * skills on disk are seeded once (ADR-152).
      */
-    async reconcile(skillsRoot: string, freshlyManaged: Iterable<string>): Promise<void> {
+    async reconcile(
+        skillsRoot: string,
+        freshlyManaged: Iterable<string>,
+        bundleNames?: ReadonlySet<string>,
+    ): Promise<void> {
         // Seed ONLY on a genuine first run. A corrupt manifest is deliberately
         // NOT seeded (FIX-44-05 fail-closed) -- otherwise a lost/truncated file
-        // would re-grandfather a planted `source: pro` skill.
+        // would re-grandfather a planted skill.
+        //
+        // A MISSING manifest used to be seeded from whatever the disk claimed,
+        // which made the whole store bypassable: plant a folder declaring a
+        // trusted tier, delete the manifest, restart. `bundleNames` closes that
+        // by making the bundle the authority -- a skill the bundle does not
+        // contain is never grandfathered, however its frontmatter reads.
+        // Omitting the argument seeds nothing, so a caller that cannot name the
+        // bundle fails closed rather than trusting the disk.
         if (!this.existedOnDisk && !this.corrupt) {
-            await this.seedFromDisk(skillsRoot);
+            await this.seedFromDisk(skillsRoot, bundleNames ?? new Set());
         }
         for (const name of freshlyManaged) {
             const skillMd = `${skillsRoot}/${name}/SKILL.md`;
@@ -144,7 +181,7 @@ export class SkillProvenanceStore {
                 if (!(await this.adapter.exists(skillMd))) continue;
                 const content = await this.adapter.read(skillMd);
                 const source = extractSource(content);
-                if (source && TRUSTED_SKILL_TIERS.has(source)) {
+                if (source && MANAGED_SKILL_TIERS.has(source)) {
                     this.entries[name] = { source, hash: hashSkillContent(content) };
                 }
             } catch {
@@ -155,12 +192,17 @@ export class SkillProvenanceStore {
     }
 
     /**
-     * ADR-152 one-time seed: record every on-disk skill that currently claims a
-     * trusted tier. This trusts the existing vault state exactly once, which is
-     * the documented grandfathering stance -- what the user already installed
-     * stays trusted; anything planted afterwards is not in the manifest.
+     * ADR-152 one-time seed, restricted to the bundle.
+     *
+     * Grandfathering exists so a lost manifest does not suddenly make the
+     * plugin's own skills prompt on every invoke. It was never meant to confer
+     * trust on whatever happens to be lying in the skills folder, and that is
+     * the difference `bundleNames` enforces: the frontmatter says what a skill
+     * claims, the bundle says what actually shipped, and only the second one
+     * counts. An authority the attacker can write is not an authority.
      */
-    private async seedFromDisk(skillsRoot: string): Promise<void> {
+    private async seedFromDisk(skillsRoot: string, bundleNames: ReadonlySet<string>): Promise<void> {
+        if (bundleNames.size === 0) return;
         try {
             if (!(await this.adapter.exists(skillsRoot))) return;
             const { folders } = await this.adapter.list(skillsRoot);
@@ -169,9 +211,10 @@ export class SkillProvenanceStore {
                 try {
                     if (!(await this.adapter.exists(skillMd))) continue;
                     const content = await this.adapter.read(skillMd);
+                    const name = folder.slice(folder.lastIndexOf('/') + 1);
+                    if (!bundleNames.has(name)) continue;
                     const source = extractSource(content);
                     if (source && TRUSTED_SKILL_TIERS.has(source)) {
-                        const name = folder.slice(folder.lastIndexOf('/') + 1);
                         this.entries[name] = { source, hash: hashSkillContent(content) };
                     }
                 } catch {
@@ -181,6 +224,34 @@ export class SkillProvenanceStore {
         } catch {
             // No skills dir yet (fresh install): nothing to seed.
         }
+    }
+
+    /**
+     * Record a skill as managed, from an installer that verified where the bytes
+     * came from (FEAT-31-02).
+     *
+     * This is the ONLY write path besides the materializer, and it is the reason
+     * the store distinguishes MANAGED from TRUSTED. The registry installer has
+     * checked the download against a catalogue checksum, so it may say "this is
+     * the published version" -- and nothing more. Recording `registry` here
+     * grants no privilege; it makes the badge honest and lets an update be
+     * detected by comparing hashes.
+     *
+     * Refuses any tier outside MANAGED_SKILL_TIERS, so a caller cannot smuggle
+     * `builtin` in through the installer and escalate.
+     */
+    async recordVerified(skillName: string, source: string, content: string): Promise<void> {
+        if (!MANAGED_SKILL_TIERS.has(source)) {
+            throw new Error(`refusing to record unmanaged tier "${source}" for ${skillName}`);
+        }
+        if (TRUSTED_SKILL_TIERS.has(source)) {
+            throw new Error(
+                `refusing to record trusted tier "${source}" from an installer; `
+                + 'only the materializer may write bundle provenance',
+            );
+        }
+        this.entries[skillName] = { source, hash: hashSkillContent(content) };
+        await this.save();
     }
 
     private async save(): Promise<void> {

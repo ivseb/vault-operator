@@ -248,12 +248,12 @@ export class BuiltinSkillMaterializer {
     }
 
     private ensureManagedSource(content: string): string {
-        // Normalise the bundle source to `builtin`, but preserve the `pro`
-        // monetization tag (IMP-01-09-01) so a future licence mechanism can
-        // still identify premium skills. Everything else the bundle declares
-        // (`bundled`, or none) becomes `builtin`.
-        const declared = this.extractSource(content);
-        const target = declared === 'pro' ? 'pro' : 'builtin';
+        // Everything the bundle ships is `builtin`, full stop. The old `pro`
+        // exception (IMP-01-09-01) kept a monetization tag alive for a licence
+        // mechanism that EPIC-31 dropped; keeping it would mean the bundle can
+        // still stamp a tier nobody honours. `bundled` and a missing source
+        // normalise the same way.
+        const target = 'builtin';
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) {
             // No frontmatter at all -- prepend a minimal block. Should not
