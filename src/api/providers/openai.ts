@@ -171,7 +171,16 @@ export class OpenAiProvider implements ApiHandler {
         if (config.baseUrl) validateProviderUrl(config.type, config.baseUrl);
 
         let baseURL = config.baseUrl ?? DEFAULT_BASE_URLS[config.type] ?? DEFAULT_BASE_URLS.openai;
-        if (config.type === 'ollama' && !baseURL.match(/\/v\d/)) {
+        // FIX-04-03-15 (Issue #73): the settings UI stores the ollama and
+        // lmstudio base URL WITHOUT the version segment and tells the user
+        // "no /v1 needed" -- appending it is this layer's job. Model listing
+        // and the embedding path already do it; the chat path used to cover
+        // ollama only, so every LM Studio request went to /chat/completions,
+        // which LM Studio answers with 200 plus a non-SSE body (the SDK then
+        // yields zero chunks and the chat stays silent).
+        // The /v\d guard keeps two shapes untouched: a URL the user already
+        // suffixed, and LM Studio's second API surface /api/v0.
+        if ((config.type === 'ollama' || config.type === 'lmstudio') && !baseURL.match(/\/v\d/)) {
             baseURL = baseURL.replace(/\/+$/, '') + '/v1';
         }
 

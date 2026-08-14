@@ -19,6 +19,7 @@ import { confirmModal, chooseModal, promptModal } from '../modals/PromptModal';
 import { t } from '../../i18n';
 import { SkillRegistryModal } from './SkillRegistryModal';
 import { SkillRegistryClient } from '../../core/skills/SkillRegistryClient';
+import { resolveSkillFolder } from './skillFolderResolve';
 
 interface ElectronDialog {
     showOpenDialog(options: {
@@ -381,6 +382,23 @@ export class SkillsTab {
         if (!route) return;
 
         if (route === 'creator') {
+            // skill-creator is a registry skill since 2026-08-14, not bundled,
+            // so it may be absent. Sending /skill-creator blind would put a
+            // literal slash token in front of the model with no notice, so
+            // check first and route the user to the registry detail page
+            // where one click installs it.
+            const installed = this.plugin.selfAuthoredSkillLoader
+                ?.getAllSkills().some((s) => s.name === 'skill-creator') ?? false;
+            if (!installed) {
+                const client = this.plugin.skillRegistryClient;
+                if (client) {
+                    new Notice(t('settings.skills.creatorNotInstalled'));
+                    new SkillRegistryModal(this.plugin, client, () => this.rerender(), 'skill-creator').open();
+                } else {
+                    new Notice(t('settings.skills.createFailed'));
+                }
+                return;
+            }
             // Hand off to the chat: close settings, start the skill-creator
             // skill, and let the dialogue take it from there.
             this.app.setting?.close();
@@ -540,34 +558,41 @@ export class SkillsTab {
      */
     private async openSkillFolder(skill: UnifiedSkill): Promise<void> {
         try {
-            // Each UnifiedSkill carries either a vault-relative `selfAuthored.filePath`
-            // (pointing at the SKILL.md) or a `globalPath` from the SkillsManager.
-            // Pick whichever we have and walk one segment up to the folder.
-            let folderRelative: string | null = null;
-            if (skill.selfAuthored?.filePath) {
-                const p = skill.selfAuthored.filePath;
-                folderRelative = p.replace(/\/SKILL\.md$/, '').replace(/\/[^/]+\.skill\.md$/, '');
-            } else if (skill.globalPath) {
-                // Global skills are mirrored under {agent-folder}/data/skills/{slug}/SKILL.md.
-                // Strip the "skills/{slug}/SKILL.md" suffix on the global side and
-                // reroute to the vault-resident copy.
-                const slug = skill.globalPath.replace(/^skills\//, '').replace(/\/SKILL\.md$/, '');
-                folderRelative = `${this.skillsDir}/${slug}`;
-            }
+            // FIX-29-11-01 (Issue #67): ask the owner instead of rebuilding.
+            // This used to take the slug out of `globalPath` and glue it onto
+            // getPluginSkillsDir(), which is only the right root once the
+            // storage consolidation has run. Before it has, the SkillsManager
+            // reads from {vault-parent}/vault-operator-shared/ while the
+            // rebuilt path pointed inside the vault, so Electron got a path
+            // that does not exist and answered "Failed to open path". The
+            // export path a few dozen lines below never had this problem
+            // because it reads through the owner.
+            const location = resolveSkillFolder(
+                {
+                    selfAuthoredFilePath: skill.selfAuthored?.filePath,
+                    globalPath: skill.globalPath,
+                },
+                this.plugin.globalFs,
+            );
 
-            if (!folderRelative) {
+            if (location.kind === 'unresolved') {
                 new Notice(t('settings.skills.cannotResolveFolder'));
                 return;
             }
 
-            // Build an absolute path via the FileSystemAdapter, then open via electron.
-            const adapter = this.plugin.app.vault.adapter as unknown as {
-                getFullPath?: (relative: string) => string;
-                getBasePath?: () => string;
-            };
-            const absPath = adapter.getFullPath
-                ? adapter.getFullPath(folderRelative)
-                : (adapter.getBasePath ? `${adapter.getBasePath()}/${folderRelative}` : null);
+            let absPath: string | null = null;
+            if (location.kind === 'absolute') {
+                absPath = location.absolutePath;
+            } else {
+                // Vault-relative: turn absolute through the FileSystemAdapter.
+                const adapter = this.plugin.app.vault.adapter as unknown as {
+                    getFullPath?: (relative: string) => string;
+                    getBasePath?: () => string;
+                };
+                absPath = adapter.getFullPath
+                    ? adapter.getFullPath(location.relativePath)
+                    : (adapter.getBasePath ? `${adapter.getBasePath()}/${location.relativePath}` : null);
+            }
             if (!absPath) {
                 new Notice(t('settings.skills.cannotResolvePath'));
                 return;
@@ -579,7 +604,12 @@ export class SkillsTab {
                 ? await electron.shell.openPath(absPath)
                 : 'electron.shell.openPath unavailable';
             if (result) {
-                new Notice(t('settings.skills.openFolderFailed', { reason: result }));
+                // FIX-29-11-01 (Issue #67): Electron's message is just "Failed
+                // to open path", which tells the user nothing about WHICH path
+                // failed. Carry the resolved path in the existing {{reason}}
+                // placeholder so a report is diagnosable without a debug build.
+                console.debug('[SkillsTab] openPath failed for', absPath, '->', result);
+                new Notice(t('settings.skills.openFolderFailed', { reason: `${result} (${absPath})` }));
             }
         } catch (e) {
             new Notice(t('settings.skills.openSkillFolderFailed'));
@@ -616,7 +646,12 @@ export class SkillsTab {
                 ? await electron.shell.openPath(absPath)
                 : 'electron.shell.openPath unavailable';
             if (result) {
-                new Notice(t('settings.skills.openFolderFailed', { reason: result }));
+                // FIX-29-11-01 (Issue #67): Electron's message is just "Failed
+                // to open path", which tells the user nothing about WHICH path
+                // failed. Carry the resolved path in the existing {{reason}}
+                // placeholder so a report is diagnosable without a debug build.
+                console.debug('[SkillsTab] openPath failed for', absPath, '->', result);
+                new Notice(t('settings.skills.openFolderFailed', { reason: `${result} (${absPath})` }));
             }
         } catch (e) {
             new Notice(t('settings.skills.openPluginFolderFailed'));

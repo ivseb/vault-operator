@@ -214,6 +214,21 @@ export class VectorStore {
      * one hash, so MIN == MAX; MIN is arbitrary-but-stable. Legacy rows from
      * before schema v14 carry '' and never match, so they get one re-check.
      */
+    /**
+     * The stored content hash of ONE path, or '' when unknown.
+     *
+     * FIX-15-01-02 (Issue #62): the incremental update path needs exactly one
+     * hash per call. Reusing getPathHashes() there would run a GROUP BY across
+     * the whole vectors table on every keystroke-triggered save, which is the
+     * opposite of what a debounced single-file update should cost.
+     */
+    getPathHash(path: string): string {
+        const db = this.getDB();
+        const result = db.exec('SELECT MIN(content_hash) as h FROM vectors WHERE path = ?', [path]);
+        if (result.length === 0 || result[0].values.length === 0) return '';
+        return (result[0].values[0][0] as string) ?? '';
+    }
+
     getPathHashes(): Map<string, string> {
         const db = this.getDB();
         const result = db.exec('SELECT path, MIN(content_hash) as h FROM vectors GROUP BY path');

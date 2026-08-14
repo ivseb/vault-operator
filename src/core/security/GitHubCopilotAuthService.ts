@@ -431,7 +431,17 @@ export class GitHubCopilotAuthService {
      *  3. Adds required Copilot headers
      *  4. Delegates to window.fetch (SDK-internal, Review-Bot tolerated)
      */
-    getCopilotFetch(): typeof window.fetch {
+    /**
+     * @param baseFetch transport the wrapper delegates to. Side finding
+     * (2026-08-14): this used to call window.fetch unconditionally, the same
+     * shape that makes the Kilo gateway fail with a CORS preflight error in
+     * the Electron renderer. api.githubcopilot.com currently sends the right
+     * headers, so Copilot works -- but it works by the host's grace, not by
+     * design, and it would break the day those headers change. Making the
+     * transport injectable lets the provider hand in the Node transport the
+     * other providers already use, without touching this class again.
+     */
+    getCopilotFetch(baseFetch: typeof window.fetch = window.fetch): typeof window.fetch {
         return async (
             input: RequestInfo | URL,
             init?: RequestInit,
@@ -448,7 +458,7 @@ export class GitHubCopilotAuthService {
                 }
             }
 
-            return window.fetch(input, { ...init, headers });
+            return baseFetch(input, { ...init, headers });
         };
     }
 

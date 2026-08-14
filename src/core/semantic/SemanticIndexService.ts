@@ -28,6 +28,7 @@ import * as fs from '../security/safeFs';
 import { sanitizeWithDetails } from '../memory/sanitizeVaultContentForLLM';
 import { Semaphore, mapWithConcurrency } from '../utils/asyncPool';
 import { stripAllAutoBlocks } from '../ingest/MOCMaintainer';
+import { createNodeFetch } from '../../api/providers/openai';
 
 /**
  * Escape a string for safe use inside an XML attribute value.
@@ -84,6 +85,18 @@ export interface BuildResult {
     /** Sample of skipped file paths (max 10) for diagnostics */
     skippedFiles: string[];
     durationMs: number;
+    /**
+     * FIX-15-01-03 (Issue #68): message of the last embedding failure, so the
+     * UI can name the cause instead of only counting skipped files. The cause
+     * used to live exclusively in the developer console.
+     */
+    lastError?: string;
+    /**
+     * True when the build stopped early because the provider kept failing.
+     * Distinguishes "your vault has a few unreadable files" from "nothing was
+     * indexed because the provider is unreachable".
+     */
+    aborted?: boolean;
 }
 
 export interface SemanticIndexOptions {
@@ -498,6 +511,14 @@ export class SemanticIndexService {
 
             let indexed = isFullRebuild ? 0 : (files.length - toIndex.length);
             let errors = 0;
+            // FIX-15-01-03 (Issue #68): a provider that is down fails for every
+            // file, so N doomed requests tell us nothing the first few did not.
+            // Five in a row is comfortably past "a couple of odd files" and
+            // well short of a whole vault.
+            const CONSECUTIVE_ERROR_LIMIT = 5;
+            let consecutiveErrors = 0;
+            let lastError: string | undefined;
+            let aborted = false;
 
             this.progressIndexed = indexed;
             this.progressTotal = total;
@@ -601,10 +622,36 @@ export class SemanticIndexService {
                         // Lever A step 2: pause the boot reindex while a task runs.
                         await this.awaitAgentIdle(() => this.cancelled);
                     }
+                    // AUDIT-2026-08-14 H-5: the streak reset belongs to the
+                    // SUCCESS path. It used to sit after the try/catch as a
+                    // sibling in the loop body, so it also ran after a caught
+                    // failure: the counter went 1 -> 0 on every iteration and
+                    // the breaker below could never trip. A dead provider then
+                    // still fired one request per file, which is precisely the
+                    // behaviour FIX-15-01-03 set out to stop.
+                    consecutiveErrors = 0;
                 } catch (e) {
                     errors++;
                     if (skippedFiles.length < 10) skippedFiles.push(file.path);
                     console.warn(`[SemanticIndex] Skipping "${file.path}":`, e);
+                    // FIX-15-01-03 (Issue #68): a file problem and a provider
+                    // problem are not the same thing, and treating them alike
+                    // is what made a broken embedding provider look like
+                    // "all files skipped" while the UI reported success. An
+                    // expired key, an exhausted quota, a deleted model or a
+                    // blocked endpoint fails for EVERY file, so once enough
+                    // files fail in a row, stop and surface the cause instead
+                    // of firing N more doomed requests.
+                    lastError = e instanceof Error ? e.message : String(e);
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= CONSECUTIVE_ERROR_LIMIT) {
+                        console.error(
+                            `[SemanticIndex] Aborting build after ${consecutiveErrors} consecutive failures. `
+                            + `Last error: ${lastError}`,
+                        );
+                        aborted = true;
+                        break;
+                    }
                 }
             }
 
@@ -638,7 +685,7 @@ export class SemanticIndexService {
                 console.debug(`[SemanticIndex] Build complete: ${indexed}/${total} files, ${errors} skipped.`);
             }
 
-            const result: BuildResult = { indexed, total, errors, cancelled: this.cancelled, skippedFiles, durationMs: Date.now() - startTime };
+            const result: BuildResult = { indexed, total, errors, cancelled: this.cancelled, skippedFiles, durationMs: Date.now() - startTime, lastError, aborted };
             this.lastBuildResult = result;
 
             // Auto-start background enrichment (Pass 2) after successful build
@@ -713,7 +760,7 @@ export class SemanticIndexService {
      * Incrementally update a single file.
      * Removes its old chunks then re-embeds the current content.
      */
-    async updateFile(filePath: string): Promise<void> {
+    async updateFile(filePath: string, opts: { force?: boolean } = {}): Promise<void> {
         if (!this.knowledgeDB.isOpen()) return;
         try {
             const file = this.vault.getFileByPath(filePath);
@@ -722,13 +769,35 @@ export class SemanticIndexService {
             const content = await this.readFileContent(file);
             const chunks = this.splitIntoChunks(content, this.chunkSize);
             if (chunks.length > 0) {
+                // FIX-15-01-02 (Issue #62): same content gate buildIndex uses.
+                // Obsidian fires 'modify' for saves that change nothing the
+                // index cares about, and without this every one of them sent an
+                // embedding request -- against a local model that keeps
+                // llama-server resident through Ollama's own keep-alive.
+                // `force` keeps explicit user actions ("Refresh index") honest:
+                // they must rebuild even when the bytes are identical.
+                const currentHash = contentFingerprint(content);
+                if (!opts.force && currentHash !== '' && this.vectorStore.getPathHash(filePath) === currentHash) {
+                    // Unchanged: refresh mtime only, keep vectors AND the Pass-2
+                    // enrichment. No embedding call.
+                    this.vectorStore.touchMtime(filePath, file.stat?.mtime ?? 0);
+                    this.knowledgeDB.markDirty();
+                    return;
+                }
+
                 // Prepend document title to chunk 0
                 const title = filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? '';
                 const enrichedChunks = title
                     ? [title + '\n\n' + chunks[0], ...chunks.slice(1)]
                     : chunks;
                 const vectors = await this.embedBatch(enrichedChunks);
-                this.vectorStore.insertNoteVector(filePath, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
+                // The sixth argument used to be omitted, storing '' as the
+                // hash. buildIndex's gate never matches '', so the next full
+                // build re-embedded this note and re-ran contextual enrichment
+                // (an LLM cost) even though nothing had changed.
+                this.vectorStore.insertNoteVector(
+                    filePath, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0, currentHash,
+                );
             } else {
                 this.vectorStore.deleteByPath(filePath);
             }
@@ -815,7 +884,10 @@ export class SemanticIndexService {
                 if (this.vectorStore.hasFile(file.path)) {
                     this.vectorStore.deleteByPath(file.path);
                 }
-                await this.updateFile(file.path);
+                // FIX-15-01-02: force. The point of this pass is to re-parse
+                // PDFs with a newer extractor, so the file bytes are unchanged
+                // by definition and the content gate would skip every one.
+                await this.updateFile(file.path, { force: true });
                 indexed++;
             } catch (e) {
                 console.warn(`[SemanticIndex] reindexPdfsOnly skipped ${file.path}:`, e);
@@ -1730,6 +1802,18 @@ export class SemanticIndexService {
             baseURL,
             dangerouslyAllowBrowser: true,
             timeout: 30_000,
+            // FIX-15-01-03 (Issue #68): the chat path routes exactly these
+            // provider classes through a Node http(s) transport because the
+            // Electron renderer enforces CORS on window.fetch and generic
+            // OpenAI-compatible gateways do not answer the preflight (ADR-064,
+            // FIX-04-03-03). The embedding path never got that treatment, so
+            // the SAME endpoint worked for chat and failed for embeddings --
+            // verified against api.novita.ai, which answers the preflight with
+            // 403 and no access-control-allow-headers, while api.openai.com
+            // answers 200 with the full list.
+            ...((['custom', 'ollama', 'lmstudio'] as const).includes(model.provider as never)
+                ? { fetch: createNodeFetch() }
+                : {}),
         });
 
         console.debug(`[SemanticIndex] Embedding via SDK: ${model.provider} ${baseURL} model=${model.name} texts=${texts.length}`);

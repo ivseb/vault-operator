@@ -166,7 +166,10 @@ export class ReadSkillTool extends BaseTool<'read_skill'> {
     private renderUserSkill(name: string, description: string, raw: string): string {
         // Strip YAML frontmatter -- the SKILLS directory already carries the
         // metadata, the LLM only needs the workflow body here.
-        const stripped = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+        // FIX-29-05-10 (Issue #71): CRLF- and BOM-tolerant, matching
+        // splitSkillFrontmatter. Otherwise a Windows-authored skill that now
+        // loads correctly would leak its whole frontmatter block into the prompt.
+        const stripped = raw.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, '').trim();
         const body = this.capBody(stripped);
         return this.frameSkill(name, description, 'user', body, '', '');
     }

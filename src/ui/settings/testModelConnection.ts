@@ -8,6 +8,7 @@ import { KiloAuthService } from '../../core/security/KiloAuthService';
 import { KiloMetadataService } from '../../core/providers/KiloMetadataService';
 import { extractRegionFromBedrockUrl } from '../../api/providers/bedrock';
 import { t } from '../../i18n';
+import { createNodeFetch } from '../../api/providers/openai';
 
 /**
  * Bedrock-specific credentials for the Fetch Models button. Mirrors the form
@@ -369,11 +370,17 @@ async function testGeminiConnection(model: CustomModel): Promise<TestResult> {
  */
 async function testEmbeddingConnection(model: CustomModel): Promise<TestResult> {
     try {
-        // Azure uses requestUrl (non-standard auth), all others use OpenAI SDK
+        // Azure uses requestUrl (non-standard auth), all others use OpenAI SDK.
+        // Side finding (2026-08-14): these were returned WITHOUT await, so the
+        // rejection escaped the catch below and surfaced as an unhandled
+        // rejection. The Test button then stayed disabled on "Testing..."
+        // forever and the user got no result at all -- the literal "fails
+        // silently" from issue #68. The chat-side testModelConnection awaits
+        // inside its try, which is why only embeddings behaved this way.
         if (model.provider === 'azure') {
-            return testEmbeddingViaRequestUrl(model);
+            return await testEmbeddingViaRequestUrl(model);
         }
-        return testEmbeddingViaSdk(model);
+        return await testEmbeddingViaSdk(model);
     } catch (err: unknown) {
         const msg: string = (err as { message?: string })?.message ?? String(err);
         return { ok: false, message: t('notice.testConnection.failed'), detail: msg };
@@ -402,6 +409,13 @@ async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
         baseURL,
         dangerouslyAllowBrowser: true,
         timeout: 15_000,
+        // FIX-15-01-03 (Issue #68): same Node transport the indexing path and
+        // the chat path use for these provider classes. Without it the Test
+        // button hits the renderer's CORS enforcement and diagnoses something
+        // other than what indexing will actually do.
+        ...((['custom', 'ollama', 'lmstudio'] as const).includes(model.provider as never)
+            ? { fetch: createNodeFetch() }
+            : {}),
     });
 
     const response = await client.embeddings.create({

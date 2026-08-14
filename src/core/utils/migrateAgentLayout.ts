@@ -60,6 +60,30 @@ import * as osModule from 'os';
  */
 export const LEGACY_VAULT_LOCAL_ROOTS = ['.obsidian-agent', '.obsilo-vault', 'obsilo-vault'] as const;
 export const LEGACY_VAULT_PARENT_ROOTS = ['obsilo-shared', 'vault-operator-shared', '.obsidian-agent'] as const;
+
+/**
+ * Shared roots the migration READS, in precedence order.
+ *
+ * FIX-29-01-01 (Issue #69): every functional phase used to hardcode
+ * 'obsilo-shared', the name the product carried before it was renamed. The
+ * root the GlobalFileService actually writes to is 'vault-operator-shared'
+ * (GLOBAL_DIR_NAME), and it appeared only in LEGACY_VAULT_PARENT_ROOTS above,
+ * which is a DETECTION list. So the plugin could see the folder, report a
+ * legacy layout, run a migration that moved nothing out of it, stamp the
+ * status 'complete' and re-point globalFs at an empty vault-local root. The
+ * bytes survived on disk, but nothing pointed at them any more.
+ *
+ * Order matters and is not alphabetical: the active root comes first because
+ * it holds the newer truth for anyone who lived through the rename and has
+ * both. moveOne() refuses to overwrite a populated destination, so the first
+ * root to supply an entry keeps it, and later roots contribute only what the
+ * earlier ones did not have.
+ *
+ * Keep this in sync with GLOBAL_DIR_NAME / LEGACY_GLOBAL_DIR_NAME in
+ * GlobalFileService: a root the service can write must be a root the
+ * migration can read.
+ */
+export const SHARED_SOURCE_ROOTS = ['vault-operator-shared', 'obsilo-shared'] as const;
 /** Pre-consolidation vault-local asset-cache root; counts as legacy only for the fresh-install fast-path. */
 const PRE_CONSOLIDATION_LOCAL_ROOT = '.vault-operator';
 
@@ -112,6 +136,37 @@ export function detectLegacyLayoutPresence(input: LegacyLayoutProbeInput): boole
         pathModule.join(input.homeDir ?? osModule.homedir(), '.obsidian-agent'),
     ];
     return candidates.some((p) => exists(p));
+}
+
+/**
+ * Whether there is user data the migration would actually move.
+ *
+ * FEAT-29-01-02 (Issue #69): deliberately NOT detectLegacyLayoutPresence.
+ * That probe is a fast-path veto and is built to fail safe, so it answers true
+ * for a machine-wide ~/.obsidian-agent belonging to a different vault, for a
+ * consolidated install's own .vault-operator, and for an empty vaultBasePath.
+ * Those are the right semantics for "do not auto-complete", and the wrong ones
+ * for "interrupt the user": a prompt on that basis would ask people to decide
+ * about a migration that has nothing to migrate.
+ *
+ * This asks the narrower question the prompt needs: does a shared root hold
+ * one of the entries the migration carries across? Only then is the user's
+ * data genuinely sitting outside the vault, which is what the prompt is about.
+ */
+export async function hasMigratableSharedData(
+    vaultParent: string,
+    probe: (p: string) => Promise<boolean> = pathExists,
+): Promise<boolean> {
+    if (!vaultParent) return false;
+    const names = [...DATA_SHARED_ENTRIES.map((e) => e.name), 'skills'];
+    for (const rootName of SHARED_SOURCE_ROOTS) {
+        const root = pathModule.join(vaultParent, rootName);
+        if (!(await probe(root))) continue;
+        for (const name of names) {
+            if (await probe(pathModule.join(root, name))) return true;
+        }
+    }
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -331,7 +386,13 @@ async function phaseBackup(input: AgentLayoutMigrationInput): Promise<BackupResu
         { label: 'obsidian-agent', from: pathModule.join(input.vaultBasePath, '.obsidian-agent') },
         { label: 'obsilo-vault', from: pathModule.join(input.vaultBasePath, '.obsilo-vault') },
         { label: 'vault-operator', from: pathModule.join(input.vaultBasePath, '.vault-operator') },
-        { label: 'obsilo-shared', from: pathModule.join(input.vaultParent, 'obsilo-shared') },
+        // FIX-29-01-01: back up EVERY shared root, not just the old name.
+        // A snapshot that misses the root holding the user's workflows is
+        // worse than no snapshot, because it looks like one.
+        ...SHARED_SOURCE_ROOTS.map((name) => ({
+            label: name,
+            from: pathModule.join(input.vaultParent, name),
+        })),
     ];
 
     // Safety-belt: refuse to start the backup if its destination would sit
@@ -515,16 +576,22 @@ const DATA_SHARED_ENTRIES: Array<{ name: string }> = [
 ];
 
 async function phaseDataShared(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
-    const sourceRoot = pathModule.join(input.vaultParent, 'obsilo-shared');
     const destRoot = pathModule.join(input.vaultBasePath, '.vault-operator', 'data');
     await rawFs.promises.mkdir(destRoot, { recursive: true });
 
     const results: PhaseEntry['items'] = [];
-    for (const entry of DATA_SHARED_ENTRIES) {
-        const from = pathModule.join(sourceRoot, entry.name);
-        const to = pathModule.join(destRoot, entry.name);
-        const r = await moveOne(from, to);
-        results.push({ from, to, ...r });
+    // FIX-29-01-01: iterate the roots in precedence order. moveOne() reports
+    // 'skipped-destination-populated' rather than overwriting, so the first
+    // root that supplies an entry keeps it and the later ones fill gaps.
+    for (const rootName of SHARED_SOURCE_ROOTS) {
+        const sourceRoot = pathModule.join(input.vaultParent, rootName);
+        if (!(await pathExists(sourceRoot))) continue;
+        for (const entry of DATA_SHARED_ENTRIES) {
+            const from = pathModule.join(sourceRoot, entry.name);
+            const to = pathModule.join(destRoot, entry.name);
+            const r = await moveOne(from, to);
+            results.push({ from, to, ...r });
+        }
     }
     return results;
 }
@@ -545,16 +612,20 @@ const CACHE_SHARED_ENTRIES: Array<{ name: string; destName?: string }> = [
 ];
 
 async function phaseCacheShared(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
-    const sourceRoot = pathModule.join(input.vaultParent, 'obsilo-shared');
     const destRoot = pathModule.join(input.vaultBasePath, '.vault-operator', 'cache');
     await rawFs.promises.mkdir(destRoot, { recursive: true });
 
     const results: PhaseEntry['items'] = [];
-    for (const entry of CACHE_SHARED_ENTRIES) {
-        const from = pathModule.join(sourceRoot, entry.name);
-        const to = pathModule.join(destRoot, entry.destName ?? entry.name);
-        const r = await moveOne(from, to);
-        results.push({ from, to, ...r });
+    // FIX-29-01-01: same precedence walk as the data phase.
+    for (const rootName of SHARED_SOURCE_ROOTS) {
+        const sourceRoot = pathModule.join(input.vaultParent, rootName);
+        if (!(await pathExists(sourceRoot))) continue;
+        for (const entry of CACHE_SHARED_ENTRIES) {
+            const from = pathModule.join(sourceRoot, entry.name);
+            const to = pathModule.join(destRoot, entry.destName ?? entry.name);
+            const r = await moveOne(from, to);
+            results.push({ from, to, ...r });
+        }
     }
     return results;
 }
@@ -619,12 +690,24 @@ async function archiveLoser(
 
 async function phaseSkillsResolve(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
     const vaultLocal = pathModule.join(input.vaultBasePath, '.obsilo-vault', 'skills');
-    const vaultParent = pathModule.join(input.vaultParent, 'obsilo-shared', 'skills');
     const destRoot = pathModule.join(input.vaultBasePath, '.vault-operator', 'data', 'skills');
     await rawFs.promises.mkdir(destRoot, { recursive: true });
 
     const local = await listSkillsAt(vaultLocal);
-    const shared = await listSkillsAt(vaultParent);
+
+    // FIX-29-01-01: skills can sit in either shared root. Collect them in
+    // precedence order and let the newer mtime win within the shared side, so
+    // the drift resolution below stays a two-way decision (vault-local against
+    // shared) instead of growing a third axis.
+    const sharedByName = new Map<string, SkillEntry>();
+    for (const rootName of SHARED_SOURCE_ROOTS) {
+        const dir = pathModule.join(input.vaultParent, rootName, 'skills');
+        for (const e of await listSkillsAt(dir)) {
+            const seen = sharedByName.get(e.name);
+            if (!seen || e.mtimeMs > seen.mtimeMs) sharedByName.set(e.name, e);
+        }
+    }
+    const shared = [...sharedByName.values()];
 
     const byName = new Map<string, { local?: SkillEntry; shared?: SkillEntry }>();
     for (const e of local) byName.set(e.name, { ...byName.get(e.name), local: e });
@@ -722,7 +805,9 @@ async function phaseCleanup(input: AgentLayoutMigrationInput): Promise<PhaseEntr
     const candidateRoots = [
         pathModule.join(input.vaultBasePath, '.obsidian-agent'),
         pathModule.join(input.vaultBasePath, '.obsilo-vault'),
-        pathModule.join(input.vaultParent, 'obsilo-shared'),
+        // FIX-29-01-01: every shared root the migration read is a root it may
+        // now be able to remove.
+        ...SHARED_SOURCE_ROOTS.map((name) => pathModule.join(input.vaultParent, name)),
     ];
     for (const root of candidateRoots) {
         if (!(await pathExists(root))) continue;

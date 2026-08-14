@@ -53,6 +53,8 @@ const VAULT_OPERATOR_ACRONYMS = [...DEFAULT_ACRONYMS, 'AWS', 'IAM', 'SSO', 'STS'
     'WASM',
     // FIX-42-06-01: integrity-check acronym in the asset-download status copy.
     'SHA256',
+    // 3.6.0: the reranker runtime, named in the asset label and its help text.
+    'ONNX',
 ];
 // Proper nouns that should keep their casing in Bedrock-related UI copy but
 // don't belong in the general brand list (they are not branded products).
@@ -86,6 +88,12 @@ const VAULT_OPERATOR_IGNORE_WORDS = [
     // UI labels referenced inside help strings; lowercasing them would break
     // the on-screen reference. (All bot-passed at 3.3.1.)
     'Streamable', 'Cursor', 'Arguments', 'Referenced', 'Enable',
+    // AUDIT/3.6.0: UI labels referenced inside other UI strings. Same reason
+    // as the block above -- these name on-screen elements (the "Local
+    // reranking" section, the "Reranker model (ONNX)" and "Semantic
+    // reranker" assets, the "Storage layout consolidation" section), and
+    // lowercasing them mid-sentence would break the reference.
+    'Local', 'Reranker', 'Semantic', 'Storage', 'Interface',
     // Emphasis word used in the freshness-scan copy ("your WHOLE vault").
     'WHOLE',
 ];

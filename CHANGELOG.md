@@ -9,7 +9,82 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-08-14
+
+### Added
+
+- **Chat linking can now skip folders.** Chat linking stamps a reference into
+  the frontmatter of every note the agent writes, which is unhelpful for notes
+  whose frontmatter means something to another plugin: a Templater template
+  passes the stray reference on to every note created from it. There is now an
+  exclusion list under Interface settings that takes a folder path or a
+  `/regex/` entry. Excluded notes stay fully editable, they are simply left
+  unstamped. The default is empty, so nothing changes unless you set it.
+- **Existing installations are told when their data lives outside the vault.**
+  Older installations keep settings, workflows, memory and chat history in a
+  folder next to the vault rather than inside it, which means none of it
+  travels when the vault is synced or copied. That was only discoverable by
+  finding a settings section nobody knew to look for. A one-time prompt now
+  explains the consequence and offers the move; declining is remembered, and
+  the decision is per vault.
+
 ### Fixed
+
+- **LM Studio answers again.** Every chat request went to an endpoint LM Studio
+  does not serve, so it replied with an empty success and the chat stayed
+  silent with no error anywhere. The address is now completed the same way the
+  model list and the embedding path already completed it. If you added `/v1`
+  yourself as a workaround, that keeps working.
+- **Skills written on Windows load.** A skill file with Windows line endings
+  was rejected as having no frontmatter, while its frontmatter was plainly
+  there. This also affected skills imported from a ZIP packed on Windows and
+  repositories cloned with automatic line-ending conversion. Files now keep
+  their own line endings when the agent edits them, and a leading byte-order
+  mark is accepted too.
+- **The reranker install button can be found.** The console pointed at a
+  settings tab that does not exist, and the button was named so that searching
+  for the term from the message found nothing. Both are corrected, and the
+  documentation no longer contradicts itself about the download size.
+- **Picking a slash command no longer breaks it.** Selecting an entry from the
+  slash menu dropped the separator, so whatever you typed next fused into the
+  command and the workflow ran as plain text without saying so. The menu also
+  stayed open and swallowed Enter, which meant you could not send. Both are
+  fixed, and Shift+Enter is a newline again.
+- **Editing a skill opens its folder.** The menu entry rebuilt the path from an
+  assumption that only holds after the storage consolidation has run, so on
+  older installations it pointed at a folder that does not exist. It now asks
+  the component that owns the skill where the skill actually is. iCloud paths
+  were never the problem, though syncing a vault across two machines is a
+  common way to end up in the affected state.
+- **A broken embedding provider now says so.** Embeddings against gateways that
+  do not send permissive CORS headers failed because the indexing path did not
+  use the same network transport the chat path uses. Worse, every failure was
+  counted per file and the build then reported success, so a completely
+  unreachable provider looked like "all files skipped". The build now stops and
+  names the cause, and the connection test reports its own failures instead of
+  hanging.
+- **Editing a note no longer re-embeds it.** The incremental index update had
+  no content check, so saving a note re-sent it to the embedding model even
+  when nothing relevant had changed. With a local model that kept the
+  inference server resident in video memory. It also wrote back an empty
+  content hash, which disabled the same check in the full index build, so notes
+  were re-embedded and re-enriched there as well.
+- **The Kilo Gateway works.** Requests were sent through the browser network
+  stack, where they were blocked before leaving the machine; sign-in worked
+  because it uses a different path, which made this look like an outage on
+  their side. It now uses the same transport four other providers already use.
+- **Settings can no longer be lost on an interrupted write.** Settings were
+  written by truncating the file and refilling it, so a crash, a quit or two
+  overlapping saves could leave an empty or half-written file behind. Writes
+  are atomic now: a reader sees either the old file or the new one, and a
+  failed write leaves the previous one intact. This applies to the knowledge
+  database too.
+- **The storage consolidation moves the data it was supposed to move.** It only
+  ever looked in a folder under the name the project carried before it was
+  renamed, so for most installations it moved nothing, reported success, and
+  then pointed at an empty location. Files were never deleted, but the plugin
+  stopped seeing them. It now covers both folder names, prefers the newer one
+  when both exist, and backs up both before touching anything.
 
 - **A clipped image is now identified by its own bytes.** The format used to
   come from the `Content-Type` the remote server sent, so a page could declare
@@ -23,8 +98,28 @@ All notable changes to Vault Operator are documented here. Format follows
   reader could decode. They are declared correctly now, and a format the deck
   cannot carry shows a visible placeholder instead of a silently broken image.
 
+### Security
+
+- **The inline chat no longer loads remote resources from untrusted content.**
+  Everything rendered into a chat is untrusted: model output, note content
+  pulled in by tools, fetched web pages. Image syntax in that content turns
+  into a request the moment it is rendered, with no click and no approval. The
+  sidebar has neutralised this since July; the inline chat, added afterwards,
+  did not. A prepared note or a fetched snippet could therefore reach an
+  attacker-chosen address with vault content attached. Both render paths are
+  now covered, and a test fails the build if a third one ever bypasses it.
+- **A stylesheet reference can no longer do the same thing.** The protection
+  above covered image syntax and resource tags, but not a CSS `url()` in a
+  style attribute, whose carrier is an ordinary element that no tag list
+  catches. Remote references there are neutralised as well; local and embedded
+  ones are untouched.
+
 ### Internal
 
+- A safeguard added earlier in this cycle, meant to stop an index build once a
+  provider fails repeatedly, never actually triggered: its counter was reset on
+  every pass. The accompanying test only checked that the code was present, not
+  that it worked. Both are corrected, and the test now exercises the behaviour.
 - `pptxgenjs` is declared as a build-time dependency, which is what it has
   always been: it is excluded from the plugin bundle and compiled only into the
   optional office asset. The runtime dependency tree is now free of it and of

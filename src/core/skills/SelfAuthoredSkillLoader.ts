@@ -20,6 +20,7 @@ import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import { AstValidator } from '../sandbox/AstValidator';
 import { validateSkillFrontmatter } from './SkillFrontmatterValidator';
 import { dedent, parseSkillFrontmatterBlock, splitSkillFrontmatter } from './skillFrontmatterParser';
+import { detectLineEnding } from '../utils/frontmatterSplit';
 import { TRUSTED_SKILL_TIERS, type SkillProvenanceStore } from './SkillProvenanceStore';
 import type ObsidianAgentPlugin from '../../main';
 import type { EsbuildWasmManager } from '../sandbox/EsbuildWasmManager';
@@ -461,9 +462,12 @@ export class SelfAuthoredSkillLoader {
         const adapter = this.plugin.app.vault.adapter;
         try {
             const content = await adapter.read(filePath);
-            const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+            // FIX-29-05-10 (Issue #71): CRLF- and BOM-tolerant, matching
+            // splitSkillFrontmatter. A .skill.md sub-role written on Windows
+            // used to fall out of the role list without any rejection record.
+            const fmMatch = content.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
             if (!fmMatch) return null;
-            const fm = this.parseFrontmatter(fmMatch[1]);
+            const fm = this.parseFrontmatter(fmMatch[1].replace(/\r\n/g, '\n'));
             const stem = filename.replace(/\.skill\.md$/, '');
             return {
                 role: fm.role ?? stem,
@@ -1284,17 +1288,27 @@ export class SelfAuthoredSkillLoader {
         const adapter = this.plugin.app.vault.adapter;
         if (!(await adapter.exists(filePath))) return;
         const content = await adapter.read(filePath);
-        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        // FIX-29-05-10 (Issue #71): CRLF- and BOM-tolerant, matching
+        // splitSkillFrontmatter. On a CRLF manifest this used to be a silent
+        // no-op, so successCount never advanced for Windows-authored skills.
+        const fmMatch = content.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/);
         if (!fmMatch) return;
 
-        const fm = fmMatch[1];
+        // Operate on LF, then write the block back in the file's own style so a
+        // CRLF manifest does not end up with a mixed-ending frontmatter block.
+        const lineEnding = detectLineEnding(content);
+        const fm = fmMatch[1].replace(/\r\n/g, '\n');
         // AUDIT-007 M-2: Escape key to prevent ReDoS
         const regex = new RegExp(`^${this.escapeForRegex(key)}:.*$`, 'm');
-        const updated = regex.test(fm)
+        const updatedLf = regex.test(fm)
             ? fm.replace(regex, `${key}: ${value}`)
             : fm + `\n${key}: ${value}`;
+        const updated = lineEnding === '\n' ? updatedLf : updatedLf.replace(/\n/g, lineEnding);
 
-        const newContent = content.replace(fmMatch[0], `---\n${updated}\n---`);
+        const newContent = content.replace(
+            fmMatch[0],
+            `---${lineEnding}${updated}${lineEnding}---`,
+        );
         await adapter.write(filePath, newContent);
     }
 }

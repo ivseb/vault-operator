@@ -47,6 +47,19 @@ const INLINE_IMAGE = /!\[([^\]]*)\]\(\s*(<?)([^)\s]+)(>?)((?:\s+[^)]*)?)\)/g;
 const REFERENCE_IMAGE = /!\[([^\]]*)\]\[([^\]]*)\]/g;
 
 /**
+ * CSS `url(...)` with a remote target.
+ *
+ * AUDIT-2026-08-14 H-2: the tag list above cannot catch this one. The host of a
+ * `style="background-image:url(...)"` is an ordinary <div>, and DOMPurify does
+ * not help either -- the tool-steps config forbids the style TAG while `style`
+ * sits in DOMPurify's default attribute allowlist and in its URI-safe set, so
+ * the declaration survives sanitisation and fires the same zero-click request.
+ * Matched on the string like everything else here, because the fetch starts as
+ * soon as the style is applied.
+ */
+const CSS_REMOTE_URL = /url\(\s*(['"]?)((?:https?:|\/\/)[^)'"\s]+)\1\s*\)/gi;
+
+/**
  * Neutralise auto-loading remote references in untrusted markdown.
  *
  * Returns the markdown unchanged when there is nothing to neutralise, so the
@@ -70,6 +83,11 @@ export function neutraliseRemoteResources(markdown: string): string {
 
     // Raw resource tags become literal text.
     out = out.replace(RESOURCE_TAG, (_m, slash: string, tag: string) => `&lt;${slash}${tag}`);
+
+    // A remote CSS url() loses its url() wrapper, so the declaration stops
+    // resolving to a request. The address stays readable, matching the rule
+    // this module follows everywhere: neutralise the auto-load, hide nothing.
+    out = out.replace(CSS_REMOTE_URL, (_m, _q: string, target: string) => `neutralised-url:${target}`);
 
     return out;
 }

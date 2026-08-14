@@ -48,7 +48,7 @@ This stage is what separates the knowledge layer from a standard search engine. 
 
 Stage 4 is reranking. All candidates from the first three stages are re-scored by a local cross-encoder model (`Xenova/ms-marco-MiniLM-L-6-v2` via transformers.js WASM). Unlike the embedding model, which encodes query and document separately, the cross-encoder processes the pair together and produces a more accurate relevance score. The `RerankerService` (`src/core/knowledge/RerankerService.ts`) loads the model from the local cache once it has been installed.
 
-The cross-encoder ships as an optional asset. Install it from Settings > Vault Operator > Providers > Embeddings > Reranker model > Install. The download is around 80 MB and runs entirely on CPU via WASM. If the model is not installed, retrieval silently falls back to the first three stages (vector search, graph expansion, and implicit connections), so search still works without it.
+The cross-encoder ships as an optional asset. Install it from Settings > Vault Operator > Providers > Embeddings > Local reranking > Install. The download is 12 MB and runs entirely on CPU via WASM. It needs a second, smaller asset (`Reranker library`, ~0.6 MB) from Advanced > Optional assets; the reranker stays disabled until both are present. If the model is not installed, retrieval silently falls back to the first three stages (vector search, graph expansion, and implicit connections), so search still works without it.
 
 ## Indexing
 

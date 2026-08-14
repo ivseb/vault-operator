@@ -338,11 +338,22 @@ export class KiloAuthService {
 
     /**
      * Gibt einen fetch-kompatiblen Wrapper zurück, der Kilo-Auth-Header injiziert.
-     * Wird als `new OpenAI({ fetch: authService.getKiloFetch() })` übergeben.
+     * Wird als `new OpenAI({ fetch: authService.getKiloFetch(createNodeFetch()) })`
+     * übergeben.
      *
-     * Review-Bot: SDK-internes window.fetch ist toleriert (wie github-copilot.ts).
+     * FIX-13-02-03 (Issue #64): der Wrapper rief früher unbedingt window.fetch.
+     * Im Electron-Renderer (Origin app://obsidian.md) gilt dort die
+     * CORS-Durchsetzung, und api.kilo.ai sendet keinen
+     * Access-Control-Allow-Origin-Header, weil der Dienst für die
+     * VS-Code-Extension gebaut ist, die in Node läuft. Jeder Chat-Request
+     * scheiterte deshalb schon am Preflight. Die OAuth-Calls derselben Klasse
+     * gehen über requestUrl und waren nie betroffen, weshalb die Anmeldung
+     * funktionierte und nur der Chat tot war.
+     *
+     * @param baseFetch Transport, an den delegiert wird. Default bleibt
+     * window.fetch, damit Aufrufer ohne Node-Transport unverändert laufen.
      */
-    getKiloFetch(): typeof window.fetch {
+    getKiloFetch(baseFetch: typeof window.fetch = window.fetch): typeof window.fetch {
         return async (
             input: RequestInfo | URL,
             init?: RequestInit,
@@ -356,7 +367,7 @@ export class KiloAuthService {
                 headers.set('X-KiloCode-OrganizationId', orgId);
             }
 
-            return window.fetch(input, { ...init, headers });
+            return baseFetch(input, { ...init, headers });
         };
     }
 

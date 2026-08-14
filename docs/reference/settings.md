@@ -94,7 +94,7 @@ The Build index button shows "Enable semantic index first." until you turn the m
 | Local reranking | Re-rank semantic search results with a local cross-encoder model | On | `settings.enableReranking` |
 
 :::info Reranker model
-The reranker uses `Xenova/ms-marco-MiniLM-L-6-v2` and is delivered as an optional asset. If the asset is not installed, the agent falls back silently to the vector score. Install under `Settings > Vault Operator > Advanced > Optional assets`.
+The reranker uses `Xenova/ms-marco-MiniLM-L-6-v2` and is delivered as an optional asset. If the asset is not installed, the agent falls back silently to the vector score. Install under `Settings > Vault Operator > Providers > Embeddings > Local reranking`. The JavaScript half (`Reranker library`, ~0.6 MB) is installed separately under `Advanced > Optional assets`; both are needed.
 :::
 
 #### Implicit connections
@@ -255,6 +255,7 @@ Persistent instruction sets matched by keywords. Like mini-manuals the agent fol
 | Setting | What it does | Default | Source |
 |---------|--------------|---------|--------|
 | Skill list | All skills with name, trigger pattern, and body | Built-in bundled skills | `settings.skills` and `bundled-skills/` |
+| Skill registry | Browse and install skills on demand (including `skill-creator`) | n/a | `SkillRegistryModal.ts` |
 | Add skill | Create a new skill | n/a | `SkillsTab.ts` |
 
 ### Prompts
@@ -356,6 +357,7 @@ Appearance, input behaviour, and first-run setup. Inline editor AI actions live 
 | Send with enter | Enter sends the message. Off means Ctrl/Cmd+Enter sends | On | `settings.sendWithEnter` |
 | Include current time | Add the exact time of day to the system prompt. The calendar date is always included; the exact time changes every call and defeats prompt caching | Off | `settings.includeCurrentTimeInContext` |
 | Chat linking | Link chat sessions to notes for traceability (frontmatter stamping plus semantic titling) | On | `settings.chatLinking.enabled` |
+| Excluded paths | Folders that never receive a chat reference. Accepts a folder path or a `/regex/` entry. Excluded notes stay fully editable, they are only left unstamped. | empty | `settings.chatLinking.excludedPaths` |
 | Restart setup | Re-runs the first-run wizard. Under the Setup section | n/a | `InterfaceTab.ts:42` |
 
 ### Plugin API

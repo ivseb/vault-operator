@@ -22,7 +22,7 @@ Prefer to watch? This 7-minute animated explainer walks through the agent from t
 
 You can run a chat directly on the note you are reading. Select text, press Cmd+Shift+I (Ctrl+Shift+I on Windows and Linux) or right-click and pick "Inline AI chat", and a floating panel opens over the editor. From there you ask a question about the selection, look something up, rewrite, translate, summarize, or extract action items without leaving the note.
 
-When the panel proposes a change to the file, the check modal opens first. You review each edit, apply only the ones you want, and the agent writes a checkpoint marker into the chat so you can undo the change later through the same checkpoint system used elsewhere in Vault Operator.
+When the panel proposes a change to the file, the Änderungen prüfen modal opens first. You review each edit, apply only the ones you want, and the agent writes a checkpoint marker into the chat so you can undo the change later through the same checkpoint system used elsewhere in Vault Operator.
 
 [Inline chat guide](/guides/inline-chat) | [Chat interface](/guides/chat-interface) | [Safety and control](/guides/safety-control)
 

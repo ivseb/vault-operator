@@ -48,7 +48,7 @@ Rules work best for global constraints that should always apply: tone of voice, 
 Skills go further than rules. They are only injected when the agent detects that a conversation is relevant to the skill's domain, which keeps the system prompt lean.
 
 :::tip Bundled skills
-Vault Operator ships with four bundled skills you can use right away: `/sandbox-environment` (sandbox API reference for skills that run scripts), `/skill-creator` (guides you through building your own skill), `/vault-health-batch` (works through Vault Health findings in batches), and `/vault-operator-guide` (answers questions about Vault Operator itself). Bundled skills live inside the plugin and update with new releases. They sit alongside any skills you author yourself in your vault. Anything beyond these four you can create as your own user skill, and the skill-creator skill walks you through it.
+Vault Operator ships with three bundled skills you can use right away: `/sandbox-environment` (sandbox API reference for skills that run scripts), `/vault-health-batch` (works through Vault Health findings in batches), and `/vault-operator-guide` (answers questions about Vault Operator itself). Bundled skills live inside the plugin and update with new releases. They sit alongside any skills you author yourself in your vault. The `/skill-creator` skill, which guides you through building your own skill, installs on demand from the skill registry (Settings > Skills > Browse the registry); the Create-skill button takes you there when it is missing.
 :::
 
 To create one:

@@ -20,13 +20,17 @@
  *     bundled-skill file that disappeared between releases is gone.
  *   - Grandfathering (ADR-152): the pass ONLY iterates over skills present
  *     in the bundle. A skill that left the bundle entirely -- e.g. a premium
- *     skill moved to pro-skills/ and stripped from the public build -- is
- *     never iterated, so an existing on-disk copy is left fully intact
- *     (not updated, not deleted). This is the deliberate mechanism that lets
- *     early adopters keep monetized skills they already installed. Do NOT
- *     add an "orphan cleanup" that deletes on-disk skills absent from the
- *     bundle: it would silently revoke that grandfathered access. Guarded by
- *     the "Pro-skill grandfathering" tests in BuiltinSkillMaterializer.test.ts.
+ *     skill moved to pro-skills/ and stripped from the public build, or
+ *     skill-creator moving to the registry (2026-08-14) -- is never
+ *     iterated, so an existing on-disk copy is left fully intact
+ *     (not updated, not deleted) and keeps working. Do NOT add an "orphan
+ *     cleanup" that deletes on-disk skills absent from the bundle: it would
+ *     silently destroy a skill the user still relies on. Guarded by the
+ *     "Pro-skill grandfathering" tests in BuiltinSkillMaterializer.test.ts.
+ *     The FILES survive; the TRUST does not: SkillProvenanceStore.reconcile
+ *     prunes the trusted-tier manifest entry of a skill that left the
+ *     bundle, so the orphaned copy resolves as `user` and prompts like any
+ *     other foreign skill.
  */
 
 import { normalizePath } from 'obsidian';

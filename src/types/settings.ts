@@ -743,6 +743,20 @@ export interface ChatLinkingSettings {
     enabled: boolean;
     /** Model key for semantic title generation (picks from activeModels[]) */
     titlingModelKey: string;
+    /**
+     * FEAT-07-06 (Issue #72): paths that never receive a chat link.
+     *
+     * Folder prefixes or `/regex/` entries, matched with the same semantics as
+     * Obsidian's own "Excluded files" (see matchesObsidianExcluded). Intended
+     * for notes whose frontmatter carries meaning to another tool -- Templater
+     * templates, Dataview-driven notes, Bases -- where an injected `chats`
+     * property is actively harmful rather than merely untidy.
+     *
+     * This is NOT an access rule: an excluded note stays fully readable and
+     * writable, it just does not get stamped. Empty by default, so existing
+     * installs behave exactly as before.
+     */
+    excludedPaths?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -988,6 +1002,12 @@ export interface ObsidianAgentSettings {
      * "reindex done" -- the user may have closed the modal and never
      * actually run the cleanup.
      */
+    /**
+     * FEAT-29-01-02 (Issue #69): the storage-layout upgrade prompt has been
+     * shown once. Vault-local (see VAULT_LOCAL_KEYS): each vault has its own
+     * layout, so answering in one must not silence the question in another.
+     */
+    _layoutUpgradePromptShown?: boolean;
     _pdfReindexHintShown: boolean;
     _pdfReindexCompleted: boolean;
     /** Chunk size in characters. Changing this invalidates and rebuilds the index. */
@@ -2089,6 +2109,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticAutoIndex: 'never',
     semanticExcludedFolders: [],
     semanticIndexPdfs: false,
+    _layoutUpgradePromptShown: false,
     _pdfReindexHintShown: false,
     _pdfReindexCompleted: false,
     semanticChunkSize: 2000,
@@ -2172,6 +2193,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     chatLinking: {
         enabled: true,
         titlingModelKey: '',
+        excludedPaths: [],
     },
     chatHistoryFolder: '',
 

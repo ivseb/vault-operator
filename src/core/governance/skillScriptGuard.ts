@@ -105,7 +105,11 @@ function foldHas(rec: Record<string, unknown> | undefined, key: string): boolean
  */
 export function declaredSkillTier(skillMd: string | null): string | null {
     if (skillMd === null) return null;
-    const match = skillMd.match(/^---\n([\s\S]*?)\n---/);
+    // FIX-29-05-10 (Issue #71): the fence must agree with splitSkillFrontmatter
+    // on line endings. While this reader was LF-only and the splitter was not,
+    // a CRLF manifest could load as a skill whose `source:` claim nobody read --
+    // exactly the split-brain the LF-only rule was meant to prevent.
+    const match = skillMd.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/);
     if (!match) return null;
     const line = match[1].split('\n').find((l) => /^\s*source\s*:/.test(l));
     if (!line) return null;

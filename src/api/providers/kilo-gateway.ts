@@ -20,6 +20,7 @@ import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
 import { convertToOpenAiChatMessages, convertToOpenAiChatTools } from '../adapters/openaiChat';
+import { createNodeFetch } from './openai';
 
 // ---------------------------------------------------------------------------
 // OpenAI REST API types (subset — mirrors github-copilot.ts)
@@ -49,7 +50,10 @@ export class KiloGatewayProvider implements ApiHandler {
             apiKey: 'kilo', // Placeholder — echte Auth über custom fetch
             baseURL: KILO_GATEWAY_BASE,
             dangerouslyAllowBrowser: true,
-            fetch: this.authService.getKiloFetch(),
+            // FIX-13-02-03 (Issue #64): Node-Transport statt Renderer-fetch.
+            // Derselbe Weg, den gemini/custom/ollama/lmstudio und der
+            // Anthropic-Gateway-Modus gehen (ADR-064), Streaming inklusive.
+            fetch: this.authService.getKiloFetch(createNodeFetch()),
         });
     }
 

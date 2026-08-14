@@ -1,3 +1,5 @@
+import { detectLineEnding } from '../utils/frontmatterSplit';
+
 /**
  * Shared SKILL.md frontmatter parser.
  *
@@ -44,17 +46,32 @@
  * and it showed up in neither the Notice nor the rejected box. That is the exact
  * split-brain FIX-29-05-03 claims to have closed.
  *
- * LF-only is deliberate and load-bearing (WriteSkillTool's original note, now
- * actually true because all three share this function): if one reader were
- * CRLF-tolerant while another was not, a CRLF `---` decoy could make one treat a
- * file as YAML that the other classifies as HTML-comment metadata.
+ * FIX-29-05-10 (Issue #71): the fence is now CRLF- and BOM-tolerant. The
+ * invariant this function protects was never "the line ending must be LF" --
+ * it is that every reader makes the SAME call about where the frontmatter
+ * ends. A CRLF `---` decoy is only dangerous while one reader treats it as
+ * YAML and another falls through to the HTML-comment block. Since all readers
+ * share this function (and declaredSkillTier mirrors the same fence), moving
+ * the boundary here moves it for all of them at once, so the invariant holds
+ * on both line endings. LF-only additionally rejected every SKILL.md written
+ * on Windows, imported from a Windows-packed ZIP, or cloned with
+ * core.autocrlf=true, reporting it as "no YAML frontmatter" to a user looking
+ * straight at their frontmatter.
+ *
+ * `frontmatter` comes back LF-normalized so the key parser sees clean values;
+ * `body` keeps its original bytes, and `lineEnding` lets writers rebuild the
+ * file in its own style (same contract as splitNoteFrontmatter, FIX-44-42).
  */
 export function splitSkillFrontmatter(
     content: string,
-): { frontmatter: string; body: string } | null {
-    const m = /^---\n([\s\S]*?)\n---[ \t]*(?:\n([\s\S]*))?$/.exec(content);
+): { frontmatter: string; body: string; lineEnding: '\n' | '\r\n' } | null {
+    const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/.exec(content);
     if (!m) return null;
-    return { frontmatter: m[1], body: m[2] ?? '' };
+    return {
+        frontmatter: m[1].replace(/\r\n/g, '\n'),
+        body: m[2] ?? '',
+        lineEnding: detectLineEnding(content),
+    };
 }
 
 /**

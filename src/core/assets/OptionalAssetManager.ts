@@ -336,7 +336,7 @@ export function buildRerankerSpec(pluginVersion: string, expectedSha256: string)
     return {
         id: 'reranker-onnx',
         filename: 'ort-wasm-simd-threaded.wasm',
-        label: 'Semantic Reranker',
+        label: 'Reranker model (ONNX)',
         description: 'Cross-encoder model that re-ranks semantic-search results by actual relevance. Runs locally on your machine, no API calls.',
         sizeMb: 12,
         expectedSha256,
@@ -392,7 +392,7 @@ export function buildRerankerJsBundleSpec(pluginVersion: string, expectedSha256:
         id: 'reranker-bundle',
         filename: 'reranker-bundle.js',
         label: 'Reranker (library)',
-        description: 'JavaScript bundle of the transformers + onnxruntime-web libraries the semantic reranker needs. Paired with the WASM binary asset ("Reranker (WASM)") which is downloaded separately. Without both, semantic search still works but skips the local rerank step.',
+        description: 'JavaScript bundle of the transformers + onnxruntime-web libraries the semantic reranker needs. Paired with the "Reranker model (ONNX)" asset under Providers > Embeddings > Local reranking, which is downloaded separately. Without both, semantic search still works but skips the local rerank step.',
         sizeMb: 0.6,
         expectedSha256,
         downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/reranker-bundle.js`,

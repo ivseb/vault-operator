@@ -79,6 +79,17 @@ export function hashSkillContent(content: string): string {
     return `${content.length.toString(36)}.${h.toString(36)}`;
 }
 
+/**
+ * LF-only ON PURPOSE, and deliberately NOT aligned with splitSkillFrontmatter.
+ *
+ * FIX-29-05-10 (Issue #71) made the skill loaders CRLF-tolerant so that
+ * Windows-authored skills load. This reader stayed LF-only because it feeds
+ * TRUSTED_SKILL_TIERS: making it tolerant would let a CRLF manifest claim
+ * `source: builtin` and gain trust it never had. Returning null here means
+ * "untrusted", so the strictness is fail-closed and the asymmetry is the safe
+ * direction. Bundle-materialized skills are always written with LF, so no
+ * legitimate trusted skill is affected. Do not "clean this up" for symmetry.
+ */
 function extractSource(content: string): string | null {
     const match = content.match(/^---\n([\s\S]*?)\n---/);
     if (!match) return null;
@@ -152,9 +163,11 @@ export class SkillProvenanceStore {
      *                       are authoritative -- their entry is refreshed from the
      *                       current on-disk content)
      *
-     * Grandfathered entries (present in a prior manifest but not re-materialized)
-     * are preserved verbatim. On a first run without a manifest, existing trusted
-     * skills on disk are seeded once (ADR-152).
+     * Entries not re-materialized this boot are preserved -- EXCEPT trusted-tier
+     * entries whose skill is no longer in `bundleNames`: those are pruned, so
+     * trust ends when bundle membership ends (the on-disk folder stays, the
+     * skill resolves as `user`). On a first run without a manifest, existing
+     * trusted skills on disk are seeded once (ADR-152, bundle-gated).
      */
     async reconcile(
         skillsRoot: string,
@@ -174,6 +187,27 @@ export class SkillProvenanceStore {
         // bundle fails closed rather than trusting the disk.
         if (!this.existedOnDisk && !this.corrupt) {
             await this.seedFromDisk(skillsRoot, bundleNames ?? new Set());
+        }
+        // Prune trusted entries for skills that left the bundle (2026-08-14,
+        // first case: skill-creator moving to the registry). TRUSTED means
+        // "bytes came out of THIS build's bundle" -- an entry whose skill the
+        // bundle no longer contains fails that definition, however intact its
+        // hash. Without this, the manifest-present path diverged from the
+        // manifest-lost path (which already revokes via the bundle-gated
+        // seed): an intact manifest preserved trust forever. Guards: only
+        // prune when the caller names a non-empty bundle (a caller that
+        // cannot say what shipped must not destroy state); only TRUSTED
+        // tiers, so `registry` entries survive; membership is checked against
+        // the bundle, not freshlyManaged, so a skill whose materialization
+        // failed this boot keeps its entry. The on-disk folder is NOT touched
+        // (materializer contract) -- the skill keeps working, resolved as
+        // `user`, and prompts like any other foreign skill.
+        if (bundleNames && bundleNames.size > 0) {
+            for (const [name, entry] of Object.entries(this.entries)) {
+                if (TRUSTED_SKILL_TIERS.has(entry.source) && !bundleNames.has(name)) {
+                    delete this.entries[name];
+                }
+            }
         }
         for (const name of freshlyManaged) {
             const skillMd = `${skillsRoot}/${name}/SKILL.md`;

@@ -30,6 +30,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import { TRUSTED_SKILL_TIERS } from '../../skills/SkillProvenanceStore';
 import { loadableSkills } from '../../context/SkillsManager';
 import { splitSkillFrontmatter } from '../../skills/skillFrontmatterParser';
+import { detectLineEnding } from '../../utils/frontmatterSplit';
 import { getSelfAuthoredSkillsDir } from '../../utils/agentFolder';
 import { assertSafePathSegment } from '../../utils/safePathName';
 import type ObsidianAgentPlugin from '../../../main';
@@ -60,7 +61,7 @@ export class WriteSkillTool extends BaseTool<'write_skill'> {
                 'Revise an EXISTING skill from the SKILLS directory by NAME, without needing its '
                 + 'on-disk path. Use it to improve or fix a skill you loaded with read_skill: overwrite '
                 + 'the SKILL.md body, or a file under references/, scripts/ or assets/. Creating a NEW '
-                + 'skill is done through the skill-creator skill (init_skill), not this tool. A snapshot '
+                + 'skill is best done through the skill-creator skill (init_skill) when it is installed. A snapshot '
                 + 'is taken automatically so the change can be reverted. Editing a bundled or pro skill '
                 + 'turns it into a local user copy that no longer receives plugin-bundle updates and no '
                 + 'longer runs with trusted-tier privileges.',
@@ -129,7 +130,7 @@ export class WriteSkillTool extends BaseTool<'write_skill'> {
             callbacks.pushToolResult(this.formatError(new Error(
                 `Skill "${name}" not found. Available skills: ${list}. `
                 + 'write_skill only revises an existing skill; create a new one with the '
-                + 'skill-creator skill (init_skill).',
+                + 'skill-creator skill (init_skill) when it is installed.',
             )));
             return;
         }
@@ -378,7 +379,7 @@ export class WriteSkillTool extends BaseTool<'write_skill'> {
         } else if (!getFmField(fm, 'description')) {
             fm = setFmField(fm, 'description', name);
         }
-        return { content: `---\n${fm.trim()}\n---\n\n${body}` };
+        return { content: renderSkillMd(fm, body, yaml.lineEnding) };
     }
 
     /** Rewrite an existing SKILL.md so its `source:` is `user` (user override). */
@@ -389,10 +390,10 @@ export class WriteSkillTool extends BaseTool<'write_skill'> {
         } catch {
             return; // no manifest to flip -- nothing to do
         }
-        const { fm, body } = splitFrontmatter(cur);
+        const { fm, body, lineEnding } = splitFrontmatter(cur);
         if (fm === null) return;
         const patched = setFmField(fm, 'source', 'user');
-        await adapter.write(skillMdPath, `---\n${patched.trim()}\n---\n\n${body.replace(/^\n+/, '')}`);
+        await adapter.write(skillMdPath, renderSkillMd(patched, body.replace(/^[\r\n]+/, ''), lineEnding));
     }
 
     private async ensureParent(adapter: AdapterLike, path: string): Promise<void> {
@@ -435,14 +436,30 @@ export class WriteSkillTool extends BaseTool<'write_skill'> {
 // SkillsManager / BuiltinSkillMaterializer (no nested keys, anchors, tags).
 // ---------------------------------------------------------------------------
 
-function splitFrontmatter(content: string): { fm: string | null; body: string } {
+function splitFrontmatter(
+    content: string,
+): { fm: string | null; body: string; lineEnding: '\n' | '\r\n' } {
     // RE-AUDIT N-5: this used to carry its own regex plus a comment asserting
     // it was "byte-identical to the skill loaders". It was not -- all three
     // differed on whether a newline after the closing fence was required. The
     // assertion is now true because there is one implementation.
     const split = splitSkillFrontmatter(content);
-    if (!split) return { fm: null, body: content };
-    return { fm: split.frontmatter, body: split.body };
+    if (!split) return { fm: null, body: content, lineEnding: detectLineEnding(content) };
+    return { fm: split.frontmatter, body: split.body, lineEnding: split.lineEnding };
+}
+
+/**
+ * Reassemble a SKILL.md in the line-ending style the file already had.
+ *
+ * FIX-29-05-10 (Issue #71): now that a CRLF manifest parses, writing it back
+ * with a hardcoded LF frontmatter would leave a mixed-ending file that shows up
+ * as a spurious diff for the Windows user who owns it. For an LF file (every
+ * skill the plugin itself writes) this is byte-identical to the previous
+ * hardcoded form. Same decision FIX-44-42 took for notes.
+ */
+function renderSkillMd(fm: string, body: string, lineEnding: '\n' | '\r\n'): string {
+    const assembled = `---\n${fm.trim()}\n---\n\n${body}`;
+    return lineEnding === '\n' ? assembled : assembled.replace(/\r\n/g, '\n').replace(/\n/g, lineEnding);
 }
 
 /**

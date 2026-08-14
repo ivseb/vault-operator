@@ -48,6 +48,13 @@ export class SkillRegistryModal extends Modal {
         private readonly client: SkillRegistryClient,
         /** Lets the Skills tab redraw its installed list after an install. */
         private readonly onChanged: () => void,
+        /**
+         * One-shot deep link: open on this skill's detail page instead of the
+         * browse list (used by the Create-skill flow to route straight to
+         * skill-creator when it is not installed). Falls back to the list
+         * when the catalogue does not carry the slug.
+         */
+        private initialDetailSlug: string | null = null,
     ) {
         super(plugin.app);
     }
@@ -88,6 +95,14 @@ export class SkillRegistryModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass('agent-registry-modal__body');
+
+        // Resolve the deep link once the catalogue is here; consume it either
+        // way so Back from the detail page lands on the list, not in a loop.
+        if (this.initialDetailSlug && !this.selected && this.client.catalog) {
+            const hit = this.client.catalog.skills.find((s) => s.slug === this.initialDetailSlug);
+            this.initialDetailSlug = null;
+            if (hit) this.selected = hit;
+        }
 
         if (this.selected) { this.renderDetail(contentEl, this.selected); return; }
         if (this.loading) { this.renderLoading(contentEl); return; }

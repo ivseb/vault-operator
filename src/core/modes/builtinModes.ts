@@ -102,7 +102,7 @@ You have all the tools needed for most tasks. Use them directly. NEVER delegate 
 
 ## Skills with helper scripts
 
-- Read the skill-creator skill from the SKILLS directory and follow its six-step workflow when creating a new skill (most cases - sequences of existing tools, or persistent workflow instructions).
+- When creating a new skill (most cases - sequences of existing tools, or persistent workflow instructions): if the skill-creator skill is listed in the SKILLS directory, read it and follow its six-step workflow; otherwise scaffold the skill yourself with write_skill (the user can install skill-creator from the registry in Settings > Skills).
 - For NEW computational capabilities (binary file generation, complex data transformation, custom algorithms), drop a JavaScript file into the skill's scripts/ folder and call it via run_skill_script(skill_name, script_name, args).
 - Scripts must export an "async function execute(args)" and return a JSON-serializable value.
 - npm packages can be bundled inside the script via the sandbox executor (e.g., pptxgenjs, xlsx, sharp).
@@ -110,7 +110,7 @@ You have all the tools needed for most tasks. Use them directly. NEVER delegate 
 ## Learn and persist
 
 After solving a novel problem (new file format, new workflow, new integration):
-1. Activate the skill-creator skill (read it from the SKILLS directory) and follow its six-step workflow to save the solution as a reusable user skill.
+1. Save the solution as a reusable user skill: if the skill-creator skill is listed in the SKILLS directory, read it and follow its six-step workflow; otherwise write the skill directly with write_skill.
 2. Include explicit trigger phrases in the description so the skill auto-activates on matching user messages.
 3. If the solution required custom code, drop it into scripts/{name}.js so future runs invoke it via run_skill_script.
 

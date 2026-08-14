@@ -12,6 +12,7 @@
  */
 
 import OpenAI from 'openai';
+import { createNodeFetch } from './openai';
 import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
@@ -85,7 +86,11 @@ export class GitHubCopilotProvider implements ApiHandler {
             apiKey: 'copilot', // Placeholder — real auth injected via custom fetch
             baseURL: 'https://api.githubcopilot.com',
             dangerouslyAllowBrowser: true,
-            fetch: this.authService.getCopilotFetch(),
+            // Side finding (2026-08-14): route through the Node transport
+            // instead of the renderer's fetch, so Copilot does not depend on
+            // api.githubcopilot.com continuing to send CORS headers. Same
+            // path gemini/custom/ollama/lmstudio use (ADR-064).
+            fetch: this.authService.getCopilotFetch(createNodeFetch()),
         });
     }
 

@@ -97,6 +97,26 @@ export class BundleLoader {
      * `ctx.onOptionalAssetRequired`. Returns null on skip / failure so the
      * caller can log and fail-open.
      */
+    /**
+     * NO PRODUCTION CALLER (verified 2026-08-14), and that is a known gap
+     * rather than an oversight. Read this before wiring it up.
+     *
+     * The reranker is loaded from two places, and neither can use this:
+     * plugin boot (main.ts) and the Embeddings settings toggle. Both are
+     * outside a tool, so there is no ToolExecutionContext to prompt through.
+     *
+     * The one caller that DOES have a context is SemanticSearchTool. Routing
+     * the load through there was tried and reverted: loadModel() downloads the
+     * cross-encoder on first call (2-5s), so awaiting it inside search would
+     * block the very query the user is waiting on, turning an optional
+     * enhancement into a latency regression. Doing it properly needs the
+     * service to expose "asset missing" as state that search can read without
+     * triggering a load -- worth doing, but it is a change to the reranker's
+     * lifecycle, not a call-site tweak.
+     *
+     * Until then the install route is the settings button, and the console
+     * hint names it correctly (FIX-15-04-02).
+     */
     async loadRerankerBundleWithPrompt(
         ctx: ToolExecutionContext | undefined,
         toolName: string,

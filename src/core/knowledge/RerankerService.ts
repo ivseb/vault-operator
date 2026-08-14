@@ -154,7 +154,7 @@ export class RerankerService {
     protected async initBackend(): Promise<{ tokenizer: TokenizerFn; model: ModelFn } | null> {
         // Reranker JS library (transformers + onnxruntime-web) is an
         // Optional Asset (reranker-bundle.js). Users install it via the
-        // FirstRunWizard or Settings > Knowledge > Reranker. Missing the
+        // FirstRunWizard or Settings > Advanced > Optional assets. Missing the
         // bundle disables the reranker cleanly; semantic search stays
         // available without the local rerank step.
         if (!this.plugin.bundleLoader) {
@@ -163,7 +163,7 @@ export class RerankerService {
         }
         const bundle = await this.plugin.bundleLoader.loadRerankerBundle();
         if (!bundle) {
-            console.warn('[Reranker] Reranker library not installed -- run Settings > Knowledge > Reranker > Install');
+            console.warn('[Reranker] Reranker library not installed -- run Settings > Advanced > Optional assets > Reranker library > Install (0.6 MB)');
             return null;
         }
 
@@ -195,10 +195,10 @@ export class RerankerService {
         // short-circuits that path entirely.
         env.useWasmCache = false;
 
-        // ONNX WASM is an optional download. Settings > Knowledge >
-        // Reranker has an Install button that fetches the binary
-        // from the plugin's GitHub release into the vault. If the
-        // user hasn't installed it, the reranker stays disabled --
+        // ONNX WASM is an optional download. Settings > Providers >
+        // Embeddings > Local reranking has an Install button that fetches
+        // the binary from the plugin's GitHub release into the vault. If
+        // the user hasn't installed it, the reranker stays disabled --
         // semantic search still works without the rerank step.
         const onnxWasm = env.backends?.onnx?.wasm;
         if (!onnxWasm) {
@@ -216,7 +216,7 @@ export class RerankerService {
         const spec = buildRerankerSpec(this.plugin.manifest.version, RERANKER_WASM_SHA256);
         const wasmBinary = await manager.load(spec);
         if (!wasmBinary) {
-            console.warn('[Reranker] ONNX asset not installed -- run Settings > Knowledge > Reranker > Install (12 MB)');
+            console.warn('[Reranker] ONNX asset not installed -- run Settings > Providers > Embeddings > Local reranking > "Reranker model (ONNX, 12 MB)" > Install');
             return null;
         }
         onnxWasm.wasmBinary = wasmBinary;

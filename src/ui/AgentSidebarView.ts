@@ -4926,13 +4926,31 @@ export class AgentSidebarView extends ItemView {
         const link = `[${title}](${uri})`;
         try {
             await this.app.fileManager.processFrontMatter(file, (fm) => {
-                const links: string[] = fm['Chats'] ?? [];
+                // Side finding (2026-08-14): this wrote 'Chats' while the
+                // automatic path (main.ts) writes 'chats'. Obsidian keeps the
+                // original YAML key, so a note touched by both carried the
+                // SAME link twice under two properties, and the duplicate
+                // check never saw across the divide. 'chats' wins because it
+                // is the key registered with metadataTypeManager as multitext.
+                // Read both, fold the legacy key in, write only the canonical
+                // one, so an existing 'Chats' is migrated on the next stamp.
+                const legacy: string[] = Array.isArray(fm['Chats']) ? fm['Chats'] : [];
+                const current: string[] = Array.isArray(fm['chats']) ? fm['chats'] : [];
+                const links: string[] = [...current];
+                for (const l of legacy) if (!links.includes(l)) links.push(l);
+
                 if (links.some((l: string) => l.includes(conversationId))) {
+                    // Still migrate the key even when the link is already there.
+                    if (legacy.length > 0) {
+                        fm['chats'] = links;
+                        delete fm['Chats'];
+                    }
                     new Notice(t('ui.history.linkAlreadyExists'));
                     return;
                 }
                 links.push(link);
-                fm['Chats'] = links;
+                fm['chats'] = links;
+                if (legacy.length > 0) delete fm['Chats'];
             });
             new Notice(t('ui.history.linkAdded'));
         } catch (e) {
@@ -5814,7 +5832,10 @@ export class AgentSidebarView extends ItemView {
                         const activeFile = this.app.workspace.getActiveFile();
                         if (!activeFile) { new Notice(t('notice.noActiveFile')); return; }
                         if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
-                        await this.plugin.semanticIndex.updateFile(activeFile.path);
+                        // FIX-15-01-02: force. An explicit "Refresh index" must rebuild
+                        // even when the bytes are unchanged, otherwise the
+                        // content gate would make the menu item a no-op.
+                        await this.plugin.semanticIndex.updateFile(activeFile.path, { force: true });
                         new Notice(t('notice.indexRefreshed'));
                     })(); },
                 },
@@ -5825,9 +5846,24 @@ export class AgentSidebarView extends ItemView {
                         if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
                         if (this.plugin.semanticIndex.building) { new Notice(t('notice.indexingInProgress')); return; }
                         new Notice(t('notice.reindexingVault'));
-                        this.plugin.semanticIndex.buildIndex(undefined, true).then(() =>
-                            new Notice(t('notice.vaultIndexRebuilt'))
-                        ).catch((err: Error) => new Notice(t('notice.reindexFailed', { error: err.message })));
+                        // FIX-15-01-03 (Issue #68): buildIndex never rejects on
+                        // embedding failures -- it counts them per file and
+                        // resolves. Reporting unconditional success here is how
+                        // a completely broken provider showed up as "Vault
+                        // index rebuilt" while nothing had been indexed.
+                        this.plugin.semanticIndex.buildIndex(undefined, true).then((res) => {
+                            if (res.aborted || (res.indexed === 0 && res.errors > 0)) {
+                                new Notice(t('notice.reindexFailed', {
+                                    error: res.lastError ?? t('notice.indexNoFilesIndexed'),
+                                }), 10_000);
+                            } else if (res.errors > 0) {
+                                new Notice(t('notice.vaultIndexRebuiltWithErrors', {
+                                    indexed: res.indexed, errors: res.errors,
+                                }), 8_000);
+                            } else {
+                                new Notice(t('notice.vaultIndexRebuilt'));
+                            }
+                        }).catch((err: Error) => new Notice(t('notice.reindexFailed', { error: err.message })));
                     },
                 },
                 {

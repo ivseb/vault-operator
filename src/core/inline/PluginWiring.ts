@@ -52,6 +52,7 @@ import { resolveInlineActionsSettings, resolveInlineModelSnapshot } from './inli
 import type { InlineLLMCaller, InlineLLMStreamArgs, InlineLLMStreamCallbacks } from './InlineLLMCaller';
 import type { InlineSettingsSnapshot } from './InlineTriggerContext';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/viewTypes';
+import { neutraliseRemoteResources } from '../../ui/sidebar/neutraliseRemoteResources';
 // SelectionWatcher: re-enabled 2026-06-24, but gated behind the
 // `floatingMenuEnabled` setting which defaults to FALSE. The 2026-06-22
 // regression (blocking copy/read flows) only triggered when auto-open
@@ -827,7 +828,18 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             const sourcePath = plugin.app.workspace.getActiveFile()?.path ?? '';
             const component = new Component();
             try {
-                await MarkdownRenderer.render(plugin.app, markdown, containerEl, sourcePath, component);
+                // AUDIT-2026-08-14 H-1: same egress guard the sidebar has run
+                // since AUDIT 2026-07-26 H-5. Everything rendered into a chat
+                // is untrusted here -- LLM output, tool results carrying vault
+                // notes, fetched web pages, MCP responses -- and markdown image
+                // syntax turns that into a zero-click outbound request with
+                // vault content in the query string. The inline chat arrived
+                // after the sidebar fix and never received it, which silently
+                // falsified the sidebar's "single chokepoint" claim.
+                // It must run on the STRING: an <img> starts fetching the
+                // moment its src is set, so a post-render sweep is too late.
+                const safeMarkdown = neutraliseRemoteResources(markdown);
+                await MarkdownRenderer.render(plugin.app, safeMarkdown, containerEl, sourcePath, component);
                 wireInternalLinks(plugin, containerEl);
             } finally {
                 component.unload();

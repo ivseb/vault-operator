@@ -28,7 +28,7 @@ import { ToolRegistry } from './core/tools/ToolRegistry';
 import { sanitizeDirectoryEntry } from './core/tools/BaseTool';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
 import { getPerformanceMarks } from './core/observability/PerformanceMarks';
-import { IgnoreService } from './core/governance/IgnoreService';
+import { IgnoreService, matchesObsidianExcluded } from './core/governance/IgnoreService';
 import { OperationLogger } from './core/governance/OperationLogger';
 import { GlobalFileService } from './core/storage/GlobalFileService';
 import * as safeFs from './core/security/safeFs';
@@ -392,6 +392,16 @@ export default class ObsidianAgentPlugin extends Plugin {
     /** Track a written .md path for deferred chat-link stamping. */
     trackChatLinkPath(conversationId: string, path: string): void {
         if (!path.endsWith('.md')) return;
+        // FEAT-07-06 (Issue #72): never stamp a note the user excluded. This
+        // sits at the single entry point of the automatic path, so it covers
+        // the pipeline and every write tool that reaches it in one place, next
+        // to the .md rule it belongs with. The manual "link this note" action
+        // stays unfiltered on purpose -- that is an explicit user decision.
+        // Reused matcher, not a second pattern dialect; the IgnoreService
+        // itself is deliberately NOT consulted, because its rules are access
+        // rules and an excluded template must stay editable.
+        const excluded = this.settings.chatLinking?.excludedPaths;
+        if (excluded && excluded.length > 0 && matchesObsidianExcluded(path, excluded)) return;
         let paths = this.pendingChatLinks.get(conversationId);
         if (!paths) {
             paths = new Set();
@@ -1551,7 +1561,9 @@ export default class ObsidianAgentPlugin extends Plugin {
             // a genuinely materialized trusted skill from a forged `source: pro`.
             // The manifest lives in the protected config zone (not skills/), so a
             // sandboxed script cannot write it. Freshly written skills are
-            // authoritative; grandfathered ones (ADR-152) are preserved.
+            // authoritative; a trusted entry whose skill left the bundle is
+            // pruned (trust ends with bundle membership -- the folder stays and
+            // resolves as `user`); everything else is preserved (ADR-152).
             const provenanceStore = new SkillProvenanceStore(
                 this.app.vault.adapter,
                 normalizePath(`${getAgentDataDir(this)}/skill-provenance.json`),
@@ -2759,6 +2771,16 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.detectAndPromptMemoryV2Upgrade().catch(e =>
                     console.warn('[Plugin] Memory v2 upgrade detection failed (non-fatal):', e),
                 );
+                // FEAT-29-01-02 (Issue #69): tell existing installs that their
+                // settings and workflows live OUTSIDE the vault and therefore
+                // do not travel with it. The consolidation and its settings
+                // button predate this prompt, but nothing ever surfaced them,
+                // so long-time users stayed on the old layout without knowing
+                // and only found out when a synced vault arrived incomplete on
+                // a second machine.
+                this.maybePromptStorageLayoutUpgrade().catch(e =>
+                    console.warn('[Plugin] Storage layout upgrade prompt failed (non-fatal):', e),
+                );
             })();
         });
 
@@ -3506,6 +3528,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settings.chatLinking = this.settings.chatLinking ?? clDefaults;
         this.settings.chatLinking.enabled = this.settings.chatLinking.enabled ?? clDefaults.enabled;
         this.settings.chatLinking.titlingModelKey = this.settings.chatLinking.titlingModelKey ?? clDefaults.titlingModelKey;
+        // FEAT-07-06 (Issue #72): absent on every install predating the field.
+        this.settings.chatLinking.excludedPaths = this.settings.chatLinking.excludedPaths ?? [];
 
         // Seed / update built-in default prompts (preserves user enabled state)
         this.settings.customPrompts = mergeDefaultPrompts(this.settings.customPrompts ?? []);
@@ -4948,6 +4972,50 @@ export default class ObsidianAgentPlugin extends Plugin {
      *
      * Idempotent: status stays 'completed'/'skipped' once decided.
      */
+    /**
+     * Prompt once when persistent data still sits outside the vault.
+     *
+     * FEAT-29-01-02 (Issue #69). Gated on hasMigratableSharedData rather than
+     * detectLegacyLayoutPresence: the latter is the fast-path veto and fails
+     * safe, answering true for a machine-wide ~/.obsidian-agent belonging to
+     * another vault, for a consolidated install's own folder, and for an empty
+     * vault path. Prompting on that would ask people to decide about a
+     * migration with nothing to migrate. This asks the narrow question the
+     * prompt is actually about: is there user data in a shared root that the
+     * migration would move?
+     *
+     * Never nags: one shot, recorded vault-locally, and dismissing counts as
+     * "keep as is" because this moves user data.
+     */
+    async maybePromptStorageLayoutUpgrade(): Promise<void> {
+        if (this.settings._layoutMigrationStatus === 'complete') return;
+        if (this.settings._layoutMigrationOptIn === true) return;
+        if (this.settings._layoutUpgradePromptShown === true) return;
+
+        const basePath = (this.app.vault.adapter as unknown as { getBasePath?(): string })
+            .getBasePath?.() ?? '';
+        if (!basePath) return;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- same one-off path import the boot path uses; the plugin otherwise goes through safeFs
+        const nodePath = require('path') as typeof import('path');
+        const vaultParent = nodePath.dirname(basePath);
+
+        const { hasMigratableSharedData } = await import('./core/utils/migrateAgentLayout');
+        if (!(await hasMigratableSharedData(vaultParent))) return;
+
+        const { storageLayoutUpgradeModal } = await import('./ui/modals/StorageLayoutUpgradeModal');
+        const choice = await storageLayoutUpgradeModal(this.app);
+
+        // Recorded either way: the question has been asked once.
+        this.settings._layoutUpgradePromptShown = true;
+        if (choice === 'migrate') {
+            this.settings._layoutMigrationOptIn = true;
+            await this.saveSettings();
+            new Notice(t('notice.vault.layoutMigrationActivated'), 10000);
+        } else {
+            await this.saveSettings();
+        }
+    }
+
     async detectAndPromptMemoryV2Upgrade(): Promise<void> {
         if (!this.memoryDB?.isOpen() || !this.globalFs) return;
         const mem = this.settings.memory;

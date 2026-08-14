@@ -103,6 +103,16 @@ export class AutocompleteHandler {
         // vor dem Tippen des Namens, und '\u00a7' braucht auf jeder Tastatur
         // einen Modifier. Das Typ-Label in der Zeile leistet die Unterscheidung.
         if (value[0] === '/') {
+            // FIX-02-13-01 (Issue #66): the menu used to stay open for as long
+            // as the line began with '/', so Enter kept being consumed as
+            // "accept suggestion" and the user could never send. Keep it open
+            // only while the caret is still inside the command token; once it
+            // sits past the separator the command is chosen and Enter means
+            // send again. Moving the caret back into the token reopens it, so
+            // swapping a command with a prompt already typed still works.
+            const caret = textarea.selectionStart ?? value.length;
+            const firstWs = value.search(/\s/);
+            if (firstWs !== -1 && caret > firstWs) { this.hide(); return; }
             const query = value.slice(1).split(' ')[0].toLowerCase();
             const items = await this.buildPrefixItems(query, value);
             if (items.length === 0) { this.hide(); return; }
@@ -291,10 +301,21 @@ export class AutocompleteHandler {
         const makeSwap = (slug: string) => () => {
             const ta = this.getTextarea();
             if (!ta) return;
+            // FIX-02-13-01 (Issue #66): ALWAYS emit the separator, even when
+            // nothing follows yet. The old form only added a space when a rest
+            // already existed, so selecting on an empty tail produced "/slug"
+            // with the caret glued to the last character; whatever the user
+            // typed next fused into the slug ("/videogomach mir ein Video")
+            // and no command resolved any more -- silently, as plain text.
+            // Same shape as insertPrefixedCommand (the + button's picker),
+            // which has always done this correctly.
             const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
-            ta.value = `/${slug}${rest ? ' ' + rest : ''}`;
+            const head = `/${slug} `;
+            ta.value = head + rest;
             this.hide();
             ta.focus();
+            // Caret behind the separator, where the user continues writing.
+            ta.setSelectionRange(head.length, head.length);
         };
 
         const sources = await this.collectSlashSources();
@@ -353,7 +374,9 @@ export class AutocompleteHandler {
         // Issue #54.1: a modifier+Enter (Ctrl/Cmd) is the composer's send
         // accelerator, not a suggestion-accept. Let it fall through so the
         // keydown handler can send instead of picking a suggestion.
-        if ((e.key === 'Tab' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey) {
+        // FIX-02-13-01 (Issue #66): Shift+Enter is the composer's newline
+        // (composerKeymap), and an open dropdown must not eat it either.
+        if ((e.key === 'Tab' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
             e.preventDefault();
             this.items[this.selectedIndex]?.onSelect();
             return true;

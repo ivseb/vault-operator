@@ -1,5 +1,6 @@
-import { App, Modal, Notice, Setting, setIcon, TFolder, AbstractInputSuggest, ButtonComponent } from 'obsidian';
+import { App, Modal, Notice, Setting, setIcon, ButtonComponent } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { FolderInputSuggest } from './FolderInputSuggest';
 import { ModelConfigModal } from './ModelConfigModal';
 import { addInfoButton, addSectionHeading } from './utils';
 import { PROVIDER_LABELS, PROVIDER_COLORS } from './constants';
@@ -1005,30 +1006,3 @@ export class EmbeddingsTab {
 }
 
 /** Suggest dropdown that lists vault folders, filtered by input text. */
-class FolderInputSuggest extends AbstractInputSuggest<string> {
-    private excluded: string[];
-    onPick: (folderPath: string) => void = () => {};
-
-    constructor(app: App, inputEl: HTMLInputElement, excluded: string[]) {
-        super(app, inputEl);
-        this.excluded = excluded;
-    }
-
-    getSuggestions(query: string): string[] {
-        const lower = query.toLowerCase().replace(/^\//, '');
-        return this.app.vault
-            .getAllFolders()
-            .map((f: TFolder) => f.path)
-            .filter((p: string) => !this.excluded.includes(p) && p.toLowerCase().includes(lower))
-            .sort();
-    }
-
-    renderSuggestion(value: string, el: HTMLElement): void {
-        el.setText(value);
-    }
-
-    selectSuggestion(value: string): void {
-        this.onPick(value);
-        this.close();
-    }
-}

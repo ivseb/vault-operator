@@ -1,5 +1,6 @@
 import { App, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { FolderInputSuggest } from './FolderInputSuggest';
 import { OnboardingService } from '../../core/memory/OnboardingService';
 import { t } from '../../i18n';
 import { addSectionHeading } from './utils';
@@ -154,6 +155,64 @@ export class InterfaceTab {
                     await this.plugin.saveSettings();
                 }),
             );
+
+        // FEAT-07-06 (Issue #72): exclude list. Notes whose frontmatter means
+        // something to another tool -- Templater templates, Dataview-driven
+        // notes, Bases -- are damaged by an injected `chats` property rather
+        // than merely cluttered. Same chip widget and matcher as the semantic
+        // exclude list, so there is one pattern dialect in the UI and in code.
+        const excludedSetting = new Setting(containerEl)
+            .setName(t('settings.interface.chatLinkingExcluded'))
+            .setDesc(t('settings.interface.chatLinkingExcludedDesc'));
+
+        const excludedListEl = containerEl.createDiv('excluded-folder-list');
+        const currentExcluded = (): string[] => {
+            const cl2 = this.plugin.settings.chatLinking;
+            if (!cl2.excludedPaths) cl2.excludedPaths = [];
+            return cl2.excludedPaths;
+        };
+
+        const renderExcludedList = (): void => {
+            excludedListEl.empty();
+            for (const folder of currentExcluded()) {
+                const chip = excludedListEl.createDiv('excluded-folder-chip');
+                chip.createSpan({ text: folder });
+                const removeBtn = chip.createSpan({ cls: 'excluded-folder-remove' });
+                setIcon(removeBtn, 'x');
+                removeBtn.addEventListener('click', () => {
+                    this.plugin.settings.chatLinking.excludedPaths =
+                        currentExcluded().filter((f) => f !== folder);
+                    void this.plugin.saveSettings();
+                    renderExcludedList();
+                });
+            }
+        };
+        renderExcludedList();
+
+        const folderInput = excludedSetting.controlEl.createEl('input', {
+            cls: 'excluded-folder-input',
+            attr: { type: 'text', placeholder: t('settings.interface.chatLinkingExcludedPlaceholder') },
+        });
+
+        const suggest = new FolderInputSuggest(this.app, folderInput, currentExcluded());
+        suggest.onPick = (folderPath: string) => { void (async () => {
+            const list = currentExcluded();
+            const trimmed = folderPath.trim();
+            if (trimmed && !list.includes(trimmed)) {
+                list.push(trimmed);
+                await this.plugin.saveSettings();
+                renderExcludedList();
+            }
+            folderInput.value = '';
+        })(); };
+
+        folderInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const val = folderInput.value.trim();
+                if (val) suggest.onPick(val);
+            }
+        });
 
         // FEAT-24-08 Welle A follow-up (2026-05-18): the explicit
         // titling-model dropdown was removed. `getTitlingModel()` falls

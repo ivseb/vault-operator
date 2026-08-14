@@ -574,10 +574,10 @@ If ANY check fails, call create_xlsx again with corrections.`,
     write_skill: {
         group: 'edit', label: 'Write Skill', icon: 'book-marked',
         signature: 'write_skill(name, content, file?, description?)',
-        description: 'Revise an EXISTING skill by name: overwrite its SKILL.md body (or a file under references/, scripts/, assets/) without needing the on-disk path. The write counterpart of read_skill. Creating a NEW skill stays with the skill-creator skill (init_skill).',
+        description: 'Revise an EXISTING skill by name: overwrite its SKILL.md body (or a file under references/, scripts/, assets/) without needing the on-disk path. The write counterpart of read_skill. Creating a NEW skill is best done with the skill-creator skill (init_skill) when it is installed.',
         example: 'write_skill({ name: "interview-insights", content: "## Step 1\\n..." })',
         whenToUse: 'To improve or fix a skill you have loaded with read_skill. Read it first, then write the revised content back by name. Do NOT guess a filesystem path for write_file — this tool resolves the path for you and snapshots the change for undo.',
-        commonMistakes: 'Trying to create a new skill with it (use the skill-creator skill / init_skill instead). Passing a full filesystem path as the name (pass the bare skill name from the SKILLS directory). Expecting a bundled/pro skill edit to keep trusted-tier status — it is converted to a local user override.',
+        commonMistakes: 'Trying to create a new skill with it (prefer the skill-creator skill / init_skill when installed). Passing a full filesystem path as the name (pass the bare skill name from the SKILLS directory). Expecting a bundled/pro skill edit to keep trusted-tier status; it is converted to a local user override.',
     },
     // NOTE: group is 'agent' for mode-level availability (shows in Agent Control tools).
     // The Pipeline classifies this as 'sandbox' ApprovalGroup for approval checks.

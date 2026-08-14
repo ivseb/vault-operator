@@ -63,6 +63,18 @@ const VAULT_LOCAL_KEYS = new Set<string>([
     '_syncDirMigrated',
     '_forcedWorkflowVaultMigrated',
     '_mcpPerModeMigrated',
+    // Side finding (2026-08-14): "this vault has seen the PDF reindex
+    // hint" is per-vault state -- each vault has its own PDF index and
+    // its own stale embeddings. Without this entry the flag was written
+    // to the cross-vault global file, so dismissing the hint in one vault
+    // silently suppressed it in every other vault on the machine, and the
+    // users who most needed it (several vaults, older PDF embeddings)
+    // were exactly the ones who never saw it again.
+    // FEAT-29-01-02: the layout is a property of THIS vault, so the
+    // answer to "migrate it?" belongs to this vault too.
+    '_layoutUpgradePromptShown',
+    '_pdfReindexHintShown',
+    '_pdfReindexCompleted',
 ]);
 
 /**

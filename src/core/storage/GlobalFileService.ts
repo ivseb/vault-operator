@@ -168,16 +168,49 @@ export class GlobalFileService implements FileAdapter {
         return fsModule.promises.readFile(this.resolvePath(p), 'utf-8');
     }
 
-    async write(p: string, data: string): Promise<void> {
-        const abs = this.resolvePath(p);
-        // Ensure parent directory exists
+    /**
+     * Write via a temp file in the same directory, then rename over the target.
+     *
+     * FIX-13-02-04 (Issue #64): plain writeFile truncates the target and then
+     * fills it. A crash, a quit or an overlapping writer in that window leaves
+     * a zero-byte or half-written file -- which is how a settings.json turned
+     * into "Unexpected end of JSON input" on the next boot. saveSettings is
+     * fired without await from several places in main.ts, so overlapping
+     * writers are a real case, not a theoretical one.
+     *
+     * rename() is atomic within a filesystem, so a reader sees either the old
+     * file or the new one, never a half of either. The temp file lives in the
+     * SAME directory so the rename cannot hit EXDEV, and carries a unique
+     * suffix so two concurrent writers cannot share one temp path.
+     *
+     * The mode is clamped on the temp file BEFORE the rename (M-6, AUDIT-034):
+     * doing it afterwards would leave a brief window where a secret-bearing
+     * file is world-readable.
+     */
+    private async writeAtomic(abs: string, data: string | Uint8Array): Promise<void> {
         await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-        // M-6 (AUDIT-034): clamp mode to 0o600 so secrets, history, and
-        // memory facts are not world-readable on multi-user POSIX boxes.
-        // The mode option on writeFile only applies on create, so we also
-        // chmod after each write to cover overwrites.
-        await fsModule.promises.writeFile(abs, data, { encoding: 'utf-8', mode: OWNER_ONLY_MODE });
-        await chmodOwnerOnly(abs);
+        const tmp = `${abs}.tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        try {
+            await fsModule.promises.writeFile(
+                tmp,
+                data,
+                typeof data === 'string'
+                    ? { encoding: 'utf-8', mode: OWNER_ONLY_MODE }
+                    : { mode: OWNER_ONLY_MODE },
+            );
+            await chmodOwnerOnly(tmp);
+            await fsModule.promises.rename(tmp, abs);
+        } catch (e) {
+            // Leave the previous file untouched and take the temp file with us.
+            try { await fsModule.promises.unlink(tmp); } catch { /* nothing to clean */ }
+            throw e;
+        }
+    }
+
+    async write(p: string, data: string): Promise<void> {
+        // M-6 (AUDIT-034): the owner-only clamp lives in writeAtomic, applied
+        // to the temp file before it becomes visible under the real name.
+        await this.writeAtomic(this.resolvePath(p), data);
     }
 
     /** Binary read for SQLite DBs and other non-UTF8 payloads (FEATURE-0319b backup-zip). */
@@ -188,13 +221,10 @@ export class GlobalFileService implements FileAdapter {
 
     /** Binary write counterpart. */
     async writeBinary(p: string, data: Uint8Array): Promise<void> {
-        const abs = this.resolvePath(p);
-        await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-        // M-6 (AUDIT-034): same owner-only clamp as write(). Binary payloads
-        // include SQLite DBs (knowledge.db) which contain memory facts and
-        // history transcripts.
-        await fsModule.promises.writeFile(abs, data, { mode: OWNER_ONLY_MODE });
-        await chmodOwnerOnly(abs);
+        // Same atomic path as write(). Binary payloads include knowledge.db,
+        // which carries memory facts and history transcripts -- a torn write
+        // there costs considerably more than a torn settings.json.
+        await this.writeAtomic(this.resolvePath(p), data);
     }
 
     async mkdir(p: string): Promise<void> {

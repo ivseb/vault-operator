@@ -301,8 +301,10 @@ export class VaultDNAScanner {
                     let isScannerManaged = false;
                     try {
                         const md = await this.vault.adapter.read(skillMd);
-                        const fmMatch = /^---\n([\s\S]*?)\n---/m.exec(md);
-                        const fm = fmMatch?.[1] ?? '';
+                        // FIX-29-05-10 (Issue #71): CRLF- and BOM-tolerant,
+                        // matching splitSkillFrontmatter.
+                        const fmMatch = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(md);
+                        const fm = (fmMatch?.[1] ?? '').replace(/\r\n/g, '\n');
                         const slug = skillFolder.split('/').pop() ?? '';
                         // Scanner-managed = source frontmatter matches the
                         // folder slug (= plugin id).
