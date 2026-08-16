@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { withBase } from 'vitepress'
 
-/* Keep in sync with manifest.json on every release. */
-const PLUGIN_VERSION = '3.6.0'
+/* Keep in sync with manifest.json on every release.
+   Pinned by src/__tests__/versionConsistency.test.ts. */
+const PLUGIN_VERSION = '3.6.1'
 </script>
 
 <template>
@@ -15,7 +16,7 @@ const PLUGIN_VERSION = '3.6.0'
     >
       <span class="lp-badge-version">v{{ PLUGIN_VERSION }}</span>
       <span class="lp-badge-divider" aria-hidden="true">·</span>
-      <span>Community fixes and safer chat rendering</span>
+      <span>Update delivery fix</span>
       <svg class="lp-badge-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M7 17 17 7" /><path d="M8 7h9v9" />
       </svg>

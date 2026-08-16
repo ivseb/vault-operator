@@ -9,6 +9,31 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-08-16
+
+### Fixed
+
+- **3.6.0 is offered as an update again.** Alongside the manifest, the plugin
+  ships a `versions.json` that maps each released version to the Obsidian
+  version it needs, and Obsidian reads it to decide which version an
+  installation may install. The 3.6.0 release bumped the manifest but left that
+  file, and `package.json`, at 3.5.1. Everything 3.6.0 carries was therefore
+  published without being announced properly: the embedding failures that were
+  reported as silent, the re-indexing that ran more often than it should, the
+  vault data that did not travel with a vault used on several devices, and the
+  Edit entry on skills that failed to open a folder. If you are reading this in
+  3.6.0, nothing is wrong with your installation.
+
+  Nothing else changed. There is no behaviour difference between 3.6.0 and
+  3.6.1, and no reason to reinstall if you already run 3.6.0.
+
+### Internal
+
+- The five places that carry the version (manifest, `package.json`, the
+  lockfile, `versions.json`, the docs landing page) are now checked against each
+  other by a test, so a release that moves only some of them fails at commit
+  time instead of at install time.
+
 ## [3.6.0] - 2026-08-14
 
 ### Added
