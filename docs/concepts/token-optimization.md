@@ -7,7 +7,7 @@ description: How Vault Operator reduces token costs through fast paths, cache al
 
 A naive agent loop is expensive. The agent sends a system prompt, all tool definitions, the full conversation history, and every tool result to the LLM on every turn. For a simple "find and summarize" task, that can add up to 634,000 input tokens.
 
-Vault Operator uses three complementary strategies that brought this down to 60,000 tokens for the same task, a 90% reduction.
+Vault Operator uses three complementary strategies that bring this down to roughly 60,000 tokens for the same task, about a tenfold reduction.
 
 ## The cost problem
 
@@ -75,6 +75,8 @@ If the agent needs the full content later, it reads it with `read_file`. Most of
 | Simple task (search + summarize) | 634K tokens | 60K tokens | 90% |
 | Complex task (multi-step vault work) | 800K+ tokens | 257K tokens | 68% |
 | GitHub Copilot (168K limit) | Overflow error | Works | N/A |
+
+These figures are illustrative estimates from development runs, not formal benchmarks. Your actual numbers depend on vault size, model, task, and how often a recipe matches.
 
 ## Trade-offs
 

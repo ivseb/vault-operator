@@ -41,7 +41,7 @@ When the Main-tier model gets stuck (parse error after parse error, half-baked s
 - **Filtered out of the schema entirely** if your active provider has no Frontier-tier model. The agent never sees the tool, so it cannot hallucinate the call.
 - **One-line prompt nudge after two consecutive errors.** Only when the tool is available.
 
-`ConsultFlagshipTool` lives at `src/core/tools/agent/ConsultFlagshipTool.ts`. The implementation is a 60-line wrapper that spawns a one-shot LLM call against the Frontier model with the user-supplied question as the only message.
+`ConsultFlagshipTool` lives at `src/core/tools/agent/ConsultFlagshipTool.ts`. The implementation is a small wrapper that spawns a one-shot LLM call against the Frontier model with the user-supplied question as the only message.
 
 ## What the cost log shows
 

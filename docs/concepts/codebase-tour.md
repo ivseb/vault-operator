@@ -25,7 +25,7 @@ If you want to read the source, build a plugin on top, or just learn how an agen
 | `src/mcp/` | MCP server (cross-surface read/write to memory, history, vault) and the Cloudflare relay |
 | `src/api/` | AI provider abstraction for 12 provider types (Anthropic, OpenAI, Gemini, Bedrock, GitHub Copilot, Kilo Gateway, OpenRouter, Azure, Ollama, LM Studio, custom OpenAI-compatible, ChatGPT OAuth) |
 | `src/ui/` | Sidebar, settings, modals, onboarding wizard |
-| `src/i18n/` | Internationalization (EN, DE) |
+| `src/i18n/` | Internationalization (EN bundled plus 8 language packs: DE, ES, FR, JA, KO, RU, ZH, ZH-TW) |
 | `src/types/` | Shared TypeScript types and settings |
 
 ## Reading order
@@ -41,7 +41,7 @@ If you are reading the source for the first time, this order keeps the surprise 
 
 Vault Operator's core loop and tool architecture are adapted from Kilo Code, an open-source AI coding agent. The adaptation replaces filesystem operations with Obsidian's vault API, adds governance layers for approval and checkpointing, and introduces domain-specific tools for knowledge management.
 
-When you read a file in `src/core/` that looks weirdly close to a coding agent, that is why. The `forked-kilocode/` folder in the repository keeps the original Kilo Code source as a reference. If you are adding a new feature and want to know "how did the original solve this?", that is where to look first.
+When you read a file in `src/core/` that looks weirdly close to a coding agent, that is why. The `forked-kilocode/` folder keeps the original Kilo Code source as a local dev reference (it is not tracked in git and is not shipped in the public repo). If you are adding a new feature and want to know "how did the original solve this?", that is where to look first.
 
 ## Build and deploy
 

@@ -33,7 +33,7 @@ The Vault Operator icon appears in the left sidebar.
 
 ## Run the first-run wizard
 
-A seven-step setup wizard opens automatically the first three times you enable the plugin. The steps cover welcome, provider, model selection, embeddings, default folder, agent folder, and finish. It walks you through every step on this page.
+A seven-step setup wizard opens automatically the first three times you open Obsidian with the plugin enabled. The steps cover welcome, LLM model, embedding model, search provider, templates, optional downloads, and finish. It walks you through every step on this page.
 
 To rerun the wizard later, open **Settings > Vault Operator > Advanced > Interface > Setup > Restart setup**.
 
@@ -87,7 +87,7 @@ Vault Operator supports 12 providers. You can configure several and switch betwe
 - *"Find all notes tagged with #project and create a canvas showing their connections"*
 
 :::tip Inline AI chat (v3.0.0)
-Select text in any note and press **Cmd+Shift+I** (**Ctrl+Shift+I** on Windows and Linux) to open the inline AI chat panel directly over the selection. See [Inline chat](/guides/inline-chat) for details.
+Select text in any note and right-click > **Inline AI chat** (or bind a hotkey to the **Open inline AI chat** command, which has no default) to open the inline AI chat panel directly over the selection. See [Inline chat](/guides/inline-chat) for details.
 :::
 
 ## What happens behind the scenes

@@ -49,7 +49,7 @@ The default auto-index strategy is "never", so you stay in control of when the i
 Embeddings are stored in a local database inside your vault. If you use a cloud embedding model, note content is sent to the provider for processing, but the resulting embeddings live only on your machine. With a local model, nothing leaves your device.
 :::
 
-## How search works under the hood
+## How search works
 
 When you or the agent run a semantic search, Vault Operator combines multiple retrieval strategies:
 

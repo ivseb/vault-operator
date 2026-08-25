@@ -59,7 +59,7 @@ Triage returns a single card with:
 - **Related chat history.** Search across past conversation chunks that mention the same material.
 - **Recommendation.** Ingest, defer to later, or discard.
 
-About ten seconds, around $0.05 per pass. If the recommendation is *discard* or *later*, the workflow stops there and the decision is logged so the same source does not trigger triage twice.
+About ten seconds, and a few cents per pass on a typical cloud model (both vary by model and source length). If the recommendation is *discard* or *later*, the workflow stops there and the decision is logged so the same source does not trigger triage twice.
 
 The triage card stays in the chat for the whole session, so you can reread it before answering the output-mode question.
 

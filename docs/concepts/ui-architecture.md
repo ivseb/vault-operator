@@ -30,7 +30,7 @@ flowchart TD
 | Advanced | Interface, Vault, Plugin API, Data & diagnostics, Optional assets |
 | Help | (opens external help URL) |
 
-Each sub-tab is its own class in `src/ui/settings/` (20 `*Tab.ts` files total). The settings tab builds a navigation bar and delegates rendering to the active sub-tab class. This keeps the settings UI manageable.
+Each sub-tab is its own class in `src/ui/settings/` (one `*Tab.ts` file per tab). The settings tab builds a navigation bar and delegates rendering to the active sub-tab class. This keeps the settings UI manageable.
 
 ## Sidebar extracted components
 
@@ -42,7 +42,7 @@ The sidebar started as a single large file. As features accumulated, components 
 | `AutocompleteHandler` | Slash commands and @-mentions in the input |
 | `ToolPickerPopover` | Tool selection popup when the agent needs to choose |
 | `VaultFilePicker` | File selection from the vault |
-| `HistoryPanel` | Conversation history browser, grouped by source-interface tab (Vault Operator, Claude, ChatGPT, Perplexity, All). Living documents render as one entry with a turn count. |
+| `HistoryPanel` | Conversation history browser, grouped by source-interface tab (All, Vault Operator, Claude.ai, Claude Code, ChatGPT, Perplexity, Unknown). Living documents render as one entry with a turn count. |
 | `CondensationFeedback` | Notification when context condensing occurs |
 | `SuggestionBanner` | Proactive suggestions from the agent |
 | `OnboardingFlow` | First-run setup wizard |

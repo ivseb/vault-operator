@@ -28,7 +28,7 @@ Modern LLM APIs cache the key-value state of the prompt prefix. As long as the b
 - OpenAI gpt-4o, gpt-4.1, o1, o3 and o4 do implicit prefix caching without a marker.
 - Gemini does not cache short-lived prompts. TTL-based context caching is tracked separately and is not on by default.
 
-The original prompt had the current timestamp at position 1. Every API call has a different timestamp, so we got zero cache hits across iterations. Moving the timestamp to the end and sorting all sections by stability turned the first roughly 20,000 tokens into a cache-stable prefix across a task session. Over eight iterations, billed computation drops from 8 x 25,000 = 200,000 tokens to roughly 25,000 + 7 x 5,000 = 60,000 tokens on providers with prefix caching.
+The original prompt had the current timestamp at position 1. Every API call has a different timestamp, so we got zero cache hits across iterations. Moving the timestamp to the end and sorting all sections by stability turned the first roughly 20,000 tokens into a cache-stable prefix across a task session. As a rough illustration, over eight iterations billed computation drops from 8 x 25,000 = 200,000 tokens to roughly 25,000 + 7 x 5,000 = 60,000 on providers with prefix caching (illustrative arithmetic, not a benchmark).
 
 The sections are now ordered by stability, with the stable prefix first and dynamic content last. The exact order matches `buildSystemPromptForMode()` in `src/core/systemPrompt.ts:233`.
 
@@ -101,7 +101,7 @@ At the API level, the stable prefix benefits from provider-level KV-cache:
 - OpenAI gpt-4o, gpt-4.1, o1, o3 and o4 hit their implicit prefix cache automatically.
 - Gemini does not cache short-lived prompts.
 
-On providers that cache, all dynamic content sits below the breakpoint, so the first roughly 20,000 tokens are computed once per session and served from cache on subsequent iterations. This is the single biggest cost win in the system. It turns the system prompt from the second-largest cost block into a near-zero marginal cost per iteration.
+On providers that cache, all dynamic content sits below the breakpoint, so the first roughly 20,000 tokens are computed once per session and served from cache on subsequent iterations. This is one of the largest cost wins in the system. It turns the system prompt from the second-largest cost block into a near-zero marginal cost per iteration.
 
 ## Power steering
 

@@ -20,7 +20,7 @@ If a task modifies five files, you get five pre-write checkpoints plus the pre-t
 
 ## Where checkpoints live
 
-Checkpoints are stored as commits in a **shadow git repository** that is separate from any git repository you might have running on your vault. The shadow repo lives inside the vault under `.vault-operator/cache/checkpoints/` and never touches your own `.git/` folder.
+Checkpoints are stored as commits in a **shadow git repository** that is separate from any git repository you might have running on your vault. The shadow repo lives outside the vault at `{vault-parent}/vault-operator-shared/checkpoints/`, so Obsidian Sync and iCloud do not replicate it, and it never touches your own `.git/` folder.
 
 That separation matters for two reasons:
 
@@ -50,7 +50,7 @@ Checkpoints protect file content. They do not cover:
 
 - **External writes.** If Vault Operator called an MCP tool that wrote to a database or sent an email, undo cannot reverse that.
 - **Already-undone changes.** If you undid a task and then ran another task that modified the same files, undoing the second task takes you to the state after the first undo, not to the original.
-- **The shadow repo itself.** The plugin manages it, you do not need to touch it. If you ever need to reset it, delete `.vault-operator/cache/checkpoints/` inside the vault and the next task will create a fresh one. The exact location follows your Settings > Vault Operator > Vault > Vault configuration, so resolve it from there if you have customized the agent folder.
+- **The shadow repo itself.** The plugin manages it, you do not need to touch it. If you ever need to reset it, delete `{vault-parent}/vault-operator-shared/checkpoints/` and the next task will create a fresh one.
 
 For everything outside the vault file content, the [operation log](/guides/safety-control#the-operation-log) is the audit trail. It records every tool call, including external ones, so you can see what was done even if you cannot undo it directly.
 
@@ -58,7 +58,7 @@ For everything outside the vault file content, the [operation log](/guides/safet
 
 Each checkpoint is a git commit containing the touched files. Git deduplicates content across commits, so the shadow repo grows slowly. A heavy-use vault with daily agent activity typically lands in the low tens of megabytes after a year.
 
-The plugin does not prune checkpoints automatically. If disk usage becomes a concern, delete `.vault-operator/cache/checkpoints/` inside the vault. The next task will start a fresh shadow repo.
+The plugin does not prune checkpoints automatically. If disk usage becomes a concern, delete `{vault-parent}/vault-operator-shared/checkpoints/`. The next task will start a fresh shadow repo.
 
 ## How it integrates with the rest of the system
 

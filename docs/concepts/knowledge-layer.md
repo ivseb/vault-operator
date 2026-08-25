@@ -71,7 +71,7 @@ Everything lives in a single SQLite database managed by `KnowledgeDB` (`src/core
 | `ingest_triage_log` | Triage decisions per source URI (FEAT-19-12) | `source_uri`, `decision`, `cluster_match`, `created_at` |
 
 The database supports three storage locations with a fallback chain:
-- Global: `~/.vault-operator/data/knowledge.db` (shared across vaults, desktop only)
+- Global: `~/.obsidian-agent/knowledge.db` (shared across vaults, desktop only)
 - Local: `{vault}/.vault-operator/data/knowledge.db` (default)
 - Obsidian Sync: `{vault}/{pluginDir}/knowledge.db`
 

@@ -5,7 +5,7 @@ description: Legal notice. Impressum pursuant to German TMG.
 
 # Imprint
 
-## Information pursuant to S 5 TMG
+## Information pursuant to § 5 TMG
 
 Sebastian Hanke
 Germany
@@ -18,7 +18,7 @@ GitHub: [@pssah4](https://github.com/pssah4) (issues: [pssah4/vault-operator](ht
 
 ## Liability for Content
 
-As a service provider, we are responsible for our own content on these pages in accordance with general legislation pursuant to S 7 Para. 1 TMG. According to SS 8 to 10 TMG, however, we are not obligated as a service provider to monitor transmitted or stored third-party information or to investigate circumstances that indicate illegal activity.
+As a service provider, we are responsible for our own content on these pages in accordance with general legislation pursuant to § 7 Para. 1 TMG. According to §§ 8 to 10 TMG, however, we are not obligated as a service provider to monitor transmitted or stored third-party information or to investigate circumstances that indicate illegal activity.
 
 Obligations to remove or block the use of information under general law remain unaffected. However, liability in this regard is only possible from the point in time at which a concrete infringement of the law becomes known. If we become aware of any such legal infringements, we will remove the relevant content immediately.
 
@@ -44,6 +44,6 @@ This website itself does not set cookies, does not use analytics, and does not c
 
 ## EU Online Dispute Resolution
 
-The European Commission provides a platform for online dispute resolution (OS): [https://ec.europa.eu/consumers/odr/](https://ec.europa.eu/consumers/odr/)
+The European Commission provides a platform for online dispute resolution (ODR): [https://ec.europa.eu/consumers/odr/](https://ec.europa.eu/consumers/odr/)
 
 We are not obligated and not willing to participate in dispute resolution proceedings before a consumer arbitration board, as this is a non-commercial open-source project.

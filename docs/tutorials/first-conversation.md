@@ -21,7 +21,7 @@ The chat header has no mode switcher; agents are picked from the agent selector 
 :::
 
 :::tip Prefer to stay in the note?
-Press `Cmd+Shift+I` (`Ctrl+Shift+I` on Windows and Linux), or right-click the selection and choose **Inline AI chat**, to open the inline panel. It runs the same agent loop. See [guides/inline-chat](/guides/inline-chat) for details.
+Right-click the selection and choose **Inline AI chat** to open the inline panel (or bind a hotkey to the **Open inline AI chat** command, which has no default). It runs the same agent loop. See [guides/inline-chat](/guides/inline-chat) for details.
 :::
 
 ## Context: what the agent knows
@@ -70,7 +70,7 @@ Enabling auto-approve for writes means the agent acts without asking. The checkp
 | `Shift+Enter` | New line |
 | `/` | Open workflow/prompt picker |
 | `@` | Open file mention picker |
-| `Mod+Shift+I` | Open inline AI chat |
+| Right-click > Inline AI chat | Open the inline panel over the selection |
 
 ## Tips for better results
 

@@ -5,7 +5,7 @@ description: Create custom behaviors, constraints, and automated task sequences.
 
 # Skills, rules and workflows
 
-Vault Operator's behavior is fully customizable. You can give it permanent instructions, teach it new abilities, and build reusable multi-step sequences, all without writing code.
+You can shape Vault Operator's behavior without writing code: give it permanent instructions (rules), teach it new abilities (skills), and build reusable multi-step sequences (workflows).
 
 ## The four building blocks
 

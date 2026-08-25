@@ -129,7 +129,7 @@ These come up often enough to call out.
 - The embedding model changed. The index is now mixed. Force-rebuild from the same tab. Force-rebuild deletes the existing index, cancel keeps progress.
 - A quick ingest produced a note that already exists. The agent appends a numeric suffix. Move it on top of the older note if you want to merge, or delete it.
 - A deep ingest did not stop where you expected. The agent stops at every `ask_followup_question`. If it ran past a step, your auto-approve settings let it through. See [Safety and control guide](/guides/safety-control).
-- Vault Health says you have 400 orphans on a fresh vault. That is normal: notes without any inbound or outbound link are flagged as orphans. Fix the high-severity items first, ignore the long tail until it bothers you.
+- Vault Health says you have 400 orphans on a vault you just started using with Vault Operator. That is normal: notes without any inbound or outbound link are flagged as orphans. Fix the high-severity items first, ignore the long tail until it bothers you.
 
 ## FAQ
 

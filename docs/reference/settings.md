@@ -439,7 +439,7 @@ Some changes (action registration in particular) only take effect after reloadin
 :::
 
 :::warning Auto-approve still gates write tools
-The Auto-approve groups still gate the write tools the inline panel invokes. Rewrite and Translate route the proposed change through the EditReviewModal (Änderungen prüfen) instead of the auto-approve pipeline, so you confirm the edit even when Edit auto-approve is on. See the [safety and control guide](/guides/safety-control) for how the approval groups interact with inline actions.
+The Auto-approve groups still gate the write tools the inline panel invokes. Rewrite and Translate route the proposed change through the EditReviewModal (Review changes) instead of the auto-approve pipeline, so you confirm the edit even when Edit auto-approve is on. See the [safety and control guide](/guides/safety-control) for how the approval groups interact with inline actions.
 :::
 
 ### Language

@@ -29,7 +29,7 @@ The agent makes one tool call to `ingest_document` and asks for write approval. 
 - A `## Key Take-Aways` section. Each take-away ends with a `↗` link that resolves to the exact page of the source.
 - The full original PDF text, appended automatically.
 
-That is the entire quick path. No triage card, no ingest/defer/discard choice. If you want that decision step plus sense-making notes and backlinks, use [Make sense of a research paper with deep ingest](./deep-ingest) instead.
+That is the entire quick path. No triage card, no ingest/defer/discard choice. If you want that decision step plus sense-making notes and backlinks, use [Sense-making with deep ingest](./deep-ingest) instead.
 
 ## Step 3: Click a take-away
 
@@ -53,7 +53,7 @@ You now know the quick ingest path. One drop, one approval, one source note with
 
 For material that deserves a real reading session (a research paper, a long report, a domain-specific Office document), use the deep path:
 
-- [Make sense of a research paper with deep ingest](./deep-ingest)
+- [Sense-making with deep ingest](./deep-ingest)
 
 For the full reference on both paths, including configuration:
 

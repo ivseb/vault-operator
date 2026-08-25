@@ -7,7 +7,7 @@ description: The mental model behind Vault Operator and where to read next, writ
 
 Vault Operator is an AI agent that runs inside Obsidian as a community plugin. You send it a message, it calls tools to read and change your vault, and it loops until the task is done. That loop, and the infrastructure around it, is what this section explains.
 
-The Concepts section is for two kinds of readers. If you use Vault Operator daily and want to understand what is happening under the hood (so you can predict it, debug it, or trust it more), every page here is written for you in plain language. If you are a developer who wants to read the source or build on top of it, start with the [codebase tour](./codebase-tour) and the deeper architecture pages.
+The Concepts section is for two kinds of readers. If you use Vault Operator daily and want to understand how it works internally (so you can predict it, debug it, or trust it more), every page here is written for you in plain language. If you are a developer who wants to read the source or build on top of it, start with the [codebase tour](./codebase-tour) and the deeper architecture pages.
 
 ## The mental model
 

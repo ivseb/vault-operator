@@ -44,7 +44,7 @@ The agent spawns sub-agents through the `new_task` tool. You don't call this too
 
 ### Depth guard
 
-Vault Operator caps sub-agent nesting at 2 levels (`maxSubtaskDepth` in `Settings > Vault Operator > Advanced`). A sub-agent at level 2 cannot spawn another sub-agent. When the cap is hit, `new_task` returns an error and the agent must execute the work itself.
+Vault Operator caps sub-agent nesting at 2 levels (`maxSubtaskDepth` in `Settings > Vault Operator > Agents > Loop`). A sub-agent at level 2 cannot spawn another sub-agent. When the cap is hit, `new_task` returns an error and the agent must execute the work itself.
 
 ```
 Main agent (level 0)

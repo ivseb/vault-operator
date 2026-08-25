@@ -74,7 +74,7 @@ The fast path depends on the recipe system (see [memory](./memory-system)). When
 2. The plan gets executed deterministically through the same `ToolExecutionPipeline`, without further LLM calls. Read operations run in parallel, writes sequentially.
 3. The normal agent loop then takes over for one or two final iterations to formulate the response.
 
-Instead of eight LLM calls and 634,000 tokens, the fast path typically needs two to three calls and about 70,000 tokens.
+Instead of eight LLM calls and around 634,000 tokens, the fast path typically needs two to three calls and roughly 60,000. These figures are illustrative estimates from development runs, not formal benchmarks; the real numbers depend on vault size, model, and task.
 
 The fast path has guardrails. If the planner produces invalid JSON or references unknown tools, the system falls back to the standard ReAct loop. All tool invocations still pass through `ToolExecutionPipeline` with approval checks, checkpoints, and logging. No governance is bypassed.
 
@@ -92,7 +92,7 @@ flowchart TD
 
 ## Context externalization
 
-Tool results accumulate in the conversation history and are resent with every API call. A semantic search returns 20,000 characters. Reading a note adds another 20,000. After eight iterations, tool results alone can exceed 250,000 tokens.
+Tool results accumulate in the conversation history and are resent with every API call. A semantic search returns 20,000 characters. Reading a note adds another 20,000. After eight iterations, tool results alone can run into the hundreds of thousands of tokens.
 
 Context externalization intercepts large tool results before they enter the history. When a result exceeds 2,000 characters, the full content gets written to a temporary file. The history receives a compact reference describing what was found, the top entries with relevance scores, and the file path where the full data lives.
 

@@ -11,7 +11,7 @@ The Vault Operator sidebar is where you talk to the agent, attach files, browse 
 Vault Operator ships two peer entry-points for the same agent:
 
 - **Sidebar chat** (this page): the full panel on the left, with history, attachments, the activity block, and the slash menu.
-- **Inline AI chat** ([guides/inline-chat.md](/guides/inline-chat)): a floating panel over the current editor selection, opened with `Mod+Shift+I` (`Cmd+Shift+I` on macOS, `Ctrl+Shift+I` on Windows and Linux) or via the editor right-click menu entry **Inline AI chat**.
+- **Inline AI chat** ([guides/inline-chat.md](/guides/inline-chat)): a floating panel over the current editor selection, opened via the editor right-click menu entry **Inline AI chat**, or with a hotkey you bind to the **Open inline AI chat** command (no default).
 
 Conversations from the inline panel show up in the same history list as sidebar chats. The list refreshes live via the `vault-operator:conversation-list-changed` event, so a new inline conversation appears without reopening the sidebar.
 :::
@@ -157,13 +157,13 @@ The undo bar stays visible until you start a new message or dismiss it.
 
 ## Post-task review (v3.0.0)
 
-When the agent finishes a multi-file task, Vault Operator can open a unified review modal titled **Änderungen prüfen**. The header source label reads **Aufgabe &lt;taskId&gt;**, and each file appears as a side-by-side before/after entry. You can apply, skip, or discard per file. Applied edits get written back via the vault API, and a system message of the form `User edited N file(s): ...` is appended to the conversation so the agent knows what you changed.
+When the agent finishes a multi-file task, Vault Operator can open a unified review modal titled **Review changes**. The header source label reads **Task &lt;taskId&gt;**, and each file appears as a side-by-side before/after entry. You can apply, skip, or discard per file. Applied edits get written back via the vault API, and a system message of the form `User edited N file(s): ...` is appended to the conversation so the agent knows what you changed.
 
 The same EditReviewModal surface is shared with the inline panel. The previous section-accordion DiffReviewModal has been retired so both entry-points use one consistent review experience.
 
 ## Inspecting a checkpoint (v3.0.0)
 
-Click a checkpoint marker in the conversation to open it as a read-only side-by-side diff. The modal is titled **Checkpoint anzeigen** and exposes a **Restore** button that rolls the affected files back to the snapshot. This view uses the same modal component as the post-task review (`showCheckpointReviewModal` in [src/ui/edit-review/EditReviewModal.ts](src/ui/edit-review/EditReviewModal.ts)), so inline and sidebar share one checkpoint UI.
+Click a checkpoint marker in the conversation to open it as a read-only side-by-side diff. The modal is titled **View checkpoint** and exposes a **Restore** button that rolls the affected files back to the snapshot. This view uses the same modal component as the post-task review (`showCheckpointReviewModal` in `src/ui/edit-review/EditReviewModal.ts`), so inline and sidebar share one checkpoint UI.
 
 ## Chat history
 
@@ -194,7 +194,7 @@ At the top of the message area, a small indicator shows how much of the model's 
 | `@` | Open file mention picker |
 | `/` | Open the slash menu (skills, prompts, workflows) |
 | `Escape` | Close picker or cancel current input |
-| `Mod+Shift+I` (`Cmd+Shift+I` / `Ctrl+Shift+I`) | Open inline AI chat over the selection |
+| Right-click > Inline AI chat (or a hotkey you bind to **Open inline AI chat**) | Open inline AI chat over the selection |
 
 ## Tips
 

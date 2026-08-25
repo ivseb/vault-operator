@@ -37,7 +37,7 @@ Symptom: `semantic_search` returns no results, or the agent says the index is no
 | Semantic index disabled | The **Build index** button stays greyed out until the semantic index is enabled. Turn on Settings > Vault Operator > Providers > Embeddings > Semantic index first. |
 | Index not built | Once enabled, click **Build index** in Settings > Vault Operator > Providers > Embeddings > Semantic index. The first build can take a few minutes for large vaults. |
 | Embedding API key missing | The embedding model may need its own API key. Check the embeddings settings. |
-| Auto-index off | The default for `semanticAutoIndex` is `never`. Pick `startup` or `mode-switch` in Settings > Vault Operator > Providers > Embeddings > Index configuration, or rebuild manually after changes. |
+| Auto-index off | The default for `semanticAutoIndex` is `never`. Pick **On startup** or **On agent switch** in Settings > Vault Operator > Providers > Embeddings > Index configuration, or rebuild manually after changes. |
 | Vault too large | For vaults with 10,000 or more notes, the initial build takes a while. Let it finish before searching. |
 
 :::warning Force rebuild deletes the index
@@ -139,7 +139,7 @@ Symptom: The inline chat introduced in v3.0 does not open, returns no vault cont
 
 | Cause | Solution |
 |-------|----------|
-| Cmd+Shift+I (or Ctrl+Shift+I) does nothing | Open Settings > Vault Operator and confirm `inlineActions.enabled` is on. The chord is registered on the Obsidian app scope, and the same surface is bound to the command **Open inline AI chat**. Re-bind the command in Settings > Hotkeys if another plugin owns the chord. See [PanelChatController.ts](../../src/core/inline/chat/PanelChatController.ts) and [main.ts:2219](../../src/main.ts#L2219). |
+| Inline AI chat hotkey does nothing | The inline panel has no default hotkey. Bind the **Open inline AI chat** command under Settings > Hotkeys (for example to Cmd+Shift+I), and confirm `inlineActions.enabled` is on in Settings > Vault Operator. The editor right-click entry **Inline AI chat** always works without a binding. |
 | Floating menu does not appear on selection | The selection-watcher is no longer wired by default. Use the hotkey, or right-click the selection and pick **Inline AI chat**. The `inlineActions.floatingMenuEnabled` toggle stays available for callers that opt back in. See [PluginWiring.ts:893](../../src/core/inline/PluginWiring.ts#L893). |
 | Lookup returns no vault sources | Build the semantic index first (Settings > Vault Operator > Providers > Embeddings > Semantic index). Confirm `inlineActions.vaultRagInLookup` is on. If the floor is too strict, lower `inlineActions.vaultRagConfidenceThreshold` (defaults to 0.7, clamped to 0..1). See [inlineSettings.ts](../../src/core/inline/inlineSettings.ts) and [PluginWiring.ts:586](../../src/core/inline/PluginWiring.ts#L586). |
 | Lookup web fallback never runs | Web fallback only runs when vault hits are not classified as strong AND the web provider is configured. Set Settings > Vault Operator > Customize > Web tools > Provider to `brave` or `tavily` and enter the matching API key. See [InlineWebLookup.ts:66](../../src/core/inline/lookup/InlineWebLookup.ts#L66). |
@@ -158,10 +158,10 @@ Symptom: The agent does not remember things from previous conversations.
 
 | Cause | Solution |
 |-------|----------|
-| Memory extraction disabled | Enable it in Settings > Vault Operator > Agents > Memory > Memory extraction. |
+| Auto-extract disabled | Enable **Auto-extract session summaries** in Settings > Vault Operator > Agents > Memory. |
 | Chat history disabled | Memory extraction requires saved conversations. Enable **Chat history** first. |
-| Threshold too high | Lower the **Memory threshold** in Settings > Vault Operator > Agents > Memory (default: 0.7). A value of 0.5 captures more memories. |
-| Wrong memory model | If the memory model is not configured or is offline, extraction silently fails. Check Settings > Vault Operator > Agents > Memory > Memory model. |
+| Too few memories captured | Lower **Minimum messages before extraction** in Settings > Vault Operator > Agents > Memory (default: 6). A lower value extracts from shorter conversations. |
+| Extraction silently fails | Extraction runs on the Task-routing helper model (Settings > Vault Operator > Agents > Loop > Task routing). If that model is misconfigured or offline, extraction fails quietly; check the helper model there. |
 | Short conversations | Very brief exchanges may not contain extractable facts. This is normal. |
 
 ## Common error messages

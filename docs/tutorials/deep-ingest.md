@@ -75,7 +75,7 @@ The last action is a single `update_frontmatter` on the source note that links e
 - One or more stub notes for new entities the deep ingest identified. Each stub includes a short explanation and a link back to the source that triggered its creation, so the stub is a real starting point rather than an empty file.
 - The triage decision logged, so the same source will not be re-triaged.
 
-## Click a take-away to feel the value
+## Follow a take-away to its source
 
 Open one of the derived notes. Click any `↗`. You land directly at the source paragraph, with no page to scan. That is the payoff: weeks later, when you revisit the topic, every claim is two clicks away from its paragraph in the original.
 

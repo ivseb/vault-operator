@@ -30,7 +30,7 @@ The panel writes to the same conversation store as the sidebar, so an inline cha
 There are three ways to open the inline panel:
 
 - **Command palette:** run "Open inline AI chat".
-- **Hotkey:** `Mod+Shift+I`. On macOS this is `Cmd+Shift+I`. On Windows and Linux this is `Ctrl+Shift+I`. The chord is registered on the app scope, and you can rebind the command under Settings, then Hotkeys.
+- **Hotkey:** none by default. Bind the **Open inline AI chat** command under Settings, then Hotkeys (for example to `Cmd+Shift+I` on macOS or `Ctrl+Shift+I` on Windows and Linux). The editor right-click entry **Inline AI chat** works without any binding.
 - **Editor right-click menu:** select text in the editor, right-click, and pick "Inline AI chat". The entry shows the OS-specific hotkey hint next to the label.
 
 Auto-opening the panel when you select text was intentionally removed, because it interfered with normal selection actions like copy or read. The floating menu still exists behind a setting; the panel is the default surface.
@@ -97,20 +97,20 @@ Rewrite and Translate share the same review surface:
 - The right column is `contenteditable` in `plaintext-only` mode, so you can hand-correct the rewrite before applying.
 - A live `+N`/`-N` counter on the right column updates as you type.
 - A per-file **Skip this file** toggle when multiple files are in scope.
-- A footer with **Verwerfen** (discard) and **Anwenden** (apply).
+- A footer with **Discard** and **Apply**.
 
-The same panel also runs in a read-only "Checkpoint anzeigen" mode for checkpoint diffs. In that mode the footer shows **Verwerfen** and a **Wiederherstellen** button instead of Apply.
+The same panel also runs in a read-only "View checkpoint" mode for checkpoint diffs. In that mode the footer shows **Discard** and a **Restore** button instead of Apply.
 
-The modal title reads **Änderungen prüfen** for the edit flow and **Checkpoint anzeigen** for the checkpoint flow.
+The modal title reads **Review changes** for the edit flow and **View checkpoint** for the checkpoint flow.
 
 ## Checkpoint markers
 
 Every edit-action apply and every write tool fired by a free-chat turn emits a checkpoint and a marker bubble in the panel. The marker shows the action label and the affected file, plus a row of icon buttons:
 
-- **Diff anzeigen** (file-diff icon): open the read-only Checkpoint anzeigen view.
-- **Diese Änderung zurücknehmen** (undo-2 icon): restore just this checkpoint.
-- **Ab hier zurücknehmen** (rotate-ccw icon): restore this checkpoint and every checkpoint that came after it in the same task. A pre-restore snapshot of the affected files is taken first, so the multi-step rollback is itself undoable via the next marker.
-- **Weitere Optionen** (more-vertical icon): open a small menu with **Chat ab hier löschen**, which restores the checkpoint and closes the panel so the next open starts fresh.
+- **Show diff** (file-diff icon): open the read-only View checkpoint view.
+- **Undo this change** (undo-2 icon): restore just this checkpoint.
+- **Undo from here** (rotate-ccw icon): restore this checkpoint and every checkpoint that came after it in the same task. A pre-restore snapshot of the affected files is taken first, so the multi-step rollback is itself undoable via the next marker.
+- **More options** (more-vertical icon): open a small menu with **Clear chat from here**, which restores the checkpoint and closes the panel so the next open starts fresh.
 
 Markers stamp the session task id, so reopening the conversation from the sidebar history rehydrates them via the sidebar's rehydrate path.
 

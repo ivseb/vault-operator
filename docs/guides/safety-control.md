@@ -118,14 +118,14 @@ The panel layout:
 - Line numbers and `+` / `−` gutters on both sides, so you can see exactly which lines were added or removed.
 - The right column is editable (`contenteditable` with plaintext-only input). Click in and type to adjust the proposal before applying.
 - A live `+N / −N` counter above the right column updates as you edit.
-- When the change spans more than one file, a file list on the left lets you switch between them. Each file has a "Diese Datei skippen" toggle to skip writing that file.
-- The footer offers two actions: "Verwerfen" discards everything. "Anwenden" writes the right-column content to disk.
+- When the change spans more than one file, a file list on the left lets you switch between them. Each file has a "Skip this file" toggle to skip writing that file.
+- The footer offers two actions: "Discard" discards everything. "Apply" writes the right-column content to disk.
 
-For sidebar tasks, the panel opens automatically once the agent finishes a turn that wrote files. The modal title reads "Änderungen prüfen". For inline-chat actions, the panel opens automatically once the model finishes streaming.
+For sidebar tasks, the panel opens automatically once the agent finishes a turn that wrote files. The modal title reads "Review changes". For inline-chat actions, the panel opens automatically once the model finishes streaming.
 
 ### Checkpoint view
 
-The same panel runs in checkpoint mode when you open a past snapshot. In this mode the right column is read-only and shows the snapshot content. The footer replaces "Anwenden" with "Wiederherstellen", which restores the snapshot to the vault.
+The same panel runs in checkpoint mode when you open a past snapshot. In this mode the right column is read-only and shows the snapshot content. The footer replaces "Apply" with "Restore", which restores the snapshot to the vault.
 
 Inline-chat edits also create checkpoints under a stable per-note task id, so every inline Rewrite or Translate is undoable from the inline checkpoint marker in the chat (Diff, Undo this, Undo from here, More menu). See [Inline chat](inline-chat.md) for the marker controls.
 

@@ -68,12 +68,12 @@ If task extraction is off, the scan does not run, and checkbox lines stay as pla
 - Regex-only. A sentence like "we should review the proposal next week" has no checkbox, so it is not extracted. The agent decides what becomes a checkbox.
 - Strict date format. `due: 2026-06-01` works; `due tomorrow` or `next Friday` does not.
 - Text-based deduplication. Two tasks with slightly different wording count as separate notes.
-- The `sourceNote` backlink is a path. If you move or rename the source chat note, the backlink breaks.
+- The `Quelle` backlink is a path. If you move or rename the source chat note, the backlink breaks.
 - The Vault-tab toggle is binary. There is no per-agent or per-prompt switch yet.
 
 ## Related decisions
 
 - ADR-26: post-processing hook architecture
-- ADR-27: task-note frontmatter schema (the `kategorie: [Task]` convention)
+- ADR-27: task-note frontmatter schema (the `Kategorie: Task` convention)
 
 See also: [Multi-agent and tasks guide](/guides/multi-agent), [Settings reference: Vault](/reference/settings#vault-checkpoints).
