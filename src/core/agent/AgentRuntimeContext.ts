@@ -25,6 +25,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { ModeConfig } from '../../types/settings';
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP } from '../skills/descriptionCaps';
 import { loadableSkills } from '../context/SkillsManager';
 import { enabledSelfAuthoredNames } from '../skills/skillToggleGate';
 import { resolveAllowedMcpServers } from '../mcp/mcpActivation';
@@ -148,7 +149,7 @@ async function buildSkillDirectory(plugin: ObsidianAgentPlugin): Promise<string 
         // skill name/description are untrusted frontmatter. The final defang in
         // getSkillDirectorySection is the security backstop; sanitising here also
         // caps length and flattens newlines for the inline-chat prompt.
-        .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
+        .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, SKILL_DESCRIPTION_PROMPT_CAP)}`);
 
     const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(b => b.length > 0);
     if (blocks.length === 0) return undefined;

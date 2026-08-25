@@ -3,7 +3,7 @@ import { requestUrl } from 'obsidian';
 import type { CustomModel, ProviderType } from '../../types/settings';
 import { buildApiHandler } from '../../api/index';
 import { modelToLLMProvider } from '../../types/settings';
-import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
+import { GitHubCopilotAuthService, resolveCopilotContextWindow } from '../../core/security/GitHubCopilotAuthService';
 import { KiloAuthService } from '../../core/security/KiloAuthService';
 import { KiloMetadataService } from '../../core/providers/KiloMetadataService';
 import { extractRegionFromBedrockUrl } from '../../api/providers/bedrock';
@@ -639,8 +639,16 @@ async function fetchProviderModels(
     if (provider === 'github-copilot') {
         const authService = GitHubCopilotAuthService.getInstance();
         if (!authService.isAuthenticated()) throw new Error('Not authenticated. Sign in with GitHub first.');
+        // Side effect worth knowing about: listModels() also refreshes the
+        // route table the provider reads (FIX-45-03-01), so a "Fetch" in settings
+        // is what teaches VO which models live on /responses.
         const models = await authService.listModels();
-        return models.map((m) => ({ id: m.id, label: (m.name ?? m.id) }));
+        return models.map((m) => ({
+            id: m.id,
+            label: m.name ?? m.id,
+            contextWindow: resolveCopilotContextWindow(m),
+            maxOutputTokens: m.capabilities?.limits?.max_output_tokens,
+        }));
     }
 
     // ChatGPT OAuth (Codex backend). there is no `/v1/models` endpoint on

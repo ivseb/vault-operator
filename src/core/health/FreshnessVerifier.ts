@@ -59,6 +59,13 @@ export interface VerifierProvider {
      * verifier MUST NOT escalate when this returns false.
      */
     hasZdrCapability(): boolean;
+    /**
+     * FIX-19-16-03: true only when a REAL frontier configuration exists.
+     * Without one, escalation must not fire: the pre-fix fallback called
+     * the mid model a second time and recorded `verifier_tier = 'frontier'`,
+     * which is a false claim in the data, not a second opinion.
+     */
+    hasFrontier(): boolean;
     /** Provider-side identifier for the mid-tier model. */
     midModelId: string;
     /** Provider-side identifier for the frontier model. */
@@ -94,6 +101,13 @@ export class FreshnessVerifier {
         if (!this.provider.hasZdrCapability()) {
             // Fail-closed per ADR-135: stay mid-tier, keep the lower
             // confidence value so the UI can flag it.
+            return midVerdict;
+        }
+
+        if (!this.provider.hasFrontier()) {
+            // FIX-19-16-03: no real frontier wired -- no escalation. The old
+            // fallback re-ran the mid model and stamped 'frontier' into the
+            // history, so the data claimed a second opinion that never was.
             return midVerdict;
         }
 

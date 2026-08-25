@@ -275,6 +275,12 @@ export function buildSystemPromptForMode(
         // on demand via the read_skill tool; the body lives in the message
         // stream and falls under microcompaction (FEAT-24-02). Subtasks
         // skip skills entirely (same as the old behaviour).
+        //
+        // FIX-29-03-03: dieses Weglassen spart Token, kostete aber auch das
+        // Inventar des Skills, um dessentwillen der Subtask überhaupt läuft.
+        // Der bleibt jetzt nicht mehr ahnungslos: InvokeSkillTool legt die
+        // Inventarzeilen genau dieses einen Skills in die Subtask-Nachricht
+        // (skillInventoryRenderer). Das Verzeichnis bleibt hier draußen.
         isSubtask ? '' : getSkillDirectorySection(skillDirectorySection),
 
         // ── CACHE BREAKPOINT ────────────────────────────────────────────

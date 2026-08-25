@@ -15,6 +15,7 @@ import type ObsidianAgentPlugin from '../../main';
 import type { McpPromptMessage } from '../types';
 import { loadableSkills } from '../../core/context/SkillsManager';
 import { sanitizeDirectoryEntry } from '../../core/tools/BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP } from '../../core/skills/descriptionCaps';
 
 export async function buildPrompts(plugin: ObsidianAgentPlugin): Promise<McpPromptMessage[]> {
     const sections: string[] = [];
@@ -59,7 +60,7 @@ export async function buildPrompts(plugin: ObsidianAgentPlugin): Promise<McpProm
             if (skills.length > 0) {
                 const skillTexts = skills
                     .map((s: { name: string; description?: string }) =>
-                        `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description ?? '', 300)}`)
+                        `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description ?? '', SKILL_DESCRIPTION_PROMPT_CAP)}`)
                     .join('\n');
                 sections.push(`## Available Skills\nUse these as workflow guides:\n${skillTexts}`);
             }

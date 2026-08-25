@@ -1022,6 +1022,14 @@ export interface ObsidianAgentSettings {
     weightedFusionEnabled: boolean;
     /** Auto-index vault files as they change (modify/create/delete/rename). Off by default — can slow down Obsidian if using a local embedding model. */
     semanticAutoIndexOnChange: boolean;
+    /**
+     * Issue #62: opt-in Ollama keep_alive for embeddings. Empty leaves Ollama's
+     * own 5min default (the model stays resident in VRAM between requests). A
+     * value like "0" (unload right after embedding), "30s", or "5m" routes
+     * Ollama embeddings to the native /api/embed endpoint that honours it.
+     * Ollama only; ignored for other embedding providers.
+     */
+    embeddingKeepAlive: string;
 
     // Graph Expansion (FEATURE-1502)
     /** Enable graph-based search expansion via Wikilinks and MOC-Properties. */
@@ -1332,6 +1340,17 @@ export interface ObsidianAgentSettings {
     githubCopilotTokenExpiresAt: number;
     /** Custom OAuth Client ID — escape hatch if the default stops working */
     githubCopilotCustomClientId: string;
+    /**
+     * FIX-45-03-01: modelId -> what the last Copilot model list reported, e.g.
+     * { 'gpt-5.6-sol': { endpoints: ['/responses'], contextWindow: 1000000 } }.
+     * Copilot serves the GPT-5.6 lineup only on /responses; without the route
+     * the provider sends every model to /chat/completions and gets HTTP 400.
+     * The limits are kept alongside so a model entered by hand (a tier override,
+     * which never passes through discovery) still runs on its real window.
+     * Absent means "unknown", which keeps the pre-fix behaviour. Not a
+     * credential, so it is stored in the clear.
+     */
+    githubCopilotModelMeta: Record<string, import('../core/security/GitHubCopilotAuthService').CopilotModelMeta>;
 
     // Kilo Gateway (ADR-041)
     /** Kilo session token (encrypted via SafeStorageService) */
@@ -1849,6 +1868,16 @@ export interface FreshnessSettings {
      * damit eine Aenderung sofort greift.
      */
     weeklyBudgetUsd: number;
+    /**
+     * FIX-19-16-08: nach jedem Stufe-3-Lauf eine kompakte Markdown-Notiz
+     * in den sichtbaren Vault schreiben (VaultHealth/Freshness-Report.md,
+     * ueberschreibend). Vorher lebten die Ergebnisse nur in einem Modal-Tab
+     * (auf Mobile aus), einer 6-Sekunden-Notice und console.debug. Auch ein
+     * Lauf ohne Findings schreibt: "keine Findings, geprueft am" und "nie
+     * geprueft" sind verschiedene Aussagen. Default an; optional, weil es
+     * eine Datei im Nutzer-Vault ist.
+     */
+    writeReport?: boolean;
 }
 
 export const DEFAULT_FRESHNESS_SETTINGS: FreshnessSettings = {
@@ -1860,6 +1889,7 @@ export const DEFAULT_FRESHNESS_SETTINGS: FreshnessSettings = {
     excludePaths: ['Private/', 'Personal/', 'Medical/', 'Clients/'],
     excludeClusters: [],
     weeklyBudgetUsd: 2.0,
+    writeReport: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -2118,6 +2148,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     hydeEnabled: false,
     weightedFusionEnabled: true,
     semanticAutoIndexOnChange: false,
+    embeddingKeepAlive: '',
     enableGraphExpansion: true,
     graphExpansionHops: 1,
     mocPropertyNames: [...OKF_DEFAULTS.mocPropertyNames],
@@ -2264,6 +2295,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     githubCopilotToken: '',
     githubCopilotTokenExpiresAt: 0,
     githubCopilotCustomClientId: '',
+    githubCopilotModelMeta: {},
     kiloToken: '',
     kiloAuthMode: '',
     kiloOrganizationId: '',

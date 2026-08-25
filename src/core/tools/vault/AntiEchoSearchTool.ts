@@ -45,14 +45,15 @@ export class AntiEchoSearchTool extends BaseTool<'anti_echo_search'> {
 
     async execute(input: Record<string, unknown>, ctx: ToolExecutionContext): Promise<void> {
         const { cluster, query } = input as unknown as AntiEchoInput;
-        const stats = this.plugin.clusterSourceStatsStore?.getStatsForCluster(cluster) ?? [];
-        if (stats.length === 0) {
-            ctx.callbacks.pushToolResult(this.formatError(`Cluster "${cluster}" hat keine Source-Stats. Anti-Echo nicht moeglich.`));
-            return;
-        }
-        const dominantDomain = stats[0].sourceDomain;
+        // FIX-19-16-10: die Tabelle fuellt nur der Deep-Ingest; ohne den war
+        // JEDER Aufruf ein Fehler (Live-Vault: 0 Zeilen). Der Store leitet
+        // die Dominanz notfalls aus Frontmatter-URLs ab, und ganz ohne
+        // Dominanz-Daten laeuft die Suche ohne -site:-Filter, statt ein Tool
+        // zu sein, das in einem frischen Vault nur Fehler zurueckgibt.
+        const stats = this.plugin.clusterSourceStatsStore?.getStatsForClusterWithFallback(cluster) ?? [];
+        const dominantDomain = stats.length ? stats[0].sourceDomain : null;
         const total = stats.reduce((s, x) => s + x.noteCount, 0);
-        const conc = stats[0].noteCount / total;
+        const conc = dominantDomain && total > 0 ? stats[0].noteCount / total : 0;
         const searchQuery = query
             ?? `Critical perspectives on ${cluster} alternative viewpoints`;
 
@@ -62,8 +63,8 @@ export class AntiEchoSearchTool extends BaseTool<'anti_echo_search'> {
             ctx.callbacks.pushToolResult(this.formatError('web_search-Tool nicht verfuegbar. Bitte Provider in Settings konfigurieren.'));
             return;
         }
-        // Source-Filter: dominante Domain blockieren
-        const filteredQuery = `${searchQuery} -site:${dominantDomain}`;
+        // Source-Filter: dominante Domain blockieren, wenn eine bekannt ist
+        const filteredQuery = dominantDomain ? `${searchQuery} -site:${dominantDomain}` : searchQuery;
 
         const captured: string[] = [];
         const subCtx: ToolExecutionContext = {
@@ -75,10 +76,13 @@ export class AntiEchoSearchTool extends BaseTool<'anti_echo_search'> {
         };
         await webSearchTool.execute({ query: filteredQuery, max_results: 5 }, subCtx);
 
+        const dominanceLine = dominantDomain
+            ? `- Dominante Domain im Cluster: **${dominantDomain}** (${(conc * 100).toFixed(0)}% von ${total} Notes)`
+            : '- Keine Dominanz-Daten fuer diesen Cluster (weder Ingest-Statistik noch Frontmatter-URLs); Suche ohne Source-Filter.';
         const intro = [
             `## Anti-Echo-Suche fuer Cluster "${cluster}"`,
-            `- Dominante Domain im Cluster: **${dominantDomain}** (${(conc * 100).toFixed(0)}% von ${total} Notes)`,
-            `- Suche mit Source-Filter: \`${filteredQuery}\``,
+            dominanceLine,
+            `- Suchanfrage: \`${filteredQuery}\``,
             '',
             '### Treffer (alternative Quellen):',
             '',

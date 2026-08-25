@@ -73,8 +73,17 @@ export interface Stufe3JobOptions {
     notificationThreshold: number;
     /** Wenn dryRun true: Web-Search/LLM-Calls werden simuliert (Zero-Cost). */
     dryRun?: boolean;
-    /** Tokens-zu-USD-Konversion (zB Haiku ~ 0.0015 USD/1k input). Default Haiku-Schatzung. */
+    /** Tokens-zu-USD-Konversion. Default: konservative Sonnet-Klasse-Schaetzung. */
     tokensPerUsd?: number;
+    /**
+     * FIX-19-16-04: echte Kostenschaetzung aus dem Preiskatalog des aktuell
+     * konfigurierten Modells. Hat Vorrang vor tokensPerUsd; ein nicht-endlicher
+     * oder negativer Rueckgabewert faellt auf die Konstante zurueck. main.ts
+     * verdrahtet computeCost() mit einer input-lastigen Aufteilung, weil der
+     * Verifier-Traffic (4000 Zeichen Notiz-Body plus URLs im Prompt, kurzes
+     * JSON als Antwort) vom Input dominiert wird.
+     */
+    estimateUsd?: (tokens: number) => number;
 }
 
 export interface Stufe3JobState {
@@ -89,9 +98,27 @@ export interface Stufe3RunResult {
     spentUsd: number;
     budgetExceeded: boolean;
     state: Stufe3JobState;
+    /**
+     * FIX-19-16-07: das Sichtfenster des Laufs. Ein Lauf, in dem der
+     * Pre-Filter jeden Cluster mit "no" beantwortet, war vorher von "nie
+     * gelaufen" nicht unterscheidbar (der Live-Lauf vom 19.08.: 149 Cluster,
+     * 0 History-Zeilen, 0 Notices). Diese Zaehlung plus reportFindings
+     * speist den Bericht und die Abschluss-Notice.
+     */
+    decisions: { yes: number; no: number; unsure: number };
+    /** ALLE Findings des Laufs, auch ohne strongSignal (Notice filtert weiter). */
+    reportFindings: UpdateFinding[];
+    /** Anzahl der Note-Verdicts ueber alle Findings. */
+    verdictCount: number;
 }
 
-const DEFAULT_TOKENS_PER_USD = 660_000; // ~0.0015 USD per 1k tokens (Haiku-Schaetzung input)
+// FIX-19-16-04: der alte Wert (660_000, eine Haiku-Input-Schaetzung) rechnete
+// den realen Lauf um eine Groessenordnung schoen: der Verifier laeuft auf dem
+// Haupt-Loop-Modell (im Live-Vault durchgehend Sonnet), input-lastig. 200_000
+// entspricht grob einer Sonnet-Klasse-Mischung aus 85% Input und 15% Output.
+// Der Katalog-Pfad (options.estimateUsd) hat Vorrang; diese Konstante ist nur
+// noch der Fallback ohne Katalog.
+const DEFAULT_TOKENS_PER_USD = 200_000;
 
 /**
  * AUDIT-014 Info-1 (IMP-19-20-01): persistent state via dedicated row
@@ -181,6 +208,9 @@ export class Stufe3PeriodicJob {
             spentUsd: 0,
             budgetExceeded: false,
             state: this.state,
+            decisions: { yes: 0, no: 0, unsure: 0 },
+            reportFindings: [],
+            verdictCount: 0,
         };
 
         // FEAT-19-03-01: die Kandidaten kommen aus der injizierten Quelle
@@ -209,6 +239,7 @@ export class Stufe3PeriodicJob {
             // Step 1: Pre-Filter
             const pre = await this.preFilter(cluster);
             this.spendTokens(pre.tokensUsed);
+            result.decisions[pre.decision]++;
             if (this.budgetReached()) { result.budgetExceeded = true; break; }
             if (pre.decision === 'no') {
                 result.clustersProcessed++;
@@ -220,8 +251,10 @@ export class Stufe3PeriodicJob {
             this.spendTokens(webResult.tokensUsed);
             this.clusterMetadataStore.setLastExternalCheck(cluster.cluster, new Date().toISOString());
 
-            // Step 3: Strong-Signal-Filter
+            // Step 3: Strong-Signal-Filter (Notice); der Bericht sieht alles.
             for (const finding of webResult.findings) {
+                result.reportFindings.push(finding);
+                result.verdictCount += finding.notes?.length ?? 0;
                 if (finding.strongSignal) allFindings.push(finding);
             }
             result.clustersProcessed++;
@@ -240,8 +273,18 @@ export class Stufe3PeriodicJob {
     }
 
     private spendTokens(tokens: number): void {
-        const tokensPerUsd = this.options.tokensPerUsd ?? DEFAULT_TOKENS_PER_USD;
-        const cost = tokens / tokensPerUsd;
+        // FIX-19-16-04: Katalogpreis des echten Modells zuerst; die Konstante
+        // ist der Fallback. Ein kaputter Estimator (NaN, negativ) faellt
+        // sicher zurueck statt das Budget einzufrieren oder zu sprengen.
+        let cost: number | null = null;
+        if (this.options.estimateUsd) {
+            const est = this.options.estimateUsd(tokens);
+            if (typeof est === 'number' && Number.isFinite(est) && est >= 0) cost = est;
+        }
+        if (cost === null) {
+            const tokensPerUsd = this.options.tokensPerUsd ?? DEFAULT_TOKENS_PER_USD;
+            cost = tokens / tokensPerUsd;
+        }
         this.state.spentUsd += cost;
         const budget = this.weeklyBudget();
         const ratio = this.state.spentUsd / budget;

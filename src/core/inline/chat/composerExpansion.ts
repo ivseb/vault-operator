@@ -4,7 +4,9 @@
  *
  * Extracted from AgentSidebarView.handleSendMessage (lines 1575-1638)
  * so both surfaces get identical behaviour:
- *   '/skill-slug'  -> `<explicit_instructions skill="...">body</...>` + tail user text
+ *   '/skill-slug'  -> `<explicit_instructions skill="...">inventory + body</...>`
+ *                    + tail user text (IMP-29-03-01: der Block kommt aus
+ *                    `skillInventoryRenderer`, den auch die Sidebar benutzt)
  *   '#prompt-slug' -> resolvePromptContent(template, { userInput, activeFile })
  *   '§workflow-slug' -> workflowLoader.processSlashCommand(/slug ...)
  *
@@ -13,6 +15,10 @@
  */
 
 import type ObsidianAgentPlugin from '../../../main';
+import {
+    buildExplicitSkillInstructions,
+    type RenderableSkill,
+} from '../../skills/skillInventoryRenderer';
 
 export interface ExpansionContext {
     text: string;
@@ -38,19 +44,17 @@ export async function expandComposerPrefix(
 
     if (prefix === '/') {
         const skillLoader = (plugin as unknown as {
-            selfAuthoredSkillLoader?: { getAllSkills: () => Array<{ name: string; body: string }> };
+            selfAuthoredSkillLoader?: { getAllSkills: () => RenderableSkill[] };
         }).selfAuthoredSkillLoader;
         if (skillLoader === undefined) return null;
         const skills = skillLoader.getAllSkills();
         const matched = skills.find(s => slugifySkillName(s.name) === slug);
         if (matched === undefined) return null;
-        const parts = [
-            `<explicit_instructions skill="${matched.name}">`,
-            matched.body,
-            '</explicit_instructions>',
-        ];
-        if (rest.length > 0) parts.push('', rest);
-        return parts.join('\n') + activeFileTail;
+        // IMP-29-03-01: der gemeinsame Renderer, damit die Expansion das
+        // Inventar trägt (scripts/, references/, assets/, Sub-Rollen). Vorher
+        // baute dieser Pfad den Block selbst und nannte nur den Body, also
+        // erfuhr das Modell nie, dass der Skill Sidecars hat.
+        return buildExplicitSkillInstructions(matched, rest) + activeFileTail;
     }
 
     if (prefix === '#') {

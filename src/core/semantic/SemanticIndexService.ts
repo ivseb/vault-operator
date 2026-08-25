@@ -18,6 +18,7 @@
 import { requestUrl } from 'obsidian';
 import type { Vault } from 'obsidian';
 import { waitWhileBusy, BACKGROUND_STARVATION_MS, BACKGROUND_POLL_MS } from './agentBusyGate';
+import { upsertFreshnessClass } from './freshnessClassUpsert';
 import type { CustomModel } from '../../types/settings';
 import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
 import type { VectorStore } from '../knowledge/VectorStore';
@@ -29,6 +30,7 @@ import { sanitizeWithDetails } from '../memory/sanitizeVaultContentForLLM';
 import { Semaphore, mapWithConcurrency } from '../utils/asyncPool';
 import { stripAllAutoBlocks } from '../ingest/MOCMaintainer';
 import { createNodeFetch } from '../../api/providers/openai';
+import { normalizeKeepAlive, parseOllamaNativeEmbeddings } from './ollamaKeepAlive';
 
 /**
  * Escape a string for safe use inside an XML attribute value.
@@ -111,6 +113,14 @@ export interface SemanticIndexOptions {
     chunkSize?: number;
     /** Contextual Retrieval: prepend LLM-generated context to chunks before embedding (ADR-051). Default: true */
     enableContextualRetrieval?: boolean;
+    /**
+     * Issue #62: opt-in Ollama keep_alive. Empty/undefined leaves Ollama's own
+     * 5min default (embeddings go through the OpenAI-compatible /v1 path, which
+     * cannot carry keep_alive). A non-empty value ("0", "30s", "5m") routes
+     * Ollama embeddings to the native /api/embed endpoint so the model unloads
+     * on the schedule the user chose. Ollama only; ignored for other providers.
+     */
+    embeddingKeepAlive?: string;
     /**
      * AUDIT-013 follow-up: predicate that returns true for paths the user
      * has marked ignored (.obsidian-agentignore). Files matching this
@@ -240,6 +250,8 @@ export class SemanticIndexService {
     private indexPdfs: boolean;
     private chunkSize: number;
     private enableContextualRetrieval: boolean;
+    /** Issue #62: opt-in Ollama keep_alive wire value; '' leaves Ollama's default. */
+    private embeddingKeepAlive = '';
     private plugin?: ObsidianAgentPlugin;
     private contextualApiHandler: ApiHandler | null = null;
     /** BUG-016: once the configured context model fails permanently (auth / credit / quota), stop trying for the rest of the session. */
@@ -284,6 +296,7 @@ export class SemanticIndexService {
         this.indexPdfs = options.indexPdfs ?? false;
         this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
         this.enableContextualRetrieval = options.enableContextualRetrieval ?? true;
+        this.embeddingKeepAlive = options.embeddingKeepAlive ?? '';
         this.plugin = options.plugin;
     }
 
@@ -305,6 +318,7 @@ export class SemanticIndexService {
         if (options.indexPdfs !== undefined) this.indexPdfs = options.indexPdfs;
         if (options.chunkSize !== undefined) this.chunkSize = options.chunkSize;
         if (options.enableContextualRetrieval !== undefined) this.enableContextualRetrieval = options.enableContextualRetrieval;
+        if (options.embeddingKeepAlive !== undefined) this.embeddingKeepAlive = options.embeddingKeepAlive;
     }
 
     get isIndexed(): boolean { return this.builtAt !== null; }
@@ -1534,11 +1548,11 @@ export class SemanticIndexService {
             const counts = { volatile: 0, evolving: 0, stable: 0 };
             for (const v of votes) counts[v]++;
             const winner = Object.entries(counts)
-                .sort((a, b) => b[1] - a[1])[0][0];
-            db.run(
-                'INSERT OR REPLACE INTO note_freshness (path, freshness_class, temporal_marker_count, classified_at) VALUES (?, ?, 0, ?)',
-                [filePath, winner, new Date().toISOString()],
-            );
+                .sort((a, b) => b[1] - a[1])[0][0] as 'volatile' | 'evolving' | 'stable';
+            // FIX-19-16-02: never INSERT OR REPLACE here -- it nulled the
+            // Stufe-3 verifier columns on every re-classification (325 of 350
+            // paid verdicts lost on the live vault). See freshnessClassUpsert.
+            upsertFreshnessClass(db, filePath, winner, new Date().toISOString());
         } catch {
             // Non-fatal: freshness is best-effort
         }
@@ -1769,9 +1783,62 @@ export class SemanticIndexService {
         if (model.provider === 'azure') {
             return this.embedBatchViaRequestUrl(texts, model);
         }
+        // Issue #62: opt-in Ollama keep_alive. keep_alive is not an OpenAI
+        // parameter, so the /v1/embeddings SDK path silently drops it. When the
+        // user set a keep_alive value, route Ollama embeddings to the native
+        // /api/embed endpoint that honours it. Empty setting -> unchanged SDK
+        // path (Ollama's own 5min default applies), so non-Ollama and
+        // unconfigured users are entirely unaffected.
+        if (model.provider === 'ollama') {
+            const keepAlive = normalizeKeepAlive(this.embeddingKeepAlive);
+            if (keepAlive !== undefined) {
+                return this.embedBatchViaOllamaNative(texts, model, keepAlive);
+            }
+        }
         // All OpenAI-compatible providers use the OpenAI SDK
         // (requestUrl has issues with some providers like OpenRouter)
         return this.embedBatchViaSdk(texts, model);
+    }
+
+    /**
+     * Issue #62: embed via Ollama's native /api/embed so a keep_alive value is
+     * actually honoured (the OpenAI-compatible /v1 path drops it). requestUrl
+     * runs Node-side, so localhost Ollama answers without the renderer CORS
+     * dance the SDK path needs; it also keeps this off window.fetch, which the
+     * review bot forbids. Mirrors the Azure path's timeout/abort race so
+     * cancelBuild() terminates an in-flight request.
+     */
+    private async embedBatchViaOllamaNative(
+        texts: string[],
+        model: CustomModel,
+        keepAlive: string | number,
+    ): Promise<Float32Array[]> {
+        const base = (model.baseUrl || 'http://localhost:11434')
+            .replace(/\/v1\/?$/, '')
+            .replace(/\/+$/, '');
+        const url = `${base}/api/embed`;
+        const body = { model: model.name, input: texts, keep_alive: keepAlive };
+
+        console.debug(`[SemanticIndex] Embedding via Ollama native /api/embed: ${url} model=${model.name} texts=${texts.length} keep_alive=${keepAlive}`);
+        const TIMEOUT_MS = 30_000;
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            window.setTimeout(() => reject(new Error(`[SemanticIndex] API request timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS),
+        );
+        const abortPromise = this.abortController
+            ? new Promise<never>((_, reject) => {
+                this.abortController!.signal.addEventListener('abort', () => reject(new Error('Build cancelled')), { once: true });
+            })
+            : new Promise<never>(() => {});
+        const res = await Promise.race([
+            requestUrl({ url, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), throw: false }),
+            timeoutPromise,
+            abortPromise,
+        ]);
+        if (res.status < 200 || res.status >= 300) {
+            const errText = (() => { try { return JSON.stringify(res.json).slice(0, 200); } catch { return ''; } })();
+            throw new Error(`[SemanticIndex] Ollama /api/embed returned HTTP ${res.status}: ${errText}`);
+        }
+        return parseOllamaNativeEmbeddings(res.json, texts.length);
     }
 
     /**

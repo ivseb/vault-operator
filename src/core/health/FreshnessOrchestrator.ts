@@ -82,7 +82,13 @@ export interface RunForClusterResult {
 export class FreshnessOrchestrator {
     constructor(private readonly deps: FreshnessOrchestratorDeps) {}
 
-    async runForCluster(cluster: string): Promise<RunForClusterResult> {
+    /**
+     * @param seedSources FIX-19-16-07: URLs the cluster-level web pass
+     * already paid for (Stufe3Hooks). They join every note's own search
+     * hits so the verifier sees them instead of them being thrown away
+     * (the FEAT-19-03-01 double-search leftover).
+     */
+    async runForCluster(cluster: string, seedSources: string[] = []): Promise<RunForClusterResult> {
         if (this.deps.enabled && !this.deps.enabled()) {
             return { verdicts: [], tokensUsed: 0 };
         }
@@ -109,7 +115,10 @@ export class FreshnessOrchestrator {
             const webResults = query
                 ? await this.deps.webSearch.search(query, 5)
                 : [];
-            const sources = webResults.map((r) => r.url);
+            // Per-note hits first (they answer the note's own query), then
+            // the cluster seeds; duplicates fold. The provider prompt caps
+            // at 8 URLs, so order is relevance.
+            const sources = Array.from(new Set([...webResults.map((r) => r.url), ...seedSources]));
 
             const verdict = await this.deps.verifier.verifyNote(
                 { path: candidate.path, body },

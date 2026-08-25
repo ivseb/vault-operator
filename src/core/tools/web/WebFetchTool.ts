@@ -15,6 +15,7 @@ import type ObsidianAgentPlugin from '../../../main';
 import { MAX_RESPONSE_BYTES, parseContentLength, readCappedResponseBody } from '../../utils/httpBodyCap';
 // Extracted so clip_web_page reuses the exact same converter + guard chain (no drift).
 import { htmlToMarkdown } from './htmlToMarkdown';
+import { feedToToc, looksLikeFeed } from './feedToToc';
 import { guardUrl, fetchWithRedirectGuard, isPrivateIP, hasInternalSuffix } from './ssrfGuard';
 
 // Re-export so existing importers (and the M-7 / SSRF regression tests) keep
@@ -118,6 +119,13 @@ export class WebFetchTool extends BaseTool<'web_fetch'> {
 
             if (contentType.includes('text/html') || contentType === '') {
                 content = htmlToMarkdown(safeText);
+            } else if (looksLikeFeed(contentType, safeText)) {
+                // FIX-24-03-09: a feed is a table of contents, and raw XML is
+                // the worst possible shape for one -- the <description> bulk
+                // pushed every feed past the inline threshold and the agent
+                // paged through 20000 characters to reach a list of titles.
+                // Falls back to the raw text when nothing entry-shaped parses.
+                content = feedToToc(safeText) ?? safeText;
             } else {
                 // Plain text, JSON, etc.
                 content = safeText;

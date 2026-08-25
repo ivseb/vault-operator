@@ -14,10 +14,8 @@ import type { McpToolResult } from '../types';
 import { wrapVaultContentForMcp } from '../McpBridge';
 import { FactStore } from '../../core/memory/FactStore';
 import { cosine } from '../../core/memory/cosine';
-import {
-    resolveExternalSourceInterface,
-    type SourceInterface,
-} from '../../core/memory/SourceInterface';
+import type { SourceInterface } from '../../core/memory/SourceInterface';
+import { enforceSourceIsolation } from '../toolDefinitions';
 import type { Fact, FactKind } from '../../core/memory/FactStore';
 
 const VALID_KINDS: FactKind[] = ['fact', 'preference', 'identity', 'event'];
@@ -36,23 +34,19 @@ export async function handleRecallMemory(
     const kindFilter = (typeof args.kind === 'string' && VALID_KINDS.includes(args.kind as FactKind))
         ? args.kind as FactKind
         : undefined;
-    // AUDIT 2026-07-14 (Codex) H-1: a provided 'obsilo' is coerced to 'unknown'
-    // so an external client cannot read the plugin-internal fact partition.
-    const sourceFilter: SourceInterface | undefined = args.source_interface !== undefined
-        ? resolveExternalSourceInterface(args.source_interface)
-        : undefined;
-
-    // AUDIT-015 M-3: strictSourceIsolation erzwingt source_interface
-    // Filter -- ohne explicit Wert lehnt das Tool den Call ab.
-    const crossSurface = plugin.settings?.memory?.crossSurface;
-    if (crossSurface?.strictSourceIsolation) {
-        if (!sourceFilter) {
-            return errorResult(
-                'strictSourceIsolation is enabled in Settings -- recall_memory requires '
-                + 'an explicit source_interface argument to scope the read.',
-            );
-        }
-    }
+    // AUDIT-015 M-3 + FIX-23-09-08: source resolution ('obsilo' from a client is
+    // coerced to 'unknown', AUDIT 2026-07-14 H-1) and the strictSourceIsolation
+    // check are one shared function now, so the dispatcher cannot answer a
+    // request this wrapper refuses. scopesBySource: this handler applies the
+    // returned filter below.
+    const isolation = enforceSourceIsolation({
+        operation: 'recall_memory',
+        args,
+        strictSourceIsolation: plugin.settings?.memory?.crossSurface?.strictSourceIsolation === true,
+        scopesBySource: true,
+    });
+    if (isolation.blocked) return errorResult(isolation.message);
+    const sourceFilter: SourceInterface | undefined = isolation.sourceFilter;
 
     try {
         const store = new FactStore(memDB);

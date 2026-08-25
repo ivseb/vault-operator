@@ -258,6 +258,18 @@ export class VaultTab {
                 }),
             );
 
+        // FIX-19-16-08: without the report, a run's results lived only in the
+        // modal tab (off on mobile), a six-second Notice and console.debug.
+        new Setting(containerEl)
+            .setName(t('settings.vault.freshnessWriteReport'))
+            .setDesc(t('settings.vault.freshnessWriteReportDesc'))
+            .addToggle((tg) =>
+                tg.setValue(freshness.writeReport ?? true).onChange(async (v) => {
+                    patchFreshness({ writeReport: v });
+                    await this.plugin.saveSettings();
+                }),
+            );
+
         new Setting(containerEl)
             .setName(t('settings.vault.freshnessFrontierEscalation'))
             .setDesc(t('settings.vault.freshnessFrontierEscalationDesc'))

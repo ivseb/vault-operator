@@ -160,7 +160,16 @@ export async function importSkillPackage(
 
     const destFolder = normalizePath(`${input.targetSkillsDir}/${slug}`);
     const destExists = await input.adapter.exists(destFolder);
-    if (destExists && !input.overwrite) {
+    // FIX-31-01-01: an installed skill is a SKILL.md, not a folder. The
+    // versioning interceptor writes `.versions/{id}/snapshot.json` before the
+    // first file of an install lands, so an install that is cancelled or fails
+    // leaves an empty folder behind -- and the loader never sees such a folder
+    // as a skill. Blocking on the folder turned that leftover into a wall: the
+    // user deleted the skill, saw it disappear from the list, and every later
+    // install answered "already exists" about a skill that was not there.
+    const skillExists = destExists
+        && await input.adapter.exists(normalizePath(`${destFolder}/SKILL.md`));
+    if (skillExists && !input.overwrite) {
         throw new SkillPackageImportError(
             `Skill "${slug}" already exists.`,
             'DESTINATION_EXISTS',

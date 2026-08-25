@@ -78,21 +78,42 @@ export class LlmVerifierProvider implements VerifierProvider {
         return this.opts.hasZdr();
     }
 
+    /**
+     * FIX-19-16-03: a real frontier exists only when a distinct API was
+     * wired. The verifier gates escalation on this, so the old silent
+     * fallback (mid model called twice, recorded as 'frontier') is gone.
+     */
+    hasFrontier(): boolean {
+        return this.opts.frontierApi !== undefined;
+    }
+
     async callMidTier(input: VerifierInput): Promise<RawVerdict> {
         return this.callTier(input, this.opts.midApi);
     }
 
     async callFrontier(input: VerifierInput): Promise<RawVerdict> {
-        const api = this.opts.frontierApi ?? this.opts.midApi;
-        return this.callTier(input, api);
+        // FIX-19-16-03: never fall back to the mid model here. The verifier
+        // does not escalate without hasFrontier(), so this branch is only
+        // reachable by a caller ignoring the gate -- fail closed, loudly.
+        if (!this.opts.frontierApi) {
+            console.warn('[LlmVerifierProvider] callFrontier without a wired frontier API');
+            return FAIL_CLOSED;
+        }
+        return this.callTier(input, this.opts.frontierApi);
     }
 
     private async callTier(input: VerifierInput, api: ClassifyApi): Promise<RawVerdict> {
         if (!api.classifyText) return FAIL_CLOSED;
+        const prompt = this.buildPrompt(input);
         try {
-            const raw = await api.classifyText(this.buildPrompt(input), undefined, VERIFIER_MAX_TOKENS);
+            const raw = await api.classifyText(prompt, undefined, VERIFIER_MAX_TOKENS);
             const parsed = parseVerdictJson(raw);
-            return parsed ?? FAIL_CLOSED;
+            if (!parsed) return FAIL_CLOSED;
+            // FIX-19-16-04: count the whole call, not just the parsed JSON.
+            // The prompt carries up to 4000 characters of note body plus 8
+            // URLs; billing only the answer under-reported spend by an order
+            // of magnitude (live counter: 0.0137 USD for a 149-cluster run).
+            return { ...parsed, tokensUsed: Math.ceil((prompt.length + raw.length) / 4) };
         } catch (error) {
             // Audit L-3 mitigation: redact provider error body, log message only.
             const msg = error instanceof Error ? error.message : String(error);

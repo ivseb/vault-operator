@@ -131,12 +131,14 @@ plus the file-header comment in `safeFs.ts`, not by an automated CI grep.
 
 **Why we use it.** `evaluate_expression` no longer spawns a child process --
 it runs in the Chromium iframe sandbox on every platform (the Node worker was
-removed at SBX-1). The remaining spawns are: the shadow-git for vault
-checkpoints calls `git`; the remote-MCP-server
-feature spawns a Cloudflare Tunnel (`cloudflared`) for inbound HTTPS
-exposure. The office pipeline spawns LibreOffice (`soffice`) for headless
-conversion. The optional document-conversion recipes spawn `pandoc`. Binary
-discovery uses `which`/`where`.
+removed at SBX-1). Vault checkpoints spawn nothing either: they run on
+isomorphic-git, a pure-JS implementation, so no `git` binary is involved. The
+remaining spawns are: the remote-MCP-server feature spawns a Cloudflare Tunnel
+(`cloudflared`) for inbound HTTPS exposure. The office pipeline spawns
+LibreOffice (`soffice`) for headless conversion. The optional
+document-conversion recipes spawn `pandoc`. Binary discovery uses
+`which`/`where`, and the MCP settings tab asks a candidate `node` for its
+version when it looks for a Node runtime.
 
 **Mitigation.** Every spawn goes through
 [src/core/security/spawnAllowlist.ts](src/core/security/spawnAllowlist.ts).
@@ -144,10 +146,9 @@ The allowlist is hard-coded; below are the six logical binaries and their
 platform variants:
 
 ```
-node, node.exe                                   -- legacy worker path (SBX-1: sandbox is iframe-only)
-npx, npx.cmd                                     -- stdio MCP servers (FEAT-04-13, MVP: node/npx only)
+node, node.exe                                   -- node runtime version probe (FEAT-04-13)
+npx, npx.cmd                                     -- stdio MCP servers, launched by the MCP SDK, never through this wrapper
 which, where, where.exe                          -- binary discovery
-git, git.exe                                     -- shadow git for vault checkpoints
 soffice, soffice.exe, soffice.bin,
 libreoffice, libreoffice.exe                     -- LibreOffice headless conversion
 cloudflared, cloudflared.exe                     -- remote MCP server tunnel
@@ -156,10 +157,27 @@ pandoc, pandoc.exe                               -- ExecuteRecipeTool document c
 
 `spawnAllowed(command, args, options)` rejects:
 
-- A `command` whose `path.basename` is not on the allowlist
+- A `command` whose `path.basename` is not an own entry of the allowlist
+  (own properties only, so inherited names like `constructor` are not entries)
 - A `command` containing shell metacharacters (regex
   `/[;&|`$<>(){}\\\n\r]/` -- covers `;`, `&`, `|`, backtick, `$`, `<`, `>`,
   `(`, `)`, `{`, `}`, `\`, CR, LF)
+- A `command` given as a relative path (`./node`, `bin/pandoc`), for every
+  entry. A binary is named either bare, resolved via `PATH`, or by absolute
+  path. Recipes run with `cwd` = vault root, so a relative command would
+  resolve inside the directory the agent can write to
+- A `command` given as any path when the entry is launched by name only
+  (`cloudflared`, `npx`) -- the rule `assertStdioCommandAllowed` applies to
+  stdio commands, now applied by the wrapper as well
+- Arguments the binary may not carry. Each entry declares an argv predicate,
+  written from the call sites that exist: `node` may only run a version probe;
+  `which`/`where` take exactly one bare program name; LibreOffice takes
+  `--version` or a `--headless` conversion and no URI argument, so
+  `macro:///Standard.Module.Main` cannot reach it; `cloudflared` takes
+  `tunnel --url` with a loopback port; `pandoc` may not carry the options that
+  make it run code (`--lua-filter`, `--filter`, `-F`, `--custom-writer`,
+  `--defaults`, a `.lua` argument) and its `--pdf-engine` must name a known
+  engine; `npx` is never spawned through the wrapper at all
 - An `options.shell` set to `true` or any truthy value; `options.shell` is
   unconditionally overwritten to `false` for both `spawn` and `spawnSync`
 
@@ -175,8 +193,9 @@ recipe's typed `parameters` schema -- types include `vault-file`,
 `vault-output`, `enum`, `safe-string` with regex `pattern`, `number` with
 `min`/`max`) before substitution. The recipe binary is always resolved via
 the spawn allowlist, so a custom recipe with a non-allowlisted binary
-(e.g. `rm`) cannot spawn. Recipe execution has a master toggle plus a
-per-recipe toggle in settings (default: disabled).
+(e.g. `rm`) cannot spawn, and the composed argv still has to satisfy that
+binary's predicate. Recipe execution has a master toggle plus a per-recipe
+toggle in settings (default: disabled).
 
 The MCP **client** (`McpClient`) connects via Streamable-HTTP, SSE, and --
 since FEAT-04-13 / ADR-168 -- local stdio servers. The stdio path is
@@ -198,9 +217,14 @@ no credentials) plus the SDK's own default env; secret-named `config.env` values
 are encrypted at rest via the OS keychain and decrypted only at spawn.
 
 **What would break this.** A new feature that takes a user-controlled binary
-name and passes it to `spawnAllowed`, or a new entry in `ALLOWED_BINARIES`
-that is not strictly necessary. The allowlist is small enough that every
-addition is a deliberate diff and visible in code review.
+name and passes it to `spawnAllowed`, a new entry in `ALLOWED_BINARIES` that
+is not strictly necessary, or an existing entry widened to `form: absolute` or
+to a predicate that accepts more argv than its call sites need. The allowlist
+is small enough that every such change is a deliberate diff and visible in
+code review, and the tests in
+[src/core/security/__tests__/spawnAllowlist.test.ts](src/core/security/__tests__/spawnAllowlist.test.ts)
+compare this section against the module, so the prose cannot drift away from
+the code unnoticed.
 
 ### Vault enumeration
 

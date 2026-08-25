@@ -31,6 +31,18 @@ const EXTERNALIZE_THRESHOLD = 2000;
 const PER_TOOL_THRESHOLDS: Record<string, number> = {
     web_fetch: 10_000,
     web_search: 10_000,
+    /**
+     * FIX-24-03-08 (loop economy, 2026-08-21): a skill script's return value
+     * is the skill's seam -- author-controlled, deterministic, and the agent
+     * needs ALL of it (paths, rotation plan, budget, settings, threads). The
+     * 1200-char preview never suffices, and RE_READ_CAP_CHARS then caps every
+     * re-read at 2000 chars. Measured on the failing daily-briefing run of
+     * 2026-08-21: a 20624-char step-1 result cost ELEVEN turns of paging
+     * (with back-jumps) before a single article was read, and the run died at
+     * the turn limit without writing a card. Above 25k a script has a design
+     * problem and externalization is the right answer.
+     */
+    run_skill_script: 25_000,
 };
 
 /**

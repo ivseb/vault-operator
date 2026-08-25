@@ -174,7 +174,10 @@ export class ModeService {
     // Mode switching (persists to settings)
     // ---------------------------------------------------------------------------
 
-    async switchMode(slug: string): Promise<ModeConfig | null> {
+    // FEAT-55-02 (ADR-170) hat das `await this.plugin.saveSettings()` aus dem
+    // Rumpf entfernt; das `async` blieb ohne Grund stehen. Synchron, weil hier
+    // nichts mehr auf IO wartet.
+    switchMode(slug: string): ModeConfig | null {
         const mode = this.getMode(slug);
         if (!mode) return null;
         // FEAT-55-02 (ADR-170): switch THIS view's mode. The global scalar

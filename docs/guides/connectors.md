@@ -9,7 +9,7 @@ Vault Operator can call tools that live in external MCP servers, expose your vau
 
 The tab has three in-page sections:
 
-- **Local connector**: turn this Obsidian instance into an MCP server for Claude Desktop and similar local clients.
+- **Local connector**: turn this Obsidian instance into an MCP server for Claude Desktop and any other client that speaks MCP over Streamable HTTP.
 - **Remote access**: pair the local server with a Cloudflare relay so ChatGPT, Perplexity, or another remote client can reach it.
 - **External tool servers**: list of MCP servers that Vault Operator calls out to.
 
@@ -152,6 +152,38 @@ Claude Desktop now sees the vault, memory, and history as available tool sources
 :::info How the local connection works
 Claude Desktop speaks MCP over stdio, but Vault Operator's server is a local HTTP server on `127.0.0.1:27182`. "Configure Claude Desktop" wires up a small proxy (`mcp-server-worker.js`) that Claude Desktop launches; the proxy forwards each request to the local HTTP server. Both use a token stored at `~/.obsidian-agent/mcp-token`, so only clients on your machine that can read that file can connect. See [MCP architecture](/concepts/mcp-architecture) for the full picture.
 :::
+
+### Setup for any other MCP client (generic Streamable HTTP)
+
+Any client that can add a custom MCP server over Streamable HTTP reaches the local connector directly, with no proxy and no relay. The server binds the loopback interface only, so nothing leaves the machine.
+
+1. Open **Settings > Vault Operator > Customize > Connectors > Local connector** and enable the local connector.
+2. In the client, add a custom MCP server. Transport: **Streamable HTTP**. Auth mode: none or "custom header"; Vault Operator does not speak OAuth on this path.
+3. URL: `http://127.0.0.1:27182`. Plain `http` is correct here, the request never leaves the machine.
+4. Authentication: one request header, `Authorization`, whose value is the word `Bearer`, a space, and the token.
+
+Clients ask for that header in three different shapes, so the panel hands out all three:
+
+| What the client asks for | Button | What lands in the clipboard |
+|--------------------------|--------|-----------------------------|
+| One full header line | **Copy header** | `Authorization: Bearer <token>` |
+| Separate name and value fields | **Copy header value** | `Bearer <token>` |
+| A bare token that the client wraps itself | **Copy token** | `<token>` |
+
+The `Bearer` prefix belongs to the **value**, not to the header name. Get that wrong and the request is refused before any MCP handshake happens:
+
+- Value carries the token alone: `401`, `Unauthorized: Authorization header must use the Bearer scheme`.
+- Value still carries `Authorization:`: the same `401`, because the scheme the server reads is then the field name.
+- Value is right but the token is stale, for example after **Rotate token**: `401`, `Unauthorized`, with nothing further. Copy the value again.
+
+The connector answers only while Obsidian is running, and only from the same machine.
+
+#### Clients that run with an isolated home directory
+
+Some clients start their tool processes in a sandbox with `HOME` pointed at a scratch directory. That breaks the stdio path, not the HTTP one:
+
+- The proxy `mcp-server-worker.js` reads its token from `~/.obsidian-agent/mcp-token`. Under a redirected `HOME` that file is not there, the proxy never authenticates, and the client shows a hang followed by a timeout rather than an auth error. If the client offers a "use the real home directory" switch for its MCP servers, turn it on. If it does not, use the HTTP setup above: the token travels in the header and no file is read.
+- A relative path in the client's config resolves against that scratch directory too. Paste the absolute paths the **Copy command** and **Copy arguments** buttons produce, unedited.
 
 ### Setup for ChatGPT (custom connector)
 

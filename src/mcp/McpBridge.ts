@@ -67,27 +67,45 @@ export class McpBridge {
             this.plugin.settings.mcpServerToken = crypto.randomUUID();
             await this.plugin.saveSettings();
         }
-        this.writeMcpTokenFile();
 
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- http only via dynamic require in Electron
         const http = require('http') as typeof import('http');
 
-        this.server = http.createServer((req: import('http').IncomingMessage, res: import('http').ServerResponse) => {
+        const server = http.createServer((req: import('http').IncomingMessage, res: import('http').ServerResponse) => {
             void this.handleRequest(req, res);
         });
+        this.server = server;
 
-        const server = this.server;
-        await new Promise<void>((resolve, reject) => {
-            server.listen(this.port, '127.0.0.1', () => {
-                this._running = true;
-                console.debug(`[McpBridge] MCP Server listening on http://127.0.0.1:${this.port}`);
-                resolve();
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const onError = (e: Error) => {
+                    console.warn(`[McpBridge] Failed to start HTTP server:`, e);
+                    reject(e);
+                };
+                server.once('error', onError);
+                server.listen(this.port, '127.0.0.1', () => {
+                    server.off('error', onError);
+                    this._running = true;
+                    console.debug(`[McpBridge] MCP Server listening on http://127.0.0.1:${this.port}`);
+                    resolve();
+                });
             });
-            server.on('error', (e: Error) => {
-                console.warn(`[McpBridge] Failed to start HTTP server:`, e);
-                reject(e);
-            });
-        });
+        } catch (e) {
+            // FIX-14-04-05: a server that never bound must not stay parked in
+            // this.server -- the early return at the top of start() would then
+            // report a running bridge forever and no retry could ever bind.
+            this._running = false;
+            this.server = null;
+            try { server.close(); } catch { /* never bound */ }
+            throw e;
+        }
+
+        // FIX-14-04-05: the token file is user-wide, one file for every vault.
+        // Writing it before listen() meant a second vault that lost the port to
+        // EADDRINUSE still overwrote the token of the vault that owns the port,
+        // and every stdio client got a permanent 401 with nothing to see. Only
+        // a bound port may claim the file.
+        this.writeMcpTokenFile();
     }
 
     /**
@@ -216,6 +234,11 @@ export class McpBridge {
         // does not stop it) but carries the attacker's Host header; reject any
         // Host that is not a loopback host or the active tunnel host. Fail closed.
         if (!isAllowedMcpHost(req.headers['host'] ?? '', this._tunnelUrl)) {
+            // FIX-14-04-04: a rejected setup used to leave no trace at all, so
+            // "it does not connect" was indistinguishable from "nothing ever
+            // arrived". The warning lands in the ConsoleRingBuffer and is
+            // readable via read_agent_logs.
+            console.warn(`[McpBridge] Rejected request: host not allowed (host=${JSON.stringify(String(req.headers['host'] ?? '').slice(0, 120))})`);
             res.writeHead(403, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Forbidden: host not allowed' } }));
             return;
@@ -231,16 +254,21 @@ export class McpBridge {
         // downgrade/migration, manual edit) we must reject every request, not
         // skip the check and accept everything on 127.0.0.1:27182.
         if (!expectedToken) {
+            console.warn('[McpBridge] Rejected request: server token not configured');
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Unauthorized: server token not configured' } }));
             return;
         }
         {
-            const authHeader = req.headers['authorization'] ?? '';
-            const presentedRaw = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-            if (!timingSafeStringEqual(presentedRaw, expectedToken)) {
+            // FIX-14-04-02 / -03: the scheme is matched case-insensitively per
+            // RFC 7235 section 2.1, the value stays byte-exact and timing-safe,
+            // and the three ways to fail are told apart (see classifyMcpAuth).
+            const outcome = classifyMcpAuth(req.headers['authorization'] ?? '', expectedToken);
+            if (!outcome.ok) {
+                // FIX-14-04-04: reason only, never a token or a fragment of one.
+                console.warn(`[McpBridge] Rejected request: authentication failed (${outcome.reason})`);
                 res.writeHead(401, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Unauthorized' } }));
+                res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: outcome.message } }));
                 return;
             }
         }
@@ -258,6 +286,8 @@ export class McpBridge {
             req.on('data', (chunk: Buffer) => {
                 data += chunk.toString();
                 if (data.length > MAX_BODY) {
+                    // FIX-14-04-04: size rejections were as silent as auth ones.
+                    console.warn(`[McpBridge] Rejected request: payload exceeds the ${MAX_BODY} byte limit`);
                     res.writeHead(413, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Payload too large' } }));
                     req.destroy();
@@ -404,12 +434,18 @@ export class McpBridge {
                 description += folderList + defaultFolder + rulesHint;
             }
             if (t.name === 'execute_vault_op') {
+                // IMP-14-00-01: this used to ASSIGN, and the assignment was the
+                // only description a client ever saw -- the definition's hint
+                // about describe_operation never reached the wire. The bridge
+                // adds only what the definition cannot know, the operation
+                // names the registry holds at runtime, and appends it like the
+                // write_vault context above.
                 const available = this.plugin.toolRegistry.getAllTools()
                     .map(tool => tool.name)
                     .filter(name => !AGENT_INTERNAL_TOOLS.has(name))
                     .sort()
                     .join(', ');
-                description = `Execute any vault operation by name. Available: ${available}.`;
+                description += `\n\nAvailable operations: ${available}.`;
             }
             if (t.name === 'search_vault') {
                 description += `\n\nVault has ${keepVisible(this.plugin, vault.getMarkdownFiles(), (f) => f.path).length} notes. Semantic index: ${this.plugin.semanticIndex?.isIndexed ? 'built' : 'not built'}.`;
@@ -562,6 +598,50 @@ export function timingSafeStringEqual(presented: string, expected: string): bool
     const b = Buffer.from(expected, 'utf8');
     if (a.length !== b.length) return false;
     return timingSafeEqual(a, b);
+}
+
+/**
+ * FIX-14-04-03: why an Authorization header was refused.
+ *
+ * `missing-header` and `wrong-scheme` only restate what the caller itself sent,
+ * so naming them helps whoever is wiring a connector and tells an attacker
+ * nothing he did not already know. `bad-token` keeps the naked "Unauthorized":
+ * a more precise message would confirm that the header was formally correct,
+ * which is exactly the bit worth guessing at. That line is deliberate.
+ *
+ * These are wire texts, read by MCP clients and by whoever debugs a connector.
+ * They carry no i18n.
+ */
+export type McpAuthOutcome =
+    | { ok: true }
+    | { ok: false; reason: 'missing-header' | 'wrong-scheme' | 'bad-token'; message: string };
+
+/**
+ * FIX-14-04-02: RFC 7235 section 2.1 makes the auth-scheme token
+ * case-insensitive, so a client sending "bearer" is compliant and used to get a
+ * 401 for it. Only the scheme comparison is relaxed; the credential itself
+ * stays a byte-exact, timing-safe comparison (AUDIT-013 H-5). Whitespace around
+ * the credential is stripped, since no header can carry it into the value.
+ *
+ * Exported for testability.
+ */
+export function classifyMcpAuth(authHeader: string, expectedToken: string): McpAuthOutcome {
+    const header = (authHeader ?? '').trim();
+    if (header.length === 0) {
+        return { ok: false, reason: 'missing-header', message: 'Unauthorized: no Authorization header' };
+    }
+
+    const separator = header.search(/\s/);
+    const scheme = separator === -1 ? header : header.slice(0, separator);
+    if (scheme.toLowerCase() !== 'bearer') {
+        return { ok: false, reason: 'wrong-scheme', message: 'Unauthorized: Authorization header must use the Bearer scheme' };
+    }
+
+    const presented = separator === -1 ? '' : header.slice(separator + 1).trim();
+    if (!timingSafeStringEqual(presented, expectedToken)) {
+        return { ok: false, reason: 'bad-token', message: 'Unauthorized' };
+    }
+    return { ok: true };
 }
 
 /**

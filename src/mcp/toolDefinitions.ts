@@ -10,6 +10,10 @@
  */
 
 import type { McpToolDefinition, McpToolEffect } from './types';
+import {
+    resolveExternalSourceInterface,
+    type SourceInterface,
+} from '../core/memory/SourceInterface';
 
 // Tool definitions exposed to Claude
 // Agent-internal tools that don't make sense for external MCP clients.
@@ -29,6 +33,75 @@ export const AGENT_INTERNAL_TOOLS = new Set([
     // FIX-23-09-02: identity / soul mutation
     'update_soul',
 ]);
+
+// ---------------------------------------------------------------------------
+// Source isolation (FIX-23-09-08)
+// ---------------------------------------------------------------------------
+
+/**
+ * Operations whose result is memory or history content and therefore carries
+ * the strictSourceIsolation promise: without an explicit source_interface the
+ * read is not scoped to one surface.
+ */
+export const SOURCE_ISOLATED_OPERATIONS: ReadonlySet<string> = new Set([
+    'recall_memory',
+    'search_history',
+]);
+
+export type SourceIsolationVerdict =
+    | { blocked: false; sourceFilter: SourceInterface | undefined }
+    | { blocked: true; message: string };
+
+/**
+ * FIX-23-09-08: the single source-isolation check for the whole MCP surface.
+ *
+ * The guard used to live inside the recall_memory and search_history wrappers.
+ * execute_vault_op reaches the SAME core tools without passing a wrapper, so the
+ * identical request was refused on one path and answered with memory content on
+ * the other -- the promise was a property of the chosen path, not of the system.
+ * Every entry point now asks this function before it dispatches.
+ *
+ * `scopesBySource` says whether the CALLER actually applies the resolved filter.
+ * The wrappers do. The dispatcher does not: the core RecallMemoryTool and
+ * SearchHistoryTool know no source_interface at all, so a value smuggled through
+ * `params` would look like scoping while the read stayed vault-wide. There the
+ * honest answer is a refusal that names the path which can scope.
+ */
+export function enforceSourceIsolation(input: {
+    operation: string;
+    args: Record<string, unknown>;
+    strictSourceIsolation: boolean;
+    scopesBySource: boolean;
+}): SourceIsolationVerdict {
+    // AUDIT 2026-07-14 (Codex) H-1: a client-supplied 'obsilo' is coerced to
+    // 'unknown' so an external caller cannot read the plugin-internal partition.
+    const sourceFilter: SourceInterface | undefined = input.args.source_interface !== undefined
+        ? resolveExternalSourceInterface(input.args.source_interface)
+        : undefined;
+
+    if (!input.strictSourceIsolation || !SOURCE_ISOLATED_OPERATIONS.has(input.operation)) {
+        return { blocked: false, sourceFilter };
+    }
+
+    if (!input.scopesBySource) {
+        return {
+            blocked: true,
+            message: 'strictSourceIsolation is enabled in Settings -- execute_vault_op cannot scope '
+                + `"${input.operation}" by source. Call the dedicated ${input.operation} tool with an `
+                + 'explicit source_interface argument instead.',
+        };
+    }
+
+    if (!sourceFilter) {
+        return {
+            blocked: true,
+            message: `strictSourceIsolation is enabled in Settings -- ${input.operation} requires `
+                + 'an explicit source_interface argument to scope the read.',
+        };
+    }
+
+    return { blocked: false, sourceFilter };
+}
 
 export const TOOLS: McpToolDefinition[] = [
     {
@@ -60,7 +133,10 @@ export const TOOLS: McpToolDefinition[] = [
         inputSchema: {
             type: 'object',
             properties: {
-                paths: { type: 'array', items: { type: 'string' }, description: 'File paths relative to vault root' },
+                // FIX-14-00-02: the handler reads at most 20 paths per call.
+                // maxItems keeps a conforming client from sending more; the
+                // handler still names the dropped count for clients that do.
+                paths: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'File paths relative to vault root (max 20 per call)' },
             },
             required: ['paths'],
         },
@@ -93,12 +169,27 @@ export const TOOLS: McpToolDefinition[] = [
         name: 'execute_vault_op',
         // FIX-44-47: per-operation governance via ToolExecutionPipeline + headless policy (FIX-44-46)
         effect: 'dispatch',
-        description: 'Execute any vault operation by name. Available operations are listed dynamically at runtime.',
+        // IMP-14-00-01: the description used to end at the list of names, which
+        // left every parameter name to be guessed. It now points at the lookup.
+        // The bridge appends the runtime operation list to this text instead of
+        // replacing it, so both halves reach the client (see getToolsWithContext).
+        description:
+            'Execute any vault operation by name. The available operations are appended to this '
+            + 'description at runtime. '
+            + 'Operation parameters are NOT part of this schema: call operation="describe_operation" with '
+            + 'params.operation set to an operation name to get its parameter schema from the registry. '
+            + 'A failed call answers with the same schema.',
         inputSchema: {
             type: 'object',
             properties: {
-                operation: { type: 'string', description: 'Operation name' },
-                params: { type: 'object', description: 'Operation-specific parameters' },
+                operation: {
+                    type: 'string',
+                    description: 'Operation name, or "describe_operation" to look up the parameters of one.',
+                },
+                params: {
+                    type: 'object',
+                    description: 'Operation-specific parameters, as returned by describe_operation.',
+                },
             },
             required: ['operation'],
         },

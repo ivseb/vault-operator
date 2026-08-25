@@ -8,6 +8,9 @@ import type { McpToolResult } from '../types';
 import { validateMcpVaultPath } from './mcpPathValidation';
 import { wrapVaultContentForMcp } from '../McpBridge';
 
+/** Upper bound on files read per call, mirrored as maxItems in the schema. */
+const MAX_PATHS_PER_CALL = 20;
+
 export async function handleReadNotes(
     plugin: ObsidianAgentPlugin,
     args: Record<string, unknown>,
@@ -18,8 +21,9 @@ export async function handleReadNotes(
     }
 
     const results: string[] = [];
+    const selected = paths.slice(0, MAX_PATHS_PER_CALL);
 
-    for (const path of paths.slice(0, 20)) { // max 20 files per call
+    for (const path of selected) {
         // AUDIT-006 H-2: Governance check (path traversal, IgnoreService)
         const validation = validateMcpVaultPath(plugin, path, false);
         if (!validation.allowed) {
@@ -74,6 +78,20 @@ export async function handleReadNotes(
         } catch (e) {
             results.push(`--- ${path} ---\nError: ${e instanceof Error ? e.message : String(e)}`);
         }
+    }
+
+    // FIX-14-00-02: the cap used to drop the surplus without a word, so a
+    // caller reading 25 paths took the five missing blocks for empty notes.
+    // Naming both numbers makes the omission visible in the answer itself,
+    // which the schema limit alone cannot guarantee against a client that
+    // ignores it.
+    const dropped = paths.length - selected.length;
+    if (dropped > 0) {
+        results.push(
+            `Note: read ${selected.length} of ${paths.length} requested paths. ` +
+            `read_notes reads at most ${MAX_PATHS_PER_CALL} paths per call. ` +
+            `Request the remaining ${dropped} in a follow-up call.`,
+        );
     }
 
     return { content: [{ type: 'text', text: results.join('\n\n') }] };

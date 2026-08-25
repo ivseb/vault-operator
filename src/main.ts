@@ -13,6 +13,7 @@ import {
 } from './core/security/providerCredentialCrypto';
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
 import { PriceCatalogService } from './core/pricing/PriceCatalogService';
+import { computeCost } from './core/pricing/ModelPricing';
 import { InflightStore } from './core/agent/InflightStore';
 import { LearnedCapsStore, registerLearnedCapsStore } from './core/agent/LearnedCapsStore';
 import { BackgroundTaskRunner } from './core/background/BackgroundTaskRunner';
@@ -26,6 +27,7 @@ import { requestRateLimiter } from './api/RequestRateLimiter';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { sanitizeDirectoryEntry } from './core/tools/BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP } from './core/skills/descriptionCaps';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
 import { getPerformanceMarks } from './core/observability/PerformanceMarks';
 import { IgnoreService, matchesObsidianExcluded } from './core/governance/IgnoreService';
@@ -36,6 +38,7 @@ import { getPluginSkillsDir, getSelfAuthoredSkillsDir, getAgentDataDir, getInter
 import { SkillProvenanceStore } from './core/skills/SkillProvenanceStore';
 import { SkillRegistryClient } from './core/skills/SkillRegistryClient';
 import { isSafePathSegment } from './core/utils/safePathName';
+import { resolveRunIntent } from './core/utils/runDeeplinkIntent';
 import { confirmModal } from './ui/modals/PromptModal';
 import { GlobalSettingsService, resolveVaultForcedWorkflow, resolveModeMcpOverrides } from './core/storage/GlobalSettingsService';
 import { RefreshHub } from './core/events/RefreshHub';
@@ -72,7 +75,8 @@ import { FrontmatterIndexer } from './core/ingest/FrontmatterIndexer';
 import { sanitizeVaultContentForLLM } from './core/memory/sanitizeVaultContentForLLM';
 import { AutoTriggerObserver } from './core/ingest/AutoTriggerObserver';
 import { TopHubBlockGenerator, type TopHubBlockState } from './core/memory/TopHubBlockGenerator';
-import { Stufe3PeriodicJob, ClusterMetadataStatePersistence } from './core/health/Stufe3PeriodicJob';
+import { Stufe3PeriodicJob, ClusterMetadataStatePersistence, type Stufe3RunResult } from './core/health/Stufe3PeriodicJob';
+import { renderFreshnessReport, FRESHNESS_REPORT_PATH } from './core/health/freshnessReport';
 import { Stufe2ActivityTrigger } from './core/health/Stufe2ActivityTrigger';
 import { FreshnessOrchestrator } from './core/health/FreshnessOrchestrator';
 import { FreshnessFrontmatterPatcher } from './core/health/FreshnessFrontmatterPatcher';
@@ -127,6 +131,7 @@ import { RecipeMatchingService } from './core/mastery/RecipeMatchingService';
 import { EpisodicExtractor } from './core/mastery/EpisodicExtractor';
 import { RecipePromotionService } from './core/mastery/RecipePromotionService';
 import { ConsoleRingBuffer } from './core/observability/ConsoleRingBuffer';
+import { setDebugLogging } from './core/observability/log';
 import { SelfAuthoredSkillLoader } from './core/skills/SelfAuthoredSkillLoader';
 import { migrateLegacySkillsIfNeeded } from './core/skills/SkillMigration';
 import { BuiltinSkillMaterializer } from './core/skills/BuiltinSkillMaterializer';
@@ -801,6 +806,12 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 1. Load settings (merges global + vault-local)
         await this.loadSettings();
+
+        // The level layer is off until the user opts in, so hot paths (stream
+        // events, indexing, tool steps) stay out of the console and out of the
+        // ring buffer. Set right after the settings are known, before the rest
+        // of the boot chain starts logging.
+        setDebugLogging(this.settings.debugMode);
 
         // ADR-162-Guard-Nachlauf: falls der korrigierende Persist oben
         // fehlschlug, traegt loadSettings noch das fremde 'complete'.
@@ -1796,6 +1807,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 indexPdfs: this.settings.semanticIndexPdfs,
                 chunkSize: this.settings.semanticChunkSize ?? 2000,
                 enableContextualRetrieval: this.settings.enableContextualRetrieval,
+                // Issue #62: opt-in Ollama keep_alive for embeddings.
+                embeddingKeepAlive: this.settings.embeddingKeepAlive,
                 // AUDIT-013 follow-up: skip ignored notes at index build.
                 isIgnored: (path: string) => this.ignoreService.isIgnored(path),
                 // FIX-06-01-01: required so SemanticIndex can parse PDFs/DOCX via
@@ -2031,6 +2044,37 @@ export default class ObsidianAgentPlugin extends Plugin {
                                 return null;
                             }
                         },
+                        // FIX-19-16-09: die Query-Anreicherung war vorgesehen
+                        // und nie verdrahtet -- die Suchanfrage bestand nur aus
+                        // Titel plus Clustername, und 84% der Live-Laeufe
+                        // endeten mit no_external_source. Die verlinkten
+                        // Nachbarn der Notiz (edges, beide Richtungen) sind
+                        // das billigste echte Kontextsignal: ihre Basenames
+                        // gehen bis zum 400-Zeichen-Cap in die Query.
+                        getTopEntities: (path) => {
+                            try {
+                                const r = db.exec(
+                                    `SELECT DISTINCT other FROM (
+                                        SELECT target_path AS other FROM edges WHERE source_path = ?
+                                        UNION ALL
+                                        SELECT source_path AS other FROM edges WHERE target_path = ?
+                                     ) LIMIT 6`,
+                                    [path, path],
+                                );
+                                const rows = r[0]?.values ?? [];
+                                return rows
+                                    // TEXT-Spalte, aber sql.js typisiert jede Zelle als
+                                    // SqlValue. Nur ein String ist ein Pfad; alles andere
+                                    // faellt gleich hier weg statt als "[object ...]"
+                                    // weiterzureisen.
+                                    .map((row) => (typeof row[0] === 'string' ? row[0] : ''))
+                                    .filter(Boolean)
+                                    .map((p) => (p.split('/').pop() ?? p).replace(/\.md$/i, ''));
+                            } catch (e) {
+                                console.debug('[FreshnessOrchestrator] getTopEntities failed', path, e);
+                                return [];
+                            }
+                        },
                         // FIX-19-99-03: wire FreshnessFrontmatterPatcher so the
                         // freshness.writeFrontmatter setting actually mirrors
                         // verdicts into note frontmatter (single allowlisted
@@ -2074,6 +2118,17 @@ export default class ObsidianAgentPlugin extends Plugin {
                         // FEAT-19-03-01: editierbares Budget, live gelesen.
                         weeklyBudgetGetter: () => this.settings.freshness?.weeklyBudgetUsd
                             ?? DEFAULT_FRESHNESS_SETTINGS.weeklyBudgetUsd,
+                        // FIX-19-16-04: Kosten aus dem Preiskatalog des Modells,
+                        // das der Verifier wirklich benutzt (der Haupt-Loop-
+                        // Handler, siehe LlmVerifierProvider-Verdrahtung), mit
+                        // input-lastiger 85/15-Aufteilung. Die alte Haiku-
+                        // Konstante hat einen 149-Cluster-Lauf als 0,0137 USD
+                        // verbucht.
+                        estimateUsd: (tokens: number) => computeCost(
+                            this.apiHandler?.getModel?.()?.id,
+                            Math.round(tokens * 0.85),
+                            Math.round(tokens * 0.15),
+                        ).totalUsd,
                     },
                     undefined,
                     budgetExceededSink,
@@ -2390,10 +2445,12 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
 
         // Daily snapshots (FEATURE-0314, ADR-079): copy live DBs into
-        // .bak/<name>/<YYYY-MM-DD>.db so a 7-day rolling Undo exists on top
-        // of the per-write .bak rotation. Only fires for filesystem-backed
-        // storage modes; obsidian-sync DBs are excluded to avoid duplicating
-        // bytes through the same sync provider.
+        // .bak/<name>/<YYYY-MM-DD>.db so a rolling Undo exists on top of the
+        // per-write .bak rotation. The window is bounded by age AND by a byte
+        // budget per target -- these are full copies, so on a grown vault the
+        // age limit alone let them reach several GB. Only fires for
+        // filesystem-backed storage modes; obsidian-sync DBs are excluded to
+        // avoid duplicating bytes through the same sync provider.
         try {
             this.snapshotJob = new SnapshotJob();
             const targets: SnapshotTarget[] = [];
@@ -2421,8 +2478,14 @@ export default class ObsidianAgentPlugin extends Plugin {
                         if (created > 0) console.debug(`[SnapshotJob] Created ${created} snapshot(s)`);
                     })
                     .then(() => this.snapshotJob?.cleanupOldSnapshots(targets))
-                    .then((removed) => {
-                        if (removed && removed > 0) console.debug(`[SnapshotJob] Removed ${removed} expired snapshot(s)`);
+                    .then((result) => {
+                        // Bytes included on purpose: the budget pass can free
+                        // gigabytes on a grown vault, and that should be
+                        // visible rather than silent.
+                        if (result && result.removed > 0) {
+                            const freedMb = Math.round(result.freedBytes / (1024 * 1024));
+                            console.debug(`[SnapshotJob] Removed ${result.removed} snapshot(s), freed ${freedMb} MB`);
+                        }
                     })
                     .catch((e) => console.warn('[SnapshotJob] Daily snapshot failed (non-fatal):', e));
             }
@@ -3827,7 +3890,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             // AUDIT 2026-07-14 (Codex re-review, M-1): sanitise untrusted user
             // skill metadata; getSkillDirectorySection defangs the assembled
             // block as the security backstop.
-            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
+            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, SKILL_DESCRIPTION_PROMPT_CAP)}`);
         const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
         if (blocks.length === 0) return undefined;
         return blocks.join('\n');
@@ -4419,7 +4482,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         return ranked.map((r) => byName.get(r.cluster)).filter((c): c is ClusterMetadataRecord => !!c);
     }
 
-    private async runStufe3Freshness(): Promise<'ran' | 'budget-noop' | 'busy' | 'external-off' | 'not-ready'> {
+    private async runStufe3Freshness(): Promise<{ ran: Stufe3RunResult } | 'budget-noop' | 'busy' | 'external-off' | 'not-ready'> {
         if (!this.stufe3PeriodicJob) return 'not-ready';
         if (this.freshnessRunInFlight) return 'busy';
         // Privacy-Gate (Review-Finding): der gesamte Stufe-3-Pass ist eine
@@ -4443,9 +4506,34 @@ export default class ObsidianAgentPlugin extends Plugin {
                 cfg.lastRunIso = new Date().toISOString();
                 void this.saveSettings();
             }
-            return 'ran';
+            // FIX-19-16-08: die sichtbare Spur des Laufs. Auch ein Lauf, in
+            // dem der Pre-Filter alles mit "no" beantwortet, schreibt seine
+            // Zahlen -- vorher war er von "nie gelaufen" nicht unterscheidbar
+            // (Live-Vault 19.08.: 149 Cluster, 0 Spuren).
+            if (this.settings.freshness?.writeReport !== false) {
+                await this.writeFreshnessReport(renderFreshnessReport(result, new Date().toISOString()));
+            }
+            return { ran: result };
         } finally {
             this.freshnessRunInFlight = false;
+        }
+    }
+
+    /** FIX-19-16-08: eine Datei, ueberschrieben pro Lauf, non-fatal. */
+    private async writeFreshnessReport(md: string): Promise<void> {
+        try {
+            const dir = FRESHNESS_REPORT_PATH.split('/').slice(0, -1).join('/');
+            if (dir && !this.app.vault.getAbstractFileByPath(dir)) {
+                await this.app.vault.createFolder(dir).catch(() => { /* exists */ });
+            }
+            const existing = this.app.vault.getAbstractFileByPath(FRESHNESS_REPORT_PATH);
+            if (existing instanceof TFile) {
+                await this.app.vault.modify(existing, md);
+            } else {
+                await this.app.vault.create(FRESHNESS_REPORT_PATH, md);
+            }
+        } catch (e) {
+            console.warn('[Freshness] report write failed (non-fatal):', e);
         }
     }
 
@@ -4477,7 +4565,17 @@ export default class ObsidianAgentPlugin extends Plugin {
             const outcome = await this.runStufe3Freshness();
             if (outcome === 'busy') { new Notice(t('notice.freshness.alreadyRunning'), 5000); return; }
             if (outcome === 'budget-noop') { new Notice(t('notice.freshness.budgetExhausted'), 8000); return; }
-            if (outcome === 'ran') { new Notice(t('notice.freshness.runDone'), 6000); return; }
+            if (typeof outcome === 'object' && 'ran' in outcome) {
+                // FIX-19-16-07: die Notice nennt die Zahlen des Laufs, nicht
+                // nur "finished" -- ein 149x-"no"-Lauf ist sonst unsichtbar.
+                const r = outcome.ran;
+                new Notice(t('notice.freshness.runSummary', {
+                    clusters: String(r.clustersProcessed),
+                    webPasses: String(r.decisions.yes + r.decisions.unsure),
+                    verdicts: String(r.verdictCount),
+                }), 8000);
+                return;
+            }
             // external-off/not-ready sind oben bereits abgefangen.
         } catch (e) {
             console.warn('[Freshness] on-demand run failed:', e);
@@ -5139,14 +5237,27 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.skillRunPending = true;
         let started = false;
         try {
+            // IMP-43-01-01: the modal says what actually starts. The intent
+            // comes from a hard whitelist (runDeeplinkIntent), never free
+            // text, so FEAT-43-01's no-prompt-injection rule is untouched and
+            // a forged value falls back to the most cautious generic wording.
+            const intent = resolveRunIntent(params);
+            const keys = resolveRunIntent.keysFor(intent);
             const ok = await confirmModal(this.app, {
-                title: t('protocol.runSkillConfirmTitle'),
-                message: t('protocol.runSkillConfirmMessage', { skill }),
-                confirmLabel: t('protocol.runSkillConfirmButton'),
+                title: t(keys.title),
+                message: t(keys.message, { skill }),
+                confirmLabel: t(keys.button),
                 cancelLabel: t('settings.vault.cancel'),
             });
             if (!ok) return;
-            await this.sendMessageToAgent(`/${skill}`);
+            // Der Slash-Command traegt den Hinweis als Rest hinter EINEM
+            // Leerzeichen (AgentSidebarView haengt ihn an den Skill-Body).
+            // Ohne ihn stand im Chat nur "/daily-briefing", ununterscheidbar
+            // von einem vollen Recherche-Lauf -- der Nutzer brach genau dort
+            // ab. Der Text kommt aus i18n, der Link waehlt nur den Intent.
+            const hintKey = resolveRunIntent.hintKeyFor(intent);
+            const hint = hintKey ? ` ${t(hintKey)}` : '';
+            await this.sendMessageToAgent(`/${skill}${hint}`);
             started = true;
         } finally {
             if (started) {

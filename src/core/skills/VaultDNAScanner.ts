@@ -21,6 +21,7 @@ import {
 } from '../utils/agentFolder';
 import type { ObsidianAgentSettings } from '../../types/settings';
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
+import { PLUGIN_DESCRIPTION_PROMPT_CAP } from './descriptionCaps';
 import type { RecurringHandle } from '../../util/scheduleRecurring';
 
 /** FEATURE-0507: subset of the plugin used to resolve the configurable agent folder.
@@ -1011,10 +1012,12 @@ export class VaultDNAScanner {
         // read back and framed like any other skill, so it is a prompt sink --
         // the earlier "writes a file, not a prompt" reasoning only held while
         // the <imported-skill> envelope was assumed effective, which H-1 showed
-        // it was not. Same caps as the SkillRegistry directory line.
+        // it was not. IMP-29-13-01: same cap as the SkillRegistry directory line,
+        // now by sharing PLUGIN_DESCRIPTION_PROMPT_CAP rather than by two copies
+        // of the same number agreeing.
         lines.push(`# ${sanitizeDirectoryEntry(skill.name, 80)}`);
         lines.push('');
-        lines.push(`**Description:** ${sanitizeDirectoryEntry(skill.description, 300)}`);
+        lines.push(`**Description:** ${sanitizeDirectoryEntry(skill.description, PLUGIN_DESCRIPTION_PROMPT_CAP)}`);
         lines.push(`**Status:** ${skill.enabled ? 'Enabled' : 'Disabled'}`);
         lines.push(`**Plugin ID:** ${skill.id}`);
 

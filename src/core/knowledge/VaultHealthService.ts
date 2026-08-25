@@ -14,6 +14,8 @@ import { TFile } from 'obsidian';
 import type { App } from 'obsidian';
 import type { KnowledgeDB, SqlJsDatabase } from './KnowledgeDB';
 import { cosineSimilarity } from './ImplicitConnectionService';
+import { clusterFreshnessScore } from '../health/clusterFreshnessScore';
+import { deriveClusterDomainStats } from './ClusterSourceStatsStore';
 import { OKF_DEFAULTS } from '../../types/settings';
 
 // ---------------------------------------------------------------------------
@@ -526,11 +528,26 @@ export class VaultHealthService {
         // Erzeugung und der Lauf endet ohne Ergebnis (fail-closed).
         this.snapshotTable(db, 'hc_edges',
             ['SELECT source_path, target_path, link_type, property_name, confidence FROM edges']);
+        // FIX-19-01-21: der Layer-Filter sitzt HIER, nicht bei den Konsumenten.
+        // Der ADR-167-Umbau hat die Rohlesungen in diesen Snapshot gezogen und
+        // die Tabelle dabei auf hc_vectors umbenannt -- womit die ADR-137-
+        // Lint-Regel (sie matcht nur `FROM vectors`) alle vier Konsumenten aus
+        // den Augen verlor. Zwei filterten danach nicht mehr auf domain, und
+        // reportMtimeDegeneration zaehlte Tracing-Zeilen als Notizen mit.
+        // Statt den Filter in jedem Konsumenten zu wiederholen, traegt der
+        // Snapshot jetzt physisch nur note-Zeilen: das ist die Build-Zeit-
+        // Garantie aus ADR-136 Option 1 ("kein Filter im Code noetig, kein
+        // Drift-Pfad moeglich"), die dort nur am Re-Index-Preis gescheitert
+        // ist. Den gibt es hier nicht, der Snapshot wird pro Lauf neu gebaut.
+        /* eslint-disable no-restricted-syntax -- reason: ADR-137-Ausnahme. Einzige Direktlesung von vectors auf der Check-Seite; sie stellt die note-only-Eigenschaft von hc_vectors ueberhaupt erst her. */
         this.snapshotTable(db, 'hc_vectors',
             [
-                'SELECT path, chunk_index, domain, mtime FROM vectors',
+                "SELECT path, chunk_index, domain, mtime FROM vectors WHERE domain = 'note'",
+                // Schema-Fallback fuer DB-Staende vor der domain-Spalte: dort
+                // gibt es nichts zu filtern, die Spalte wird synthetisiert.
                 "SELECT path, chunk_index, 'note' AS domain, mtime FROM vectors",
             ]);
+        /* eslint-enable no-restricted-syntax -- Ende der ADR-137-Ausnahme */
         this.snapshotTable(db, 'hc_implicit_edges',
             ['SELECT source_path, target_path, similarity FROM implicit_edges']);
         this.snapshotTable(db, 'hc_tags',
@@ -723,6 +740,12 @@ export class VaultHealthService {
         lines.push('');
         lines.push('Use EXISTING entities. In batch: fix autonomously. In interactive: ask first. All reversible via Undo.');
         lines.push('BA-25-Findings (cluster_freshness, source_concentration): nutze Stufe-2-Web-Search via web_search-Tool fuer Update-Recherche oder Anti-Echo-Suche.');
+        // FIX-19-16-06: der eingebaute Check misst Struktur und Dateialter.
+        // Die inhaltliche Ebene (stimmt eine Notiz noch, was widerspricht ihr,
+        // Echokammer-Messung ueber Quellen) ist der Auftrag der
+        // daily-briefing-Skill; der Agent soll dorthin verweisen statt sie
+        // aus dem Check heraus zu improvisieren.
+        lines.push('Content-level freshness (does a note still hold, contradictions, echo-chamber measurement) is the daily-briefing skill\'s job: it reads dated sources daily and records per-note verdicts. Point the user there; this check covers structure and file age only.');
 
         return lines.join('\n');
     }
@@ -752,7 +775,6 @@ export class VaultHealthService {
         // note-Layer. Ohne den domain-Filter wuerden session-/episode-/fact-Zeilen
         // (URI-Pfade wie session:..., episode:...) als Pseudo-Orphans gemeldet,
         // weil sie nie Ziel einer edges-Zeile sind.
-        /* eslint-disable no-restricted-syntax -- reason: ADR-137 exception, layer guard via domain filter, edges-join needs raw SQL */
         const result = db.exec(
             `SELECT DISTINCT v.path FROM hc_vectors v
              WHERE v.chunk_index = 0
@@ -764,7 +786,6 @@ export class VaultHealthService {
                ${userExcludeClauses}`,
             userExcludeParams,
         );
-        /* eslint-enable no-restricted-syntax -- end of legacy ADR-136 vectors direct-access block */
         if (result.length === 0 || result[0].values.length === 0) return;
 
         const paths = result[0].values.map(row => row[0] as string);
@@ -909,7 +930,6 @@ export class VaultHealthService {
         // zählen nur Zeilen mit domain='note'. Ohne diesen Filter würden
         // Tracing-Einträge fälschlich als "im Vault vorhanden" gewertet
         // und broken_link-Befunde maskieren.
-        /* eslint-disable no-restricted-syntax -- reason: ADR-137 exception, layer guard via domain filter, edges-join needs raw SQL */
         const result = db.exec(
             `SELECT DISTINCT source_path, target_path FROM hc_edges
              WHERE target_path LIKE '%.md'
@@ -919,7 +939,6 @@ export class VaultHealthService {
              ORDER BY source_path, target_path
              LIMIT 200`,
         );
-        /* eslint-enable no-restricted-syntax -- end of legacy ADR-136 vectors direct-access block */
         if (result.length === 0 || result[0].values.length === 0) return;
 
         const pairs = result[0].values.map(row => ({
@@ -2443,6 +2462,15 @@ export class VaultHealthService {
      */
     private checkClusterFreshness(db: SqlJsDatabase): void {
         try {
+            // FIX-19-16-06: erst pruefen, ob mtime ueberhaupt ein Signal
+            // traegt. Nach einer Massenoperation (Migration, Format-Sweep,
+            // Sync-Restore) ist jede mtime jung und jeder Score liegt
+            // strukturell ueber der Schwelle -- der Check meldet dann nichts,
+            // was wie Gesundheit aussieht und Blindheit ist. Der Live-Vault
+            // stand am 21.08.2026 genau so da: 750 Notizen, aelteste mtime
+            // 53 Tage, Halbwertszeit 180, Stufe 2 nie gefeuert.
+            if (this.reportMtimeDegeneration(db)) return;
+
             // 1. Sammle alle Cluster aus ontology, mit Member-Pfaden.
             const clusterMembersRaw = db.exec(
                 `SELECT cluster, entity_path FROM ontology ORDER BY cluster`,
@@ -2478,12 +2506,10 @@ export class VaultHealthService {
 
                 // mtime aus vectors (latest pro path)
                 const placeholders = paths.map(() => '?').join(',');
-                /* eslint-disable no-restricted-syntax -- reason: ADR-137 exception, layer guard via domain filter, edges-join needs raw SQL */
                 const mtimeRaw = db.exec(
                     `SELECT path, MAX(mtime) FROM hc_vectors WHERE path IN (${placeholders}) GROUP BY path`,
                     paths,
                 );
-                /* eslint-enable no-restricted-syntax -- end of legacy ADR-136 vectors direct-access block */
                 if (mtimeRaw.length === 0 || mtimeRaw[0].values.length === 0) continue;
 
                 let totalAgeDays = 0;
@@ -2502,10 +2528,13 @@ export class VaultHealthService {
                 const avgAge = totalAgeDays / counted;
                 const coverageDrift = staleCount / counted;
 
-                // Score (inline, vermeidet Service-Injection in VaultHealthService).
-                const w1 = 0.6, w2 = 0.3, w3 = 0.1;
-                const ageRatio = Math.min(1, avgAge / halfLife);
-                const score = Math.round(100 * (w1 * (1 - ageRatio) + w2 * (1 - coverageDrift) + w3 * 1));
+                // FIX-19-16-05: geteilte Formel. Die alte Inline-Kopie trug
+                // `w3 * 1` -- die Stale-Reference-Rate aus BA-25 12.1 wurde
+                // nie gebaut, der konstante Term hob jeden Score um bis zu
+                // 10 Punkte. Renormalisiert auf die zwei echten Terme; die
+                // Stale-Reference-Pipeline bekommt bei Bau ihren Platz in
+                // clusterFreshnessScore, nicht hier.
+                const score = clusterFreshnessScore(avgAge, halfLife, coverageDrift);
 
                 if (score < 70) {
                     const sev: 'high' | 'medium' | 'low' =
@@ -2526,6 +2555,48 @@ export class VaultHealthService {
     }
 
     /**
+     * FIX-19-16-06: detect a degenerated mtime distribution and say so.
+     *
+     * Returns true (and pushes ONE finding) when enough notes exist and
+     * their newest-chunk mtimes are compressed into a window too narrow to
+     * carry an age signal: P95 minus P5 under 90 days across 200+ notes is
+     * the signature of a mass operation, not of a vault whose notes all
+     * happen to be young. In that state every cluster score is an artifact,
+     * so the per-cluster findings are skipped for this run instead of
+     * standing next to a warning that disowns them.
+     */
+    private reportMtimeDegeneration(db: SqlJsDatabase): boolean {
+        const MIN_NOTES = 200;
+        const WINDOW_DAYS = 90;
+        try {
+            const raw = db.exec(
+                `SELECT MAX(mtime) AS m FROM hc_vectors GROUP BY path ORDER BY m`,
+            );
+            if (raw.length === 0) return false;
+            const mtimes = raw[0].values.map((r) => r[0] as number).filter((m) => !!m);
+            if (mtimes.length < MIN_NOTES) return false;
+            const p5 = mtimes[Math.floor(mtimes.length * 0.05)];
+            const p95 = mtimes[Math.floor(mtimes.length * 0.95)];
+            const windowDays = (p95 - p5) / 86_400_000;
+            if (windowDays >= WINDOW_DAYS) return false;
+            this.findings.push({
+                check: 'cluster_freshness',
+                severity: 'medium',
+                paths: [],
+                description: `mtime carries no age signal in this vault: ${mtimes.length} notes, `
+                    + `95% of last-modified times inside ${Math.round(windowDays)} days (mass operation detected). `
+                    + `Freshness scoring is skipped for this run; content-level freshness needs an external `
+                    + `time signal such as the daily-briefing skill provides.`,
+                metadata: { degenerate: true, notes: mtimes.length, windowDays: Math.round(windowDays) },
+            });
+            return true;
+        } catch (err) {
+            console.warn('[VaultHealth] mtime degeneration probe failed:', err);
+            return false;
+        }
+    }
+
+    /**
      * source_concentration (FEAT-19-17, ADR-93).
      *
      * Pro Cluster: top-source-domain anteil > 0.7 plus min 5 Notes
@@ -2539,7 +2610,14 @@ export class VaultHealthService {
                 `SELECT cluster, SUM(note_count) FROM cluster_source_stats GROUP BY cluster HAVING SUM(note_count) >= ?`,
                 [MIN_NOTES],
             );
-            if (totalsRaw.length === 0) return;
+            if (totalsRaw.length === 0) {
+                // FIX-19-16-10: die Tabelle fuellt nur der Deep-Ingest. Ein
+                // Vault ohne Ingest-Historie (Live-Vault: 0 Zeilen gegen 1446
+                // ontology-Mitglieder) liess den Check auf ewig stumm. Die
+                // Frontmatter-URLs der Mitglieder tragen dasselbe Signal.
+                this.checkSourceConcentrationFromFrontmatter(db, THRESHOLD, MIN_NOTES);
+                return;
+            }
 
             for (const row of totalsRaw[0].values) {
                 const cluster = row[0] as string;
@@ -2567,6 +2645,36 @@ export class VaultHealthService {
             }
         } catch (err) {
             console.warn('[VaultHealth] source_concentration check failed:', err);
+        }
+    }
+
+    /** FIX-19-16-10: same thresholds, frontmatter-derived counts. */
+    private checkSourceConcentrationFromFrontmatter(db: SqlJsDatabase, threshold: number, minNotes: number): void {
+        const clustersRaw = db.exec(`SELECT DISTINCT cluster FROM ontology`);
+        if (clustersRaw.length === 0) return;
+        for (const row of clustersRaw[0].values) {
+            const cluster = row[0] as string;
+            const stats = deriveClusterDomainStats(db, cluster);
+            const total = stats.reduce((sum, s) => sum + s.noteCount, 0);
+            if (total < minNotes || stats.length === 0) continue;
+            const top = stats[0];
+            const score = top.noteCount / total;
+            if (score < threshold) continue;
+            const pct = Math.round(score * 100);
+            this.findings.push({
+                check: 'source_concentration',
+                severity: score >= 0.85 ? 'high' : 'medium',
+                paths: [],
+                cluster,
+                description: `Cluster "${cluster}": ${top.noteCount} von ${total} Notes (${pct}%) aus ${top.sourceDomain} (abgeleitet aus Frontmatter-URLs). Suche aktiv Gegenpositionen.`,
+                metadata: {
+                    dominantDomain: top.sourceDomain,
+                    dominantCount: top.noteCount,
+                    total,
+                    concentrationScore: score,
+                    derivedFrom: 'frontmatter',
+                },
+            });
         }
     }
 }

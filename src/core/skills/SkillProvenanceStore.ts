@@ -156,6 +156,24 @@ export class SkillProvenanceStore {
     }
 
     /**
+     * Is there a managed record for this skill at all? Read-only, no trust.
+     *
+     * getVerifiedSource() answers null to two very different situations: the
+     * manifest never recorded this skill, and the manifest recorded it but the
+     * file has since changed. Only the second one means somebody edited it. A
+     * caller that cannot tell them apart reports a lost, corrupt (fail-closed
+     * to {}), pruned or never-stamped entry as a user edit.
+     *
+     * Deliberately says nothing about hashes and grants nothing: a `true` here
+     * only means "there is something to compare against". The comparison itself
+     * stays in getVerifiedSource, where the tier gate lives.
+     */
+    hasManagedEntry(skillName: string): boolean {
+        const entry = this.entries[skillName];
+        return entry !== undefined && MANAGED_SKILL_TIERS.has(entry.source);
+    }
+
+    /**
      * Rebuild the manifest for this boot.
      *
      * @param skillsRoot     the vault-relative skills directory

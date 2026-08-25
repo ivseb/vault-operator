@@ -230,11 +230,20 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
         // renames their agent folder. The host already resolved the path above, so
         // it hands it over. Spread last: these keys are facts, not agent input.
         const skillDataRoot = skillsDir.replace(/(^|\/)skills$/, '$1skill-data');
+        // FIX-24-03-10: the loop budget is a fact of the host, like the paths.
+        // A script that plans work -- how many sources to visit, how many
+        // articles to read -- can only match it to reality if it knows the
+        // reality. Note the runtime nudges the agent to wrap up at 60% of this
+        // number, so a script should plan against that fraction, not the whole.
+        // This is the configured setting; a subtask may run on a shorter
+        // budget of its own, which the tool cannot see from here.
+        const maxIterations = this.plugin.settings?.advancedApi?.maxIterations ?? 25;
         const scriptArgs = {
             ...args,
             skills_root: skillsDir,
             skill_data_root: skillDataRoot,
             skill_name: skillName,
+            max_iterations: maxIterations,
         };
 
         try {
@@ -243,7 +252,11 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
                 // FIX-24-08-04: abort the running script the moment Stop fires.
                 abortSignal: context.abortSignal,
             });
-            callbacks.pushToolResult(this.formatSuccess(JSON.stringify(result, null, 2)));
+            // FIX-24-03-08: kompakt, nicht pretty. Der Konsument ist das
+            // Modell, und Einrueckung kostete 25 Prozent der Nahtstelle --
+            // genug, um ein wachsendes Ergebnis ueber die Inline-Schwelle zu
+            // heben und den Lauf in eine Re-Read-Kaskade zu schicken.
+            callbacks.pushToolResult(this.formatSuccess(JSON.stringify(result)));
             callbacks.log(`Executed skill-script: ${skillName}/${scriptName}`);
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

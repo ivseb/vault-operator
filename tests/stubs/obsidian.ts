@@ -137,6 +137,45 @@ export class ButtonComponent {
     simulateClick(): void { this.clickCb?.(); }
 }
 
+/**
+ * Minimal TextComponent stub (IMP-14-04-01: the MCP connection details render
+ * their copy-paste values as read-only text fields). Mirrors the production
+ * call chain `addText(text => { text.setValue(v); text.inputEl.readOnly = true; })`.
+ */
+export class TextComponent {
+    static instances: TextComponent[] = [];
+    static reset(): void { TextComponent.instances = []; }
+    value = '';
+    inputEl: { readOnly: boolean; type: string; value: string; addClass: (...c: string[]) => void };
+    constructor(public containerEl: SettingHost) {
+        this.inputEl = { readOnly: false, type: 'text', value: '', addClass: () => { /* no-op */ } };
+        TextComponent.instances.push(this);
+    }
+    setValue(v: string): this { this.value = v; this.inputEl.value = v; return this; }
+    getValue(): string { return this.value; }
+    setPlaceholder(_p: string): this { return this; }
+    onChange(_cb: (v: string) => void): this { return this; }
+}
+
+/**
+ * Minimal ExtraButtonComponent stub (IMP-14-04-01: the token field carries a
+ * reveal toggle as an extra button). Same registry/simulateClick contract as
+ * ButtonComponent.
+ */
+export class ExtraButtonComponent {
+    static instances: ExtraButtonComponent[] = [];
+    static reset(): void { ExtraButtonComponent.instances = []; }
+    icon = '';
+    tooltip = '';
+    private clickCb: (() => void) | null = null;
+    constructor(public extraSettingsEl: SettingHost) { ExtraButtonComponent.instances.push(this); }
+    setIcon(i: string): this { this.icon = i; return this; }
+    setTooltip(tip: string): this { this.tooltip = tip; return this; }
+    setDisabled(_d: boolean): this { return this; }
+    onClick(cb: () => void): this { this.clickCb = cb; return this; }
+    simulateClick(): void { this.clickCb?.(); }
+}
+
 export class Setting {
     settingEl: SettingHost;
     nameEl: SettingHost;
@@ -154,6 +193,15 @@ export class Setting {
     addButton(cb: (b: ButtonComponent) => void): this {
         const btnEl = this.controlEl.createEl('button');
         cb(new ButtonComponent(btnEl));
+        return this;
+    }
+    addText(cb: (t: TextComponent) => void): this {
+        cb(new TextComponent(this.controlEl));
+        return this;
+    }
+    addExtraButton(cb: (b: ExtraButtonComponent) => void): this {
+        const btnEl = this.controlEl.createEl('button');
+        cb(new ExtraButtonComponent(btnEl));
         return this;
     }
     addToggle(cb: (t: ToggleComponent) => void): this {

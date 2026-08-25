@@ -114,6 +114,12 @@ const VAULT_OPERATOR_IGNORE_REGEX = [
     // Tool identifiers referenced in UI copy (snake_case, must stay as-is;
     // the acronyms pass would otherwise fold docx -> DOCX inside them).
     'create_(docx|xlsx|pptx)',
+    // Issue #62 / 3.6.1: the literal Ollama API path named in the keep-alive
+    // help text. The distinction it carries is the whole point of the setting
+    // (the OpenAI-compatible /v1 route silently drops keep_alive, the native
+    // one honours it), so the path stays as written rather than being
+    // paraphrased away.
+    '/api/embed',
     // Sentence fragments interpolated mid-sentence via {{var}}; they must
     // keep lowercase ("last check: never", "1 embedding model").
     '^never$',

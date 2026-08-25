@@ -485,6 +485,30 @@ export class EmbeddingsTab {
             }),
         );
 
+        // Issue #62: Ollama keeps the embedding model resident in VRAM for its
+        // own 5min default after each request. VO cannot shorten that on the
+        // OpenAI-compatible /v1 path, so offer an opt-in keep_alive that routes
+        // Ollama embeddings to the native /api/embed endpoint. Only shown when
+        // the active embedding model is served by Ollama.
+        if (activeEmbModel?.provider === 'ollama') {
+            const keepAliveSetting = new Setting(containerEl)
+                .setName(t('settings.embeddings.ollamaKeepAlive'))
+                .setDesc(t('settings.embeddings.ollamaKeepAliveDesc'));
+            addInfoButton(keepAliveSetting, t('settings.embeddings.infoKeepAliveTitle'), t('settings.embeddings.infoKeepAliveBody'));
+            keepAliveSetting.addText((text) =>
+                text
+                    .setPlaceholder('5m')
+                    .setValue(this.plugin.settings.embeddingKeepAlive ?? '')
+                    .onChange(async (v) => {
+                        const value = v.trim();
+                        this.plugin.settings.embeddingKeepAlive = value;
+                        await this.plugin.saveSettings();
+                        // Live-apply so the next embedding call honours it without a reload.
+                        this.plugin.semanticIndex?.configure({ embeddingKeepAlive: value });
+                    }),
+            );
+        }
+
         const autoIndexSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.autoIndexStrategy'))
             .setDesc(t('settings.embeddings.autoIndexStrategyDesc'));

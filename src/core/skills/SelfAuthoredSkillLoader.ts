@@ -16,6 +16,7 @@
 import { Notice, TFile, TFolder } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP, SKILL_SUBROLE_DESCRIPTION_PROMPT_CAP } from './descriptionCaps';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import { AstValidator } from '../sandbox/AstValidator';
 import { validateSkillFrontmatter } from './SkillFrontmatterValidator';
@@ -566,7 +567,7 @@ export class SelfAuthoredSkillLoader {
         const coordinatorBadge = s.isCoordinator ? ' (coordinator)' : '';
         // AUDIT 2026-07-14 (Codex) M-1: sanitise name/description before they
         // enter the cached <available_skills> block (defang boundary tags).
-        const head = `- ${sanitizeDirectoryEntry(s.name, 80)}${coordinatorBadge}: ${sanitizeDirectoryEntry(s.description, 300)}${codeBadge}`;
+        const head = `- ${sanitizeDirectoryEntry(s.name, 80)}${coordinatorBadge}: ${sanitizeDirectoryEntry(s.description, SKILL_DESCRIPTION_PROMPT_CAP)}${codeBadge}`;
         const inventoryLines = this.renderInventoryLines(s);
         return inventoryLines.length === 0 ? head : [head, ...inventoryLines].join('\n');
     }
@@ -600,7 +601,7 @@ export class SelfAuthoredSkillLoader {
 
         if (s.isCoordinator && subRoles.length > 0) {
             const rendered = subRoles.map(r =>
-                `${sanitizeDirectoryEntry(r.filePath, 120)} (${sanitizeDirectoryEntry(r.role, 60)}: ${sanitizeDirectoryEntry(r.description, 200)})`,
+                `${sanitizeDirectoryEntry(r.filePath, 120)} (${sanitizeDirectoryEntry(r.role, 60)}: ${sanitizeDirectoryEntry(r.description, SKILL_SUBROLE_DESCRIPTION_PROMPT_CAP)})`,
             ).join(', ');
             lines.push(`  Sub-roles (read on demand): ${rendered}`);
         }

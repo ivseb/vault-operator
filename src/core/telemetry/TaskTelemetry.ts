@@ -5,18 +5,36 @@
  * tokens consumed, EUR cost, outcome. Persists to a single JSON-lines file
  * so we can compare before/after when iterating on prompt heuristics.
  *
- * Storage: <vault>/.obsidian-agent/telemetry/tasks.jsonl
- * Append-only. Truncates to last N entries on each plugin start.
+ * Storage: <agent data dir>/telemetry/{tasks,condense,requests}.jsonl
+ * (FEAT-24-11). The caller passes the directory; without one the legacy
+ * <vault>/.obsidian-agent/telemetry location is used so old readers and the
+ * existing tests keep working. readRecent() merges the legacy file once so
+ * the move loses no history.
+ * Append-only. tasks.jsonl and condense.jsonl truncate to the last N entries
+ * on each write; requests.jsonl is appended per request (cheap) and trimmed
+ * once per task by the caller.
  */
 
 import { computeCost, computeCostForBuckets, formatEur, type UsageByModel } from '../pricing/ModelPricing';
 import type { FileAdapter } from '../storage/types';
 
-const TELEMETRY_DIR = '.obsidian-agent/telemetry';
-const TELEMETRY_FILE = `${TELEMETRY_DIR}/tasks.jsonl`;
-const CONDENSE_FILE = `${TELEMETRY_DIR}/condense.jsonl`;
+/** Pre-FEAT-24-11 location, kept as the default and read once on the move. */
+export const LEGACY_TELEMETRY_DIR = '.obsidian-agent/telemetry';
+const TASKS_FILE = 'tasks.jsonl';
+const CONDENSE_FILE = 'condense.jsonl';
+const REQUESTS_FILE = 'requests.jsonl';
 const MAX_ENTRIES = 1000;
 const MAX_CONDENSE_ENTRIES = 2000;
+/**
+ * ~100 requests per long task, a handful of tasks a day: 20k lines is about a
+ * month of history at ~300 bytes a line (6 MB). Trimmed once per task end.
+ */
+export const MAX_REQUEST_ENTRIES = 20_000;
+
+export interface TaskTelemetryOptions {
+    /** Directory (adapter-relative) holding the three JSONL files. */
+    dir?: string;
+}
 
 /**
  * FIX-COMPACT-07: persistable shape of a single condense pass.
@@ -36,15 +54,60 @@ export interface CondenseTelemetryEntry {
     errorMessage?: string;
 }
 
-export async function readRecentCondense(fs: FileAdapter, n: number = 200): Promise<CondenseTelemetryEntry[]> {
-    if (!(await fs.exists(CONDENSE_FILE))) return [];
-    const raw = await fs.read(CONDENSE_FILE);
-    const lines = raw.split('\n').filter(Boolean).slice(-n);
-    const entries: CondenseTelemetryEntry[] = [];
-    for (const line of lines) {
-        try { entries.push(JSON.parse(line) as CondenseTelemetryEntry); } catch { /* skip corrupt line */ }
+/**
+ * FEAT-24-11: one API request of the agent loop. The cache numbers are this
+ * request's own (not cumulative), and the context columns say what could have
+ * moved the cached prefix in that turn: the hashes of the stable and volatile
+ * system-prompt parts, how many tool_result blocks were pruned, whether a
+ * condense ran, whether steering text was injected. Together they let a
+ * report attribute cache writes to a cause instead of guessing.
+ */
+export interface RequestTelemetryEntry {
+    /** ISO timestamp when the request was issued */
+    at: string;
+    taskId: string;
+    /** 0-based main-loop iteration */
+    iteration: number;
+    modelId: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    /** Messages in the history sent with this request */
+    historyMessages: number;
+    /** Tool schemas sent with this request */
+    toolsSent: number;
+    /** tool_result blocks microcompaction pruned since the previous request */
+    prunedBlocksThisTurn: number;
+    /** A condense (rolling summary or full) ran since the previous request */
+    condensedThisTurn: boolean;
+    /** The preamble appended messages (steering text or the soft-limit nudge) before this request */
+    steeringInjected: boolean;
+    /** Hash of the system prompt above the cache breakpoint */
+    stableSystemHash: string;
+    /** Hash of the system prompt below the cache breakpoint */
+    volatileTailHash: string;
+}
+
+/**
+ * Cheap, stable 32-bit FNV-1a hash as 8 hex chars. Not cryptographic; it only
+ * has to say "this text is the same as last turn" in a log line.
+ */
+export function hashForTelemetry(text: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
     }
-    return entries;
+    return h.toString(16).padStart(8, '0');
+}
+
+export async function readRecentCondense(
+    fs: FileAdapter,
+    n: number = 200,
+    dir: string = LEGACY_TELEMETRY_DIR,
+): Promise<CondenseTelemetryEntry[]> {
+    return readJsonLines<CondenseTelemetryEntry>(fs, `${dir}/${CONDENSE_FILE}`, n);
 }
 
 export interface TaskTelemetryEntry {
@@ -83,15 +146,28 @@ export interface TaskTelemetryEntry {
     errorMessage?: string;
 }
 
+async function readJsonLines<T>(fs: FileAdapter, file: string, n: number): Promise<T[]> {
+    if (!(await fs.exists(file))) return [];
+    const raw = await fs.read(file);
+    const lines = raw.split('\n').filter(Boolean).slice(-n);
+    const entries: T[] = [];
+    for (const line of lines) {
+        try { entries.push(JSON.parse(line) as T); } catch { /* skip corrupt line */ }
+    }
+    return entries;
+}
+
 export class TaskTelemetry {
     private fs: FileAdapter;
+    private readonly dir: string;
     private startedAt = Date.now();
     private toolSequence: string[] = [];
     private subAgentCount = 0;
     private iterations = 0;
 
-    constructor(fs: FileAdapter) {
+    constructor(fs: FileAdapter, opts: TaskTelemetryOptions = {}) {
         this.fs = fs;
+        this.dir = opts.dir ?? LEGACY_TELEMETRY_DIR;
     }
 
     /** Call once per main-loop iteration (after the LLM responds). */
@@ -103,7 +179,15 @@ export class TaskTelemetry {
         if (toolName === 'new_task') this.subAgentCount++;
     }
 
-    /** Record a complete task at end of run. Best-effort persistence. */
+    /**
+     * Record a complete task at end of run. Best-effort persistence.
+     *
+     * FEAT-24-11: the caller may pass iterations/toolSequence/startedAt.
+     * TaskMonitor constructs this object at persist time, so the instance
+     * fields (bumpIteration/recordTool) are empty there and every record
+     * read "iterations 0, toolSequence [], 0 ms" -- the caller's numbers win
+     * whenever they are given.
+     */
     async record(args: {
         promptPreview: string;
         modelId: string;
@@ -115,21 +199,30 @@ export class TaskTelemetry {
         outcome: 'completed' | 'aborted' | 'error';
         errorMessage?: string;
         usageByModel?: UsageByModel;
+        iterations?: number;
+        toolSequence?: string[];
+        /** Epoch ms when the task started; defaults to construction time. */
+        startedAt?: number;
     }): Promise<TaskTelemetryEntry> {
         // FIX-24-05-05: mixed-model tasks are priced as the sum of
         // per-model costs; without a breakdown fall back to single-id.
         const cost = (args.usageByModel && Object.keys(args.usageByModel).length > 0)
             ? computeCostForBuckets(args.usageByModel)
             : computeCost(args.modelId, args.inputTokens, args.outputTokens, args.cacheReadTokens, args.cacheCreationTokens);
+        const startedAt = args.startedAt ?? this.startedAt;
+        const toolSequence = args.toolSequence ?? this.toolSequence;
+        const subAgentCount = args.toolSequence
+            ? args.toolSequence.filter((t) => t === 'new_task').length
+            : this.subAgentCount;
         const entry: TaskTelemetryEntry = {
-            startedAt: new Date(this.startedAt).toISOString(),
-            durationMs: Date.now() - this.startedAt,
+            startedAt: new Date(startedAt).toISOString(),
+            durationMs: Date.now() - startedAt,
             promptPreview: args.promptPreview.slice(0, 200),
             modelId: args.modelId,
             mode: args.mode,
-            iterations: this.iterations,
-            toolSequence: this.toolSequence,
-            subAgentCount: this.subAgentCount,
+            iterations: args.iterations ?? this.iterations,
+            toolSequence,
+            subAgentCount,
             inputTokens: args.inputTokens,
             outputTokens: args.outputTokens,
             cacheReadTokens: args.cacheReadTokens,
@@ -142,66 +235,102 @@ export class TaskTelemetry {
         };
 
         try {
-            await this.appendJsonLine(entry);
+            await this.appendBounded(TASKS_FILE, entry, MAX_ENTRIES);
         } catch (e) {
             console.warn('[TaskTelemetry] persist failed (non-fatal):', e);
         }
         return entry;
     }
 
-    private async appendJsonLine(entry: TaskTelemetryEntry): Promise<void> {
-        if (!(await this.fs.exists(TELEMETRY_DIR))) {
-            await this.fs.mkdir(TELEMETRY_DIR);
-        }
-        const line = JSON.stringify(entry) + '\n';
-        let existing = '';
-        if (await this.fs.exists(TELEMETRY_FILE)) {
-            existing = await this.fs.read(TELEMETRY_FILE);
-            // Truncate to last MAX_ENTRIES-1 lines so we stay bounded
-            const lines = existing.split('\n').filter(Boolean);
-            if (lines.length >= MAX_ENTRIES) {
-                existing = lines.slice(-(MAX_ENTRIES - 1)).join('\n') + '\n';
-            }
-        }
-        await this.fs.write(TELEMETRY_FILE, existing + line);
-    }
-
     /**
      * FIX-COMPACT-07: persist a per-condense event. Bounded JSONL at
-     * .obsidian-agent/telemetry/condense.jsonl. Best-effort, never
-     * throws. Datapoints for tuning the threshold and helper-model
-     * selection over time.
+     * <dir>/condense.jsonl. Best-effort, never throws. Datapoints for tuning
+     * the threshold and helper-model selection over time.
      */
     async recordCondense(event: CondenseTelemetryEntry): Promise<void> {
         try {
-            if (!(await this.fs.exists(TELEMETRY_DIR))) {
-                await this.fs.mkdir(TELEMETRY_DIR);
-            }
-            const line = JSON.stringify(event) + '\n';
-            let existing = '';
-            if (await this.fs.exists(CONDENSE_FILE)) {
-                existing = await this.fs.read(CONDENSE_FILE);
-                const lines = existing.split('\n').filter(Boolean);
-                if (lines.length >= MAX_CONDENSE_ENTRIES) {
-                    existing = lines.slice(-(MAX_CONDENSE_ENTRIES - 1)).join('\n') + '\n';
-                }
-            }
-            await this.fs.write(CONDENSE_FILE, existing + line);
+            await this.appendBounded(CONDENSE_FILE, event, MAX_CONDENSE_ENTRIES);
         } catch (e) {
             console.warn('[TaskTelemetry] condense persist failed (non-fatal):', e);
         }
     }
 
-    /** Read recent entries for the analytics view. */
-    static async readRecent(fs: FileAdapter, n: number = 100): Promise<TaskTelemetryEntry[]> {
-        if (!(await fs.exists(TELEMETRY_FILE))) return [];
-        const raw = await fs.read(TELEMETRY_FILE);
-        const lines = raw.split('\n').filter(Boolean).slice(-n);
-        const entries: TaskTelemetryEntry[] = [];
-        for (const line of lines) {
-            try { entries.push(JSON.parse(line) as TaskTelemetryEntry); } catch { /* skip corrupt line */ }
+    /**
+     * FEAT-24-11: persist one API request. Plain append -- a long task issues
+     * a hundred of these and must not re-read the file each time. Trimming
+     * happens once per task via trimRequestLog(). Best-effort, never throws.
+     */
+    async recordRequest(entry: RequestTelemetryEntry): Promise<void> {
+        try {
+            await this.ensureDir();
+            await this.fs.append(`${this.dir}/${REQUESTS_FILE}`, JSON.stringify(entry) + '\n');
+        } catch (e) {
+            console.warn('[TaskTelemetry] request persist failed (non-fatal):', e);
         }
-        return entries;
+    }
+
+    /** FEAT-24-11: keep requests.jsonl bounded. Called once per task end. */
+    async trimRequestLog(max: number = MAX_REQUEST_ENTRIES): Promise<void> {
+        try {
+            const file = `${this.dir}/${REQUESTS_FILE}`;
+            if (!(await this.fs.exists(file))) return;
+            const lines = (await this.fs.read(file)).split('\n').filter(Boolean);
+            if (lines.length <= max) return;
+            await this.fs.write(file, lines.slice(-max).join('\n') + '\n');
+        } catch (e) {
+            console.warn('[TaskTelemetry] request trim failed (non-fatal):', e);
+        }
+    }
+
+    private async ensureDir(): Promise<void> {
+        if (!(await this.fs.exists(this.dir))) {
+            await this.fs.mkdir(this.dir);
+        }
+    }
+
+    /** Read-modify-write with a line cap; fine for the once-per-task files. */
+    private async appendBounded(name: string, entry: unknown, max: number): Promise<void> {
+        await this.ensureDir();
+        const file = `${this.dir}/${name}`;
+        const line = JSON.stringify(entry) + '\n';
+        let existing = '';
+        if (await this.fs.exists(file)) {
+            existing = await this.fs.read(file);
+            // Truncate to last max-1 lines so we stay bounded
+            const lines = existing.split('\n').filter(Boolean);
+            if (lines.length >= max) {
+                existing = lines.slice(-(max - 1)).join('\n') + '\n';
+            }
+        }
+        await this.fs.write(file, existing + line);
+    }
+
+    /**
+     * Read recent task entries for the analytics view. FEAT-24-11: when a
+     * non-legacy dir is given, the legacy file is merged in (read-only) so
+     * the history written before the move stays visible. Sorted by startedAt.
+     */
+    static async readRecent(
+        fs: FileAdapter,
+        n: number = 100,
+        dir: string = LEGACY_TELEMETRY_DIR,
+    ): Promise<TaskTelemetryEntry[]> {
+        const current = await readJsonLines<TaskTelemetryEntry>(fs, `${dir}/${TASKS_FILE}`, n);
+        if (dir === LEGACY_TELEMETRY_DIR) return current;
+        const legacy = await readJsonLines<TaskTelemetryEntry>(fs, `${LEGACY_TELEMETRY_DIR}/${TASKS_FILE}`, n);
+        if (legacy.length === 0) return current;
+        return [...legacy, ...current]
+            .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+            .slice(-n);
+    }
+
+    /** FEAT-24-11: read recent per-request entries, oldest first. */
+    static async readRecentRequests(
+        fs: FileAdapter,
+        n: number = 1000,
+        dir: string = LEGACY_TELEMETRY_DIR,
+    ): Promise<RequestTelemetryEntry[]> {
+        return readJsonLines<RequestTelemetryEntry>(fs, `${dir}/${REQUESTS_FILE}`, n);
     }
 }
 

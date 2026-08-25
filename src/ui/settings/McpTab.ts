@@ -1449,16 +1449,35 @@ export class McpTab {
         });
 
         // Ready-made Authorization header (secret; convenience for clients that
-        // take a full header line instead of a bare token field)
+        // take a full header line, or a header value, instead of a bare token)
         new Setting(containerEl)
             .setName(t('settings.mcp.localAuthHeaderLabel'))
             .setDesc(t('settings.mcp.localAuthHeaderDesc'))
+            // IMP-14-04-01: a client that splits a custom header into a name
+            // field and a value field needs the middle piece. The two existing
+            // buttons hand out the ends only: the naked token loses the scheme
+            // (the bridge answers 401, wrong-scheme), the full line carries
+            // "Authorization:" into the value field. Neither is pasteable
+            // there, and the value was reachable only by editing the clipboard
+            // by hand.
+            .addButton((btn) => {
+                btn.setButtonText(t('settings.mcp.copyHeaderValueButton')).onClick(() => {
+                    void navigator.clipboard.writeText(`Bearer ${this.plugin.settings.mcpServerToken ?? ''}`);
+                    new Notice(t('notice.mcp.headerValueCopied'));
+                });
+            })
             .addButton((btn) => {
                 btn.setButtonText(t('settings.mcp.copyHeaderButton')).onClick(() => {
                     void navigator.clipboard.writeText(`Authorization: Bearer ${this.plugin.settings.mcpServerToken ?? ''}`);
                     new Notice(t('notice.mcp.headerCopied'));
                 });
             });
+
+        // IMP-14-04-01: which of the three values goes where. The Bearer prefix
+        // sitting in the value and not in the name is the part that gets typed
+        // wrong, and the 401 that follows names the scheme, not the field.
+        const headerValueHint = containerEl.createDiv('setting-item-description');
+        headerValueHint.appendText(t('settings.mcp.localAuthHeaderValueHint'));
 
         // Client hint (header allowlist gotcha)
         const hint = containerEl.createDiv('setting-item-description');

@@ -131,9 +131,15 @@ export async function execute(input: Record<string, unknown>, ctx: { vault: any;
                 { governanceTaskId: context.taskId, abortSignal: context.abortSignal },
             );
 
-            let output = typeof result === 'string'
-                ? result
-                : JSON.stringify(result, null, 2);
+            // Issue #75: coerce every result to a string BEFORE the length
+            // cap. `JSON.stringify(undefined)` returns the JS value undefined
+            // (and it also returns undefined for functions/symbols, or throws
+            // on circular refs / BigInt), so the old `output.length` check
+            // dereferenced undefined and threw "Cannot read properties of
+            // undefined (reading 'length')". That internal TypeError was pushed
+            // as the tool result, so an expression that simply did not return a
+            // value looked like a ctx.vault bridge failure. Fail soft instead.
+            let output = serializeResult(result);
 
             if (output.length > MAX_RESULT_CHARS) {
                 output = output.slice(0, MAX_RESULT_CHARS)
@@ -149,4 +155,42 @@ export async function execute(input: Record<string, unknown>, ctx: { vault: any;
             callbacks.pushToolResult(this.formatError(error));
         }
     }
+}
+
+/**
+ * Issue #75: turn any sandbox result into a string for the length cap and the
+ * message history. Guarantees a string in every branch so `.length` can never
+ * be read off `undefined`.
+ *
+ * - string          -> as-is
+ * - undefined       -> a clear "did not return a value" hint (the common case:
+ *                      a side-effect expression, or a try/catch whose `return`
+ *                      sits only in the catch branch, both of which resolve to
+ *                      undefined at the top level)
+ * - function/symbol -> JSON.stringify returns undefined; fall back to String()
+ * - circular/BigInt -> JSON.stringify throws; fall back to String()
+ */
+function serializeResult(result: unknown): string {
+    if (typeof result === 'string') return result;
+    if (result === undefined) {
+        return 'undefined -- the expression did not return a value. '
+            + 'Add a `return`, or make the final line an expression '
+            + '(e.g. `return await ctx.vault.read("path")`).';
+    }
+    let json: string | undefined;
+    try {
+        json = JSON.stringify(result, null, 2);
+    } catch {
+        json = undefined;
+    }
+    if (json !== undefined) return json;
+    // Only four kinds of value get this far: JSON.stringify returns undefined
+    // for functions and symbols, and throws on BigInt and on circular objects.
+    // The first three describe themselves usefully through String(); the
+    // circular object does not, and flattening it to "[object Object]" hands
+    // the agent a string it cannot act on.
+    if (typeof result === 'function' || typeof result === 'symbol' || typeof result === 'bigint') {
+        return String(result);
+    }
+    return '[unserialisable object -- most likely a circular structure]';
 }

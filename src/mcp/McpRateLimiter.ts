@@ -14,7 +14,14 @@
  * Zaehlt pro Minute. Caller key ist mcpToken + sourceInterface; das
  * ist die feinste Granularitaet, die wir heute haben (in der Praxis
  * gibt es nur einen Token, aber mehrere source_interfaces).
+ *
+ * IMP-14-00-03: Dispatcher-Tools (execute_vault_op) tragen ihre Last
+ * nicht selbst, sondern in der Operation, die sie ausfuehren. Ihre
+ * Klasse kommt darum aus der inneren Operation, abgeleitet ueber die
+ * Effekt-Klasse aus ADR-153. Der Caller-Key bleibt davon unberuehrt.
  */
+
+import { resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
 
 export type RateLimitClass = 'cheap' | 'medium' | 'expensive';
 
@@ -113,6 +120,8 @@ export const TOOL_RATE_CLASS: Readonly<Record<string, RateLimitClass>> = {
     search_history: 'medium',
     sync_session: 'medium',
     update_memory: 'medium',  // legacy, routes to save_to_memory
+    // IMP-14-00-03: nur noch der Fallback fuer einen Aufruf ohne (gueltige)
+    // operation. Die echte Klasse kommt aus classifyToolCall.
     execute_vault_op: 'medium',
 
     // expensive: LLM-extract or memory-write
@@ -125,4 +134,136 @@ export const TOOL_RATE_CLASS: Readonly<Record<string, RateLimitClass>> = {
 
 export function classifyTool(toolName: string): RateLimitClass {
     return TOOL_RATE_CLASS[toolName] ?? 'cheap';
+}
+
+/**
+ * IMP-14-00-03: Effekt-Klasse (ADR-153) -> Rate-Klasse.
+ *
+ * Die Effekt-Klasse ist die einzige Stelle, an der jedes Agent-Tool schon
+ * heute nach Wirkung sortiert ist, und ein Vollstaendigkeits-Test haelt sie
+ * lueckenlos. Eine zweite Namensliste hier wuerde genau die Drift erzeugen,
+ * die dieser Fix beseitigt.
+ *
+ * Die Zuordnung folgt der Wirkung: lesen und Loop-Steuerung sind billig,
+ * Netz-Egress und Fremdaufrufe kosten Latenz und Fremdquoten, alles was
+ * schreibt, Code ausfuehrt oder eine eigene Schleife startet bekommt den
+ * engsten Eimer.
+ */
+const EFFECT_RATE_CLASS: Readonly<Record<ToolEffect, RateLimitClass>> = {
+    read: 'cheap',
+    ui: 'cheap',
+    web: 'medium',
+    mcp: 'medium',
+    'plugin-api': 'medium',
+    skill: 'medium',
+    'note-edit': 'expensive',
+    'vault-change': 'expensive',
+    config: 'expensive',
+    'self-modify': 'expensive',
+    subtask: 'expensive',
+    sandbox: 'expensive',
+    recipe: 'expensive',
+};
+
+const CLASS_RANK: Readonly<Record<RateLimitClass, number>> = {
+    cheap: 0,
+    medium: 1,
+    expensive: 2,
+};
+
+function stricter(a: RateLimitClass, b: RateLimitClass): RateLimitClass {
+    // eslint-disable-next-line security/detect-object-injection -- beide Schluessel sind RateLimitClass-Literale, keine Eingabe
+    return CLASS_RANK[a] >= CLASS_RANK[b] ? a : b;
+}
+
+function asParams(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+    return value as Record<string, unknown>;
+}
+
+/**
+ * MCP-Tools, die selbst nichts tun, sondern eine innere Operation ausfuehren.
+ */
+const DISPATCH_TOOLS: ReadonlySet<string> = new Set(['execute_vault_op']);
+
+/**
+ * Rate-Klasse einer inneren Agent-Operation.
+ *
+ * Zwei Quellen, die strengere gewinnt:
+ *   - die Effekt-Klasse der Operation (fail-closed: eine Operation ohne
+ *     Effekt-Eintrag ist unbekannt und zaehlt als 'expensive', damit ein
+ *     Aufrufer den Namensraum nicht mit 60 Sondierungen pro Minute abklopft);
+ *   - der direkte MCP-Eintrag aus TOOL_RATE_CLASS, falls es die Operation
+ *     auch als eigenes MCP-Tool gibt. Sonst waere der Dispatcher ein Rabatt:
+ *     recall_memory kostet direkt 'medium', hat als Agent-Tool aber den
+ *     Effekt 'read'.
+ */
+function classifyOperation(
+    operation: string,
+    params?: Record<string, unknown>,
+): RateLimitClass {
+    return stricterOrEffect(
+        rateClassForEffect(safeResolveToolEffect(operation, params)),
+        directMcpClass(operation),
+    );
+}
+
+/**
+ * resolveToolEffect liest TOOL_EFFECTS als Objekt-Literal. Ein Prototyp-
+ * Schluessel wie 'valueOf' trifft dort eine geerbte Funktion, die dann als
+ * Effekt-Spec mit falschem this aufgerufen wird und wirft. Der Name kommt
+ * hier vom Aufrufer, also faengt der Rate-Limiter das ab und behandelt es
+ * als unbekannte Operation.
+ */
+function safeResolveToolEffect(
+    operation: string,
+    params?: Record<string, unknown>,
+): ToolEffect | undefined {
+    try {
+        return resolveToolEffect(operation, params);
+    } catch {
+        return undefined;
+    }
+}
+
+function stricterOrEffect(fromEffect: RateLimitClass, direct: RateLimitClass | undefined): RateLimitClass {
+    return direct === undefined ? fromEffect : stricter(fromEffect, direct);
+}
+
+/**
+ * Der operation-String kommt vom Aufrufer. Beide Tabellen sind Objekt-
+ * Literale, also liefert ein Prototyp-Schluessel wie 'constructor' oder
+ * '__proto__' ohne eigenen Property-Check einen Wert, der keine Klasse ist;
+ * das Limit waere dann undefined und der Eimer bodenlos. Darum wird jeder
+ * Treffer als eigene Property nachgewiesen und der Effekt zusaetzlich auf
+ * einen echten String geprueft.
+ */
+function rateClassForEffect(effect: ToolEffect | undefined): RateLimitClass {
+    if (typeof effect !== 'string') return 'expensive';
+    if (!Object.prototype.hasOwnProperty.call(EFFECT_RATE_CLASS, effect)) return 'expensive';
+    // eslint-disable-next-line security/detect-object-injection -- eigener Property-Nachweis eine Zeile darueber
+    return EFFECT_RATE_CLASS[effect];
+}
+
+function directMcpClass(operation: string): RateLimitClass | undefined {
+    if (!Object.prototype.hasOwnProperty.call(TOOL_RATE_CLASS, operation)) return undefined;
+    // eslint-disable-next-line security/detect-object-injection -- eigener Property-Nachweis eine Zeile darueber
+    const direct = TOOL_RATE_CLASS[operation];
+    return Object.prototype.hasOwnProperty.call(CLASS_RANK, direct) ? direct : undefined;
+}
+
+/**
+ * IMP-14-00-03: Rate-Klasse eines konkreten MCP-Aufrufs. Fuer alle Tools
+ * ausser den Dispatchern identisch mit classifyTool. Ein Dispatch-Aufruf
+ * ohne brauchbaren operation-String behaelt die aeussere Klasse; er wird
+ * ohnehin vom Handler abgelehnt.
+ */
+export function classifyToolCall(
+    toolName: string,
+    args?: Record<string, unknown>,
+): RateLimitClass {
+    if (!DISPATCH_TOOLS.has(toolName)) return classifyTool(toolName);
+    const operation = args?.operation;
+    if (typeof operation !== 'string' || operation.length === 0) return classifyTool(toolName);
+    return classifyOperation(operation, asParams(args?.params));
 }

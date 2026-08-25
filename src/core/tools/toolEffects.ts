@@ -292,7 +292,14 @@ export function resolveToolEffect(
     // Dynamic skill code tools do not get to classify themselves.
     if (toolName.startsWith(DYNAMIC_TOOL_PREFIX)) return 'sandbox';
 
-    const spec = TOOL_EFFECTS[toolName];
+    // AUDIT 2026-08-25 L-3: own-property lookup. TOOL_EFFECTS is a plain object
+    // literal, so a prototype key like 'valueOf' or 'constructor' would hit an
+    // inherited function and get called as an effect spec. The untrusted caller
+    // (MCP) already wraps this in try/catch, but the guard belongs here so the
+    // safety does not hang on every caller remembering the wrapper.
+    const spec = Object.prototype.hasOwnProperty.call(TOOL_EFFECTS, toolName)
+        ? TOOL_EFFECTS[toolName]
+        : undefined;
     if (spec === undefined) return undefined;
     return typeof spec === 'function' ? spec(input) : spec;
 }

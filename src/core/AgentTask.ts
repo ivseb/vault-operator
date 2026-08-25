@@ -17,7 +17,8 @@ import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/t
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import { ToolRepetitionDetector } from './tool-execution/ToolRepetitionDetector';
 import { summarizeForLedger } from './tool-execution/summarizeForLedger';
-import { buildSystemPromptForMode } from './systemPrompt';
+import { buildSystemPromptForMode, splitSystemPromptAtCacheBreakpoint } from './systemPrompt';
+import { hashForTelemetry, type RequestTelemetryEntry } from './telemetry/TaskTelemetry';
 import type { ModeService } from './modes/ModeService';
 import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
@@ -266,7 +267,17 @@ export interface AgentTaskCallbacks {
         outcome: 'completed' | 'aborted' | 'error';
         errorMessage?: string;
     }) => void;
+    /**
+     * FEAT-24-11: fires once per main-loop API request with that request's
+     * own token numbers and what could have moved the cached prefix in the
+     * turn (prompt-part hashes, prunes, condense, steering). Optional; the
+     * receiver persists (TaskMonitor -> requests.jsonl).
+     */
+    onRequestTelemetry?: (data: RequestTelemetryData) => void;
 }
+
+/** FEAT-24-11: payload of onRequestTelemetry. Same shape as the persisted line. */
+export type RequestTelemetryData = RequestTelemetryEntry;
 
 /**
  * Configuration for AgentTask.run().
@@ -487,6 +498,14 @@ export class AgentTask {
      */
     private microcompactionEnabled: boolean;
     /**
+     * FEAT-24-11: what happened to the cached prefix since the previous API
+     * request. Read and reset when the per-request telemetry record is
+     * emitted, so each line says what could have caused ITS cache writes.
+     */
+    private prunedBlocksSinceLastRequest = 0;
+    private condensedSinceLastRequest = false;
+    private steeringSinceLastRequest = false;
+    /**
      * FEAT-24-02: fold the oldest part of the conversation into a running summary
      * once the estimated tokens exceed this % of the context window — earlier and
      * gentler than the keep-first-last full condensing (`condensingThreshold`).
@@ -584,6 +603,51 @@ export class AgentTask {
         }
     }
 
+    /**
+     * FEAT-24-11: build the per-request telemetry line from this request's
+     * token delta and the prefix-moving events since the previous request,
+     * then reset those counters. Pure bookkeeping; never throws into the loop.
+     */
+    private emitRequestTelemetry(args: {
+        taskId: string;
+        iteration: number;
+        systemPrompt: string;
+        historyMessages: number;
+        toolsSent: number;
+        delta: { input: number; output: number; cacheRead: number; cacheCreation: number };
+    }): void {
+        const hook = this.taskCallbacks.onRequestTelemetry;
+        const pruned = this.prunedBlocksSinceLastRequest;
+        const condensed = this.condensedSinceLastRequest;
+        const steering = this.steeringSinceLastRequest;
+        this.prunedBlocksSinceLastRequest = 0;
+        this.condensedSinceLastRequest = false;
+        this.steeringSinceLastRequest = false;
+        if (!hook) return;
+        try {
+            const { stable, volatile } = splitSystemPromptAtCacheBreakpoint(args.systemPrompt);
+            hook({
+                at: new Date().toISOString(),
+                taskId: args.taskId,
+                iteration: args.iteration,
+                modelId: this.api.getModel().id,
+                inputTokens: args.delta.input,
+                outputTokens: args.delta.output,
+                cacheReadTokens: args.delta.cacheRead,
+                cacheCreationTokens: args.delta.cacheCreation,
+                historyMessages: args.historyMessages,
+                toolsSent: args.toolsSent,
+                prunedBlocksThisTurn: pruned,
+                condensedThisTurn: condensed,
+                steeringInjected: steering,
+                stableSystemHash: hashForTelemetry(stable),
+                volatileTailHash: hashForTelemetry(volatile),
+            });
+        } catch (e) {
+            console.warn('[AgentTask] request telemetry failed (non-fatal):', e);
+        }
+    }
+
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
         // FIX-COMPACT-09 (extended 2026-07-05): a prune rewrites history before
@@ -613,6 +677,9 @@ export class AgentTask {
         // IMP-41-03-06: pruning feeds the per-file dossier -- the durable
         // memory the flat condense summary lacks.
         const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history, { dossier: this.fileDossier });
+        // FEAT-24-11: a prune rewrites history before the cache breakpoint;
+        // the next request's telemetry line must be able to say so.
+        this.prunedBlocksSinceLastRequest += prunedBlocks;
         if (prunedBlocks > 0) {
             console.debug(
                 `[Microcompact] pruned ${prunedBlocks} tool_result block(s), ` +
@@ -1287,7 +1354,7 @@ export class AgentTask {
                     if (newMode) {
                         activeMode = newMode;
                         if (this.modeService) {
-                            void this.modeService.switchMode(loopState.pendingModeSwitch);
+                            this.modeService.switchMode(loopState.pendingModeSwitch);
                         }
                         this.taskCallbacks.onModeSwitch?.(loopState.pendingModeSwitch);
                     }
@@ -1320,6 +1387,10 @@ export class AgentTask {
                 // interceptor dispatch (power steering FIX-PERF-24, advisor
                 // reminder ADR-120 cache trigger), soft-limit nudge, ADR-114
                 // steering drain.
+                // FEAT-24-11: anything the preamble appends (steering text,
+                // the soft-limit nudge) sits in the history ahead of this
+                // request; the telemetry line should be able to say so.
+                const historyBeforePreamble = history.length;
                 const preambleOutcome = this.loopEngine.runIterationPreamble(
                     loopState, history, activeMode,
                     {
@@ -1329,6 +1400,7 @@ export class AgentTask {
                     },
                     loopInterceptors,
                 );
+                if (history.length > historyBeforePreamble) this.steeringSinceLastRequest = true;
                 if (preambleOutcome === 'abort') break;
 
                 // Rebuild system prompt + tool list when mode or tool availability changed
@@ -1433,6 +1505,14 @@ export class AgentTask {
                 // The wrapper generator keeps the MEAS-02 first-token marks;
                 // usage-chunk side effects (estimator calibration, per-model
                 // billing at chunk time, FIX-24-05-05) live in the port.
+                // FEAT-24-11: totals before the stream, so the per-request
+                // record can carry this request's own delta.
+                const usageBefore = {
+                    input: loopState.totalInputTokens,
+                    output: loopState.totalOutputTokens,
+                    cacheRead: loopState.totalCacheReadTokens,
+                    cacheCreation: loopState.totalCacheCreationTokens,
+                };
                 const rawStream = this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal);
                 const markedStream = (async function* (): AsyncIterable<import('../api/types').ApiStreamChunk> {
                     let sawFirstChunk = false;
@@ -1472,6 +1552,20 @@ export class AgentTask {
                     },
                 });
                 const { textParts, toolUses, toolErrors, thinking: thinkingCollector } = streamResult;
+                // FEAT-24-11: one telemetry line per request.
+                this.emitRequestTelemetry({
+                    taskId: config.taskId,
+                    iteration,
+                    systemPrompt,
+                    historyMessages: safeHistory.length,
+                    toolsSent: tools.length,
+                    delta: {
+                        input: loopState.totalInputTokens - usageBefore.input,
+                        output: loopState.totalOutputTokens - usageBefore.output,
+                        cacheRead: loopState.totalCacheReadTokens - usageBefore.cacheRead,
+                        cacheCreation: loopState.totalCacheCreationTokens - usageBefore.cacheCreation,
+                    },
+                });
 
                 // FIX-PERF-22: todo restore block intentionally removed.
                 // The anchor was applied to safeHistory (a clone), not
@@ -2273,6 +2367,7 @@ export class AgentTask {
         // After boundary adjustments, toSummarize might be too small to condense
         if (toSummarize.length < 3) {
             console.debug('[AgentTask] toSummarize too small after boundary fix — skipping condensing');
+            this.condensedSinceLastRequest = true; // FEAT-24-11
             this.taskCallbacks.onCondenseTelemetry?.({
                 startedAt: telemetryStartedAt,
                 durationMs: Date.now() - telemetryStartMs,
@@ -2381,6 +2476,7 @@ export class AgentTask {
             const err = e instanceof Error ? e : new Error(String(e));
             console.warn('[AgentTask] Context condensing failed (history unchanged):', err.message);
             this.taskCallbacks.onContextCondenseFailed?.(err);
+            this.condensedSinceLastRequest = true; // FEAT-24-11
             this.taskCallbacks.onCondenseTelemetry?.({
                 startedAt: telemetryStartedAt,
                 durationMs: Date.now() - telemetryStartMs,
@@ -2399,6 +2495,7 @@ export class AgentTask {
         if (!summary.trim()) {
             console.warn('[AgentTask] Context condensing produced empty summary; history unchanged');
             this.taskCallbacks.onContextCondenseFailed?.(new Error('empty summary from helper API'));
+            this.condensedSinceLastRequest = true; // FEAT-24-11
             this.taskCallbacks.onCondenseTelemetry?.({
                 startedAt: telemetryStartedAt,
                 durationMs: Date.now() - telemetryStartMs,
@@ -2470,7 +2567,8 @@ export class AgentTask {
         // Notify callback with token counts
         this.taskCallbacks.onContextCondensed?.(preTokens, postTokens);
         // FIX-COMPACT-07: structured telemetry event for the successful pass.
-        this.taskCallbacks.onCondenseTelemetry?.({
+        this.condensedSinceLastRequest = true; // FEAT-24-11
+            this.taskCallbacks.onCondenseTelemetry?.({
             startedAt: telemetryStartedAt,
             durationMs: Date.now() - telemetryStartMs,
             success: true,

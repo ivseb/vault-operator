@@ -11,6 +11,7 @@ import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
 import { resolveExternalSourceInterface } from '../../core/memory/SourceInterface';
 import { loadableSkills } from '../../core/context/SkillsManager';
 import { sanitizeDirectoryEntry } from '../../core/tools/BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP } from '../../core/skills/descriptionCaps';
 
 export async function handleGetContext(
     plugin: ObsidianAgentPlugin,
@@ -38,11 +39,17 @@ export async function handleGetContext(
             if (ctx) sections.push(ctx);
         } catch { /* non-fatal */ }
     } else if (strictMode) {
+        // FIX-23-09-08: the closing sentence used to advise the client to pass
+        // source_interface to opt into shared mode. resolveExternalSourceInterface
+        // coerces every externally supplied value away from 'obsilo', so no
+        // argument can reach this branch -- the advice only bought retries. The
+        // lever is the setting, and only the user can move it.
         sections.push(
             `--- Memory + Soul context omitted ---\n`
             + `strictSourceIsolation is enabled in Settings; personal memory context `
-            + `is only exposed to source_interface='obsilo' (the plugin itself). `
-            + `Pass source_interface in get_context arguments to opt into shared mode.`,
+            + `is only exposed to the plugin itself. No argument to get_context `
+            + `changes this -- the vault owner turns the setting off if they want `
+            + `memory shared with external clients.`,
         );
     }
 
@@ -89,7 +96,7 @@ export async function handleGetContext(
                     sections.push('--- Available Skills ---');
                     for (const s of skills) {
                         sections.push(
-                            `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description ?? '', 300)}`,
+                            `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description ?? '', SKILL_DESCRIPTION_PROMPT_CAP)}`,
                         );
                     }
                 }

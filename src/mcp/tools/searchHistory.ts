@@ -10,10 +10,8 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { wrapVaultContentForMcp } from '../McpBridge';
-import {
-    resolveExternalSourceInterface,
-    type SourceInterface,
-} from '../../core/memory/SourceInterface';
+import type { SourceInterface } from '../../core/memory/SourceInterface';
+import { enforceSourceIsolation } from '../toolDefinitions';
 
 // eslint-disable-next-line @typescript-eslint/require-await -- MCP-Tool-Handler interface contract: async signature shared with handlers that do disk/HTTP I/O
 export async function handleSearchHistory(
@@ -32,21 +30,17 @@ export async function handleSearchHistory(
     const roleFilter = typeof args.role === 'string'
         && ['user', 'assistant', 'system', 'tool'].includes(args.role)
             ? args.role : undefined;
-    // AUDIT 2026-07-14 (Codex) H-1: a provided 'obsilo' is coerced to 'unknown'
-    // so an external client cannot read the plugin-internal history partition.
-    const sourceFilter: SourceInterface | undefined = args.source_interface !== undefined
-        ? resolveExternalSourceInterface(args.source_interface)
-        : undefined;
-
-    // AUDIT-015 M-3: strictSourceIsolation erzwingt source_interface
-    // Filter, sonst Read-Verweigerung.
-    const crossSurface = plugin.settings?.memory?.crossSurface;
-    if (crossSurface?.strictSourceIsolation && !sourceFilter) {
-        return errorResult(
-            'strictSourceIsolation is enabled in Settings -- search_history requires '
-            + 'an explicit source_interface argument to scope the read.',
-        );
-    }
+    // AUDIT-015 M-3 + FIX-23-09-08: same shared guard as the dispatcher and the
+    // recall_memory wrapper. It coerces a client-supplied 'obsilo' to 'unknown'
+    // (AUDIT 2026-07-14 H-1) and refuses an unscoped read under strict isolation.
+    const isolation = enforceSourceIsolation({
+        operation: 'search_history',
+        args,
+        strictSourceIsolation: plugin.settings?.memory?.crossSurface?.strictSourceIsolation === true,
+        scopesBySource: true,
+    });
+    if (isolation.blocked) return errorResult(isolation.message);
+    const sourceFilter: SourceInterface | undefined = isolation.sourceFilter;
 
     try {
         // AUDIT-016 M-2: escape user-controlled LIKE wildcards before

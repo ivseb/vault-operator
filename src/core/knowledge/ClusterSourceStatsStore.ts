@@ -46,8 +46,65 @@ export function normalizeDomain(url: string): string {
     return s;
 }
 
+/**
+ * FIX-19-16-10: derive per-cluster domain stats from frontmatter URLs.
+ *
+ * cluster_source_stats is written ONLY by the deep-ingest pipeline
+ * (DeepIngestPipeline via IngestDeepTool). A vault whose notes arrive by
+ * hand or through write_file never fills it -- the live vault had 0 rows
+ * against 1446 ontology members, so source_concentration never found
+ * anything and anti_echo_search answered every call with an error. The
+ * frontmatter properties (resource:/URL) carry the same signal; a note
+ * counts once per domain regardless of how many URLs it holds.
+ *
+ * Free function on a raw db handle so VaultHealthService (which works on
+ * its snapshot connection) and the store share one implementation.
+ */
+export function deriveClusterDomainStats(
+    db: { exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }> },
+    cluster: string,
+): SourceStatRecord[] {
+    const result = db.exec(
+        `SELECT fp.note_path, fp.property_value
+         FROM frontmatter_properties fp
+         JOIN ontology o ON o.entity_path = fp.note_path
+         WHERE o.cluster = ? AND fp.property_value LIKE 'http%'`,
+        [cluster],
+    );
+    if (!result.length) return [];
+    const notesByDomain = new Map<string, Set<string>>();
+    for (const row of result[0].values) {
+        const path = row[0] as string;
+        const domain = normalizeDomain(row[1] as string);
+        if (!domain) continue;
+        if (!notesByDomain.has(domain)) notesByDomain.set(domain, new Set());
+        notesByDomain.get(domain)!.add(path);
+    }
+    return [...notesByDomain.entries()]
+        .map(([sourceDomain, paths]) => ({
+            cluster,
+            sourceDomain,
+            noteCount: paths.size,
+            firstSeenAt: '',
+            lastSeenAt: '',
+        }))
+        .sort((a, b) => b.noteCount - a.noteCount);
+}
+
 export class ClusterSourceStatsStore {
     constructor(private readonly knowledgeDB: KnowledgeDB) {}
+
+    /**
+     * FIX-19-16-10: the ingest-fed table first (it carries timestamps and
+     * survives frontmatter edits), the frontmatter derivation when the
+     * table has nothing for this cluster.
+     */
+    getStatsForClusterWithFallback(cluster: string): SourceStatRecord[] {
+        const fromTable = this.getStatsForCluster(cluster);
+        if (fromTable.length) return fromTable;
+        if (!this.knowledgeDB.isOpen()) return [];
+        return deriveClusterDomainStats(this.knowledgeDB.getDB(), cluster);
+    }
 
     /** Increment count fuer (cluster, sourceDomain). first_seen_at bleibt erhalten, last_seen_at aktualisiert. */
     incrementCount(cluster: string, sourceDomain: string): void {

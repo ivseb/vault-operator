@@ -129,7 +129,11 @@ export function buildStufe3Hooks(
         let noteVerdicts: NoteVerdict[] = [];
         let verifierTokens = 0;
         try {
-            const orchestrated = await getOrchestrator()?.runForCluster(cluster.cluster);
+            // FIX-19-16-07: die bezahlten Cluster-Treffer reisen als Seeds in
+            // den Verifier, statt nur das Finding-Summary zu fuellen
+            // (FEAT-19-03-01 offener Punkt: Doppel-Websuche).
+            const seeds = extractUrlsFromText(text).slice(0, 5);
+            const orchestrated = await getOrchestrator()?.runForCluster(cluster.cluster, seeds);
             noteVerdicts = orchestrated?.verdicts ?? [];
             verifierTokens = orchestrated?.tokensUsed ?? 0;
         } catch (e) {

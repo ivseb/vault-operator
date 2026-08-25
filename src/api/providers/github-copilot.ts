@@ -16,12 +16,26 @@ import { createNodeFetch } from './openai';
 import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
-import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
-import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking, modelSupportsTemperature, getModelInfo } from '../../types/model-registry';
+import {
+    GitHubCopilotAuthService,
+    CHAT_COMPLETIONS_ENDPOINT,
+    RESPONSES_ENDPOINT,
+} from '../../core/security/GitHubCopilotAuthService';
+import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking, modelSupportsTemperature, getModelInfo, getModelEffortSupport } from '../../types/model-registry';
 import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
 import { convertToOpenAiChatMessages, convertToOpenAiChatTools } from '../adapters/openaiChat';
+import {
+    convertToResponsesInput,
+    convertToResponsesTools,
+    createResponsesStreamState,
+    flushResponsesStreamState,
+    asGptEffort,
+    resolveGptEffort,
+    responsesEventToChunks,
+    type ReasoningEffort,
+} from '../adapters/openaiResponses';
 
 // ---------------------------------------------------------------------------
 // OpenAI REST API types (subset — mirrors openai.ts)
@@ -55,6 +69,41 @@ const DEFAULT_MODEL_INFO: ModelInfo = {
     supportsTools: true,
     supportsStreaming: true,
 };
+
+/**
+ * FIX-45-03-01: the wording GitHub uses when a model is not served on a given
+ * route, e.g. `model "gpt-5.6-sol" is not accessible via the /chat/completions
+ * endpoint`. Deliberately loose on the verb -- "accessible", "available" and
+ * "supported" have all been observed -- but anchored on the endpoint path, so
+ * an unrelated 400 cannot trip the retry.
+ */
+const ROUTE_REJECTED_RE: Record<string, RegExp> = {
+    [CHAT_COMPLETIONS_ENDPOINT]:
+        /\/chat\/completions\s+endpoint|not\s+(?:accessible|available|supported)[^.]*\/chat\/completions/i,
+    [RESPONSES_ENDPOINT]:
+        /\/responses\s+endpoint|not\s+(?:accessible|available|supported)[^.]*\/responses/i,
+};
+
+/**
+ * Effort default for the Copilot reasoning lineup. Higher than the Codex
+ * backend's 'low' floor on purpose: the GPT-5.6 models are picked for agentic
+ * work, where reasoning depth is the reason to use them. An explicit setting
+ * still wins in both directions (see resolveGptEffort).
+ */
+const COPILOT_DEFAULT_EFFORT: ReasoningEffort = 'high';
+
+/**
+ * True when a rejection is GitHub saying "this model is not on that route".
+ * Reads the SDK error's message, which carries the server's own wording.
+ */
+function isRouteRejected(
+    e: unknown,
+    route: typeof CHAT_COMPLETIONS_ENDPOINT | typeof RESPONSES_ENDPOINT,
+): boolean {
+    if (!(e instanceof OpenAI.APIError) || e.status !== 400) return false;
+    // eslint-disable-next-line security/detect-object-injection -- key is one of two module constants, not user input
+    return ROUTE_REJECTED_RE[route].test(e.message ?? '');
+}
 
 // ---------------------------------------------------------------------------
 // Content normalization (ADR-039)
@@ -102,8 +151,14 @@ export class GitHubCopilotProvider implements ApiHandler {
         // tools/streaming flags. Prevents Claude models from silently dropping
         // to the 128k default and condensing too early.
         const known = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
-        // ADR-158 stage 1: discovery-reported window wins over registry and table
+        // ADR-158 stage 1: discovery-reported window wins over registry and table.
+        // FIX-45-03-01 adds the Copilot model list between the two: a model picked
+        // by hand (a tier override) never passes through discovery, so without
+        // this it would run on the 128k default while actually serving 1M. A
+        // configured value still wins -- a manual entry is an override, not a
+        // suggestion.
         const contextWindow = this.config.contextWindow
+            ?? this.authService.getModelLimits(this.config.model)?.contextWindow
             ?? getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
         return { id: this.config.model, info: { ...known, contextWindow } };
     }
@@ -113,6 +168,32 @@ export class GitHubCopilotProvider implements ApiHandler {
         messages: MessageParam[],
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
+    ): ApiStream {
+        // FIX-45-03-01: route decision before anything is built. Only models whose
+        // own metadata says they do NOT answer on /chat/completions go the other
+        // way, so every model that works today keeps its exact request.
+        if (this.usesResponsesApi()) {
+            yield* this.createMessageViaResponses(systemPrompt, messages, tools, abortSignal);
+            return;
+        }
+        yield* this.createMessageViaChatCompletions(systemPrompt, messages, tools, abortSignal);
+    }
+
+    /**
+     * Stream one turn over /chat/completions. Unchanged from before FIX-45-03-01
+     * apart from the route-rejection branch; every model that worked yesterday
+     * still builds and sends exactly this request.
+     *
+     * `allowResponsesFallback` mirrors the guard in createMessageViaResponses:
+     * false when we came from there, so a model both routes reject surfaces the
+     * error instead of bouncing.
+     */
+    private async *createMessageViaChatCompletions(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+        allowResponsesFallback = true,
     ): ApiStream {
         const openAiMessages = convertToOpenAiChatMessages(systemPrompt, messages, 'github-copilot');
         const openAiTools = tools.length > 0 ? convertToOpenAiChatTools(tools) : undefined;
@@ -198,6 +279,14 @@ export class GitHubCopilotProvider implements ApiHandler {
                 stream = await this.client.chat.completions.create(createParams, {
                     signal: abortSignal ?? null,
                 });
+            } else if (allowResponsesFallback && isRouteRejected(e, CHAT_COMPLETIONS_ENDPOINT)) {
+                // FIX-45-03-01: the model was configured before VO knew about
+                // routes, or GitHub moved it. The server just told us plainly.
+                // Remember it and answer on the other route -- nothing has
+                // streamed yet, the create() call is what threw.
+                this.authService.noteResponsesOnly(this.config.model);
+                yield* this.createMessageViaResponses(systemPrompt, messages, tools, abortSignal, false);
+                return;
             } else {
                 throw this.enhanceError(e);
             }
@@ -283,11 +372,168 @@ export class GitHubCopilotProvider implements ApiHandler {
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Responses route (FIX-45-03-01)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Whether this model has to go through /responses.
+     *
+     * Deliberately narrower than the Copilot Chat extension, which prefers
+     * /responses as soon as a model offers it. We only switch when the chat
+     * route is absent, so models that work today are not moved onto a different
+     * wire format for no reason.
+     *
+     * An unknown model (no metadata, e.g. configured before this fix or entered
+     * by hand) reads as "not responses-only" and keeps the old path; the 400 in
+     * createMessage corrects it and pins the route for next time.
+     */
+    private usesResponsesApi(): boolean {
+        const endpoints = this.authService.getModelEndpoints(this.config.model);
+        if (!endpoints || endpoints.length === 0) return false;
+        return !endpoints.includes(CHAT_COMPLETIONS_ENDPOINT)
+            && endpoints.includes(RESPONSES_ENDPOINT);
+    }
+
+    /**
+     * Build the Responses request body for one turn.
+     *
+     * Same client, same headers, same auth as the chat route -- only the shape
+     * and the path differ. Kept close to what the Copilot Chat extension sends:
+     * model, instructions, input, stream, tools, max_output_tokens. The Codex
+     * quirks that prepareResponsesRequest adds for chatgpt.com (`store: false`,
+     * `include: ['reasoning.encrypted_content']`) are deliberately absent --
+     * Copilot's own client does not send them.
+     */
+    private buildResponsesBody(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+    ): Record<string, unknown> {
+        const { maxTokens: effectiveMaxTokens } = resolveOutputBudget(
+            this.config.model,
+            this.config.maxTokens,
+            { estimatedInputTokens: estimatePromptTokens(systemPrompt, messages, tools) },
+        );
+
+        const body: Record<string, unknown> = {
+            model: this.config.model,
+            instructions: systemPrompt,
+            input: convertToResponsesInput(messages),
+            stream: true,
+            max_output_tokens: effectiveMaxTokens,
+        };
+
+        if (tools.length > 0) {
+            body.tools = convertToResponsesTools(tools);
+            body.tool_choice = 'auto';
+        }
+
+        // Only models with a native effort surface get the field; sending it to
+        // one without (Claude via Copilot) is a 400.
+        if (getModelEffortSupport(this.config.model, 'github-copilot')) {
+            const effort = this.resolveEffort();
+            if (effort) body.reasoning = { effort };
+        }
+
+        if (this.config.temperature !== undefined && modelSupportsTemperature(this.config.model)) {
+            body.temperature = Math.min(this.config.temperature, 2.0);
+        }
+
+        return body;
+    }
+
+    /**
+     * The effort level to send, or undefined for "send no field".
+     *
+     * Precedence, highest first:
+     *  1. an explicit level the user picked in the chat header -- in both
+     *     directions, so choosing 'minimal' really lowers it;
+     *  2. thinking switched explicitly off -- send nothing, the model keeps its
+     *     vendor default, which is the contract every other provider follows.
+     *     A high default that overrules an explicit Off would be a bug, not a
+     *     convenience;
+     *  3. the Copilot default of 'high' (user request 2026-08-22): the GPT-5.6
+     *     lineup is picked for agentic work, where reasoning depth is the point.
+     */
+    private resolveEffort(): ReasoningEffort | undefined {
+        const explicit = asGptEffort(this.config.reasoningEffort);
+        if (explicit) return explicit;
+        if (this.config.thinkingEnabled === false) return undefined;
+        return COPILOT_DEFAULT_EFFORT;
+    }
+
+    /**
+     * Stream one turn over /responses.
+     *
+     * `allowChatFallback` guards the one hop back to the chat route. A
+     * remembered route is a cache of something GitHub controls -- it moved the
+     * GPT-5.6 lineup off /chat/completions once, so it can move a model back,
+     * and a user on a stale table would otherwise sit on a dead model until
+     * they happened to press Fetch. The flag is false when we arrived here
+     * FROM the chat route, so the two paths can never ping-pong.
+     */
+    private async *createMessageViaResponses(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+        allowChatFallback = true,
+    ): ApiStream {
+        const body = this.buildResponsesBody(systemPrompt, messages, tools);
+
+        let stream: AsyncIterable<unknown>;
+        try {
+            stream = await this.createResponsesStream(body, abortSignal);
+        } catch (e) {
+            if (this.is401Error(e)) {
+                this.authService.invalidateCopilotToken();
+                stream = await this.createResponsesStream(body, abortSignal);
+            } else if (allowChatFallback && isRouteRejected(e, RESPONSES_ENDPOINT)) {
+                this.authService.noteChatCompletions(this.config.model);
+                yield* this.createMessageViaChatCompletions(systemPrompt, messages, tools, abortSignal, false);
+                return;
+            } else {
+                throw this.enhanceError(e);
+            }
+        }
+
+        const state = createResponsesStreamState();
+        for await (const event of stream) {
+            yield* responsesEventToChunks(event as Record<string, unknown>, state);
+        }
+        // Providers that end without a response.completed would otherwise drop
+        // accumulated tool calls (the Responses twin of BUG-013).
+        yield* flushResponsesStreamState(state);
+    }
+
+    /**
+     * The SDK's responses surface posts to `${baseURL}/responses`, which is the
+     * route the Copilot Chat extension calls (capiResponsesURL). Cast because
+     * the body carries fields outside the SDK's parameter type; the API passes
+     * them through.
+     */
+    private createResponsesStream(
+        body: Record<string, unknown>,
+        abortSignal?: AbortSignal,
+    ): Promise<AsyncIterable<unknown>> {
+        return this.client.responses.create(
+            body as unknown as Parameters<typeof this.client.responses.create>[0],
+            { signal: abortSignal ?? null },
+        ) as unknown as Promise<AsyncIterable<unknown>>;
+    }
+
     /**
      * Quick non-streaming classification call.
      * Used by skill matching LLM-fallback.
      */
     async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+        // FIX-45-03-01: same route decision as createMessage -- a responses-only
+        // model would 400 here too, and skill matching would silently lose its
+        // LLM fallback.
+        if (this.usesResponsesApi()) {
+            return this.classifyViaResponses(prompt, abortSignal);
+        }
         // BUG-015 / FEATURE-1206: see createMessage() for the rationale.
         const response = await this.client.chat.completions.create({
             model: this.config.model,
@@ -298,6 +544,35 @@ export class GitHubCopilotProvider implements ApiHandler {
         });
 
         return response.choices?.[0]?.message?.content?.trim() ?? '';
+    }
+
+    /** classifyText over /responses. Short call, so effort stays at the floor. */
+    private async classifyViaResponses(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+        const body: Record<string, unknown> = {
+            model: this.config.model,
+            input: [{
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: prompt }],
+            }],
+            stream: true,
+            max_output_tokens: 50,
+        };
+        if (getModelEffortSupport(this.config.model, 'github-copilot')) {
+            // A one-line classification does not benefit from deep reasoning,
+            // and the tokens are billed either way.
+            body.reasoning = { effort: resolveGptEffort(this.config.reasoningEffort, 'low') };
+        }
+
+        const stream = await this.createResponsesStream(body, abortSignal);
+        const state = createResponsesStreamState();
+        const buffer: string[] = [];
+        for await (const event of stream) {
+            for (const chunk of responsesEventToChunks(event as Record<string, unknown>, state)) {
+                if (chunk.type === 'text') buffer.push(chunk.text);
+            }
+        }
+        return buffer.join('').trim();
     }
 
     // ---------------------------------------------------------------------------
@@ -330,7 +605,17 @@ export class GitHubCopilotProvider implements ApiHandler {
             case 429:
                 return new Error('Copilot rate limit exceeded. Please wait a moment and try again.');
             case 400:
-                return new Error(`Copilot request error: ${e.message}. The model may require policy acceptance at github.com.`);
+                // FIX-45-03-01: the old blanket "may require policy acceptance"
+                // was appended to every 400 regardless of cause, and pointed at
+                // the wrong setting entirely when the real problem was the
+                // route. Say what the server said, and only name the route when
+                // that is what actually went wrong.
+                return isRouteRejected(e, CHAT_COMPLETIONS_ENDPOINT)
+                    ? new Error(
+                        `Copilot does not serve "${this.config.model}" on the chat route. `
+                        + 'Open Provider settings, refresh the Copilot model list, and try again.',
+                    )
+                    : new Error(`Copilot request error: ${e.message}`);
             default:
                 return new Error(`Copilot API error (${e.status}): ${e.message}`);
         }

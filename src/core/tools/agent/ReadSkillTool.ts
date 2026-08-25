@@ -17,9 +17,11 @@
  */
 
 import { BaseTool, defangBoundaryTags, sanitizeDirectoryEntry } from '../BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP } from '../../skills/descriptionCaps';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import { TRUSTED_SKILL_TIERS } from '../../skills/SkillProvenanceStore';
 import { loadableSkills } from '../../context/SkillsManager';
+import { renderSkillInventory } from '../../skills/skillInventoryRenderer';
 import { isSkillEnabled } from '../../skills/skillToggleGate';
 import type ObsidianAgentPlugin from '../../../main';
 import type { SelfAuthoredSkillLoader, SelfAuthoredSkill } from '../../skills/SelfAuthoredSkillLoader';
@@ -204,7 +206,7 @@ export class ReadSkillTool extends BaseTool<'read_skill'> {
         // blanket angle-bracket rule was the only thing holding this shut, which
         // made a validation rule silently load-bearing for a sink nobody had
         // enumerated.
-        const safeDesc = sanitizeDirectoryEntry(description, 300);
+        const safeDesc = sanitizeDirectoryEntry(description, SKILL_DESCRIPTION_PROMPT_CAP);
         const safeHeadName = sanitizeDirectoryEntry(name, 80);
         const safeHeadSource = sanitizeDirectoryEntry(source, 40);
 
@@ -263,24 +265,13 @@ export class ReadSkillTool extends BaseTool<'read_skill'> {
      * sub-role frontmatter) and none of it was sanitised. Sub-roles are the
      * worst case: `parseSubRole` never runs validateSkillFrontmatter, so unlike
      * the main description these fields were never covered by ANY rule.
-     * Caps mirror SelfAuthoredSkillLoader.renderSkillSummary.
+     *
+     * IMP-29-03-01: die Zeilen selbst entstehen jetzt in
+     * `skillInventoryRenderer`, weil der Slash-Pfad und der Subtask dieselben
+     * brauchen. Der Wortlaut bleibt der von hier, Zeichen für Zeichen.
      */
     private renderInventoryHints(skill: SelfAuthoredSkill): string {
-        const { scripts, references, assets, subRoles } = skill.inventory;
-        const lines: string[] = [];
-        if (scripts.length > 0) {
-            lines.push(`**Scripts:** ${scripts.map(s => sanitizeDirectoryEntry(s.path, 120)).join(', ')}`);
-        }
-        if (references.length > 0) {
-            lines.push(`**References (read with read_file when needed):** ${references.map(r => sanitizeDirectoryEntry(r, 120)).join(', ')}`);
-        }
-        if (assets.length > 0) {
-            lines.push(`**Assets:** ${assets.map(a => sanitizeDirectoryEntry(a, 120)).join(', ')}`);
-        }
-        if (subRoles.length > 0) {
-            lines.push(`**Sub-roles (read on demand):** ${subRoles.map(r => `${sanitizeDirectoryEntry(r.filePath, 120)} (${sanitizeDirectoryEntry(r.role, 60)})`).join(', ')}`);
-        }
-        return lines.join('\n');
+        return renderSkillInventory(skill.inventory);
     }
 
     private capBody(body: string): string {

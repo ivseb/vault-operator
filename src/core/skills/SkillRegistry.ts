@@ -16,6 +16,7 @@ import { getAllowedMethodsForPlugin } from '../tools/agent/pluginApiAllowlist';
 // A DISABLED plugin is the non-degenerate case: its manifest is in the prompt
 // without the author ever having executed code.
 import { sanitizeDirectoryEntry } from '../tools/BaseTool';
+import { PLUGIN_DESCRIPTION_PROMPT_CAP } from './descriptionCaps';
 
 /**
  * AUDIT FIX-29-05 L-4: Obsidian's manifest loader only checks that `id` is
@@ -32,6 +33,24 @@ import { sanitizeDirectoryEntry } from '../tools/BaseTool';
  */
 function safePromptId(id: string): string {
     return id.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 60) || 'unknown-plugin';
+}
+
+/**
+ * FEAT-29-02 / FEAT-29-11: which file form a plugin skill has on disk depends
+ * on the skills root. `{root}/data/skills` (today) and the Welle-2 variant
+ * `{root}/data/skills/plugin` both carry per-plugin folders with a SKILL.md;
+ * an un-migrated install still keeps flat `{root}/plugin-skills/{id}.skill.md`
+ * files.
+ *
+ * FIX-29-03-01: the old check matched only the Welle-2 suffix, so the prompt
+ * pointed every migrated install at the flat form that no longer exists there.
+ * Both folder-layout roots have to match, because getPluginSkillsDir can hand
+ * over either one and the legacy root must keep the flat form.
+ */
+const SKILL_FOLDER_LAYOUT_ROOT = /(^|\/)data\/skills(\/plugin)?$/;
+
+function usesSkillFolderLayout(skillsDir: string): boolean {
+    return SKILL_FOLDER_LAYOUT_ROOT.test(skillsDir);
 }
 
 export class SkillRegistry {
@@ -121,10 +140,7 @@ export class SkillRegistry {
             'NEVER substitute a built-in tool (like create_base, write_file) for a plugin the user requested.',
             '',
             'Before using a plugin, ALWAYS read its skill file first:',
-            // FEAT-29-02: post-Welle-1 the manifest lives in a per-plugin folder.
-            // Detect via the dir suffix; users not opted into Welle 1 stay on the
-            // legacy `.skill.md` flat layout.
-            this.skillsDir.endsWith('/data/skills/plugin')
+            usesSkillFolderLayout(this.skillsDir)
                 ? `  read_file("${this.skillsDir}/{plugin-id}/SKILL.md")`
                 : `  read_file("${this.skillsDir}/{plugin-id}.skill.md")`,
             'This tells you what the plugin does, its commands, its configuration, and how to use it.',
@@ -140,7 +156,7 @@ export class SkillRegistry {
             for (const skill of active) {
                 const cmdList = skill.commands.map((c) => `${c.id}`).join(', ');
                 const type = skill.source === 'core' ? 'Core' : 'Community';
-                lines.push(`- ${sanitizeDirectoryEntry(skill.name, 80)} [${type}] -- ${sanitizeDirectoryEntry(skill.description, 300)}`);
+                lines.push(`- ${sanitizeDirectoryEntry(skill.name, 80)} [${type}] -- ${sanitizeDirectoryEntry(skill.description, PLUGIN_DESCRIPTION_PROMPT_CAP)}`);
                 if (cmdList) {
                     lines.push(`  Commands: ${cmdList}`);
                 }
@@ -189,7 +205,7 @@ export class SkillRegistry {
         if (others.length > 0) {
             lines.push('OTHER ENABLED PLUGINS (no agentifiable commands found at scan time, but installed and enabled):');
             for (const p of others) {
-                const desc = p.description ? ` -- ${sanitizeDirectoryEntry(p.description, 300)}` : '';
+                const desc = p.description ? ` -- ${sanitizeDirectoryEntry(p.description, PLUGIN_DESCRIPTION_PROMPT_CAP)}` : '';
                 lines.push(`- ${sanitizeDirectoryEntry(p.name, 80)} (${safePromptId(p.id)})${desc}`);
             }
             lines.push('');
@@ -204,7 +220,7 @@ export class SkillRegistry {
         if (disabled.length > 0) {
             lines.push('DISABLED PLUGINS (installed but not active):');
             for (const skill of disabled) {
-                lines.push(`- ${sanitizeDirectoryEntry(skill.name, 80)} (${safePromptId(skill.id)}) -- ${sanitizeDirectoryEntry(skill.description, 300)}`);
+                lines.push(`- ${sanitizeDirectoryEntry(skill.name, 80)} (${safePromptId(skill.id)}) -- ${sanitizeDirectoryEntry(skill.description, PLUGIN_DESCRIPTION_PROMPT_CAP)}`);
             }
             lines.push('');
             lines.push('When a disabled plugin matches the user\'s request:');

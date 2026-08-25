@@ -279,12 +279,17 @@ export async function handleToolCall(
     // expensive-Klasse) und ueberdies Map-Eintraege ueber lange
     // Uptime akkumulieren liess. source_interface bleibt nur fuer
     // OperationLogger-Telemetrie erhalten.
+    // IMP-14-00-03: die Klasse kommt aus dem konkreten Aufruf, nicht aus
+    // dem Tool-Namen allein. execute_vault_op zaehlte pauschal als
+    // 'medium', also 30 Aufrufe pro Minute fuer read_file wie fuer
+    // create_pptx; classifyToolCall leitet sie aus der inneren Operation
+    // ab. Der Caller-Key bleibt unveraendert.
     // 429-Antwort mit retry_after-Sek wenn Limit ueberschritten.
     const rateLimiter = plugin.mcpRateLimiter;
     if (rateLimiter) {
-        const { classifyTool } = await import('../McpRateLimiter');
+        const { classifyToolCall } = await import('../McpRateLimiter');
         const callerKey = plugin.settings.mcpServerToken ?? 'unauthenticated';
-        const decision = rateLimiter.consume(callerKey, classifyTool(tool));
+        const decision = rateLimiter.consume(callerKey, classifyToolCall(tool, args));
         if (!decision.allowed) {
             return {
                 content: [{

@@ -33,14 +33,27 @@
  * an external bearer-token caller.
  *
  * AUDIT-013 C-1 (proper fix, replaces interim deny-list).
+ *
+ * IMP-14-00-01: the dispatcher also hands out parameter schemas. Its own
+ * schema is `{operation, params}` and says nothing about the 60+ operations
+ * behind it, so a foreign model had to learn every parameter name by failing.
+ * `describe_operation` returns the registry's inputSchema for one operation,
+ * and a validation failure carries that schema with it.
  */
 
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
-import type { ToolName, ToolUse } from '../../core/tools/types';
+import type { ToolDefinition, ToolName, ToolUse } from '../../core/tools/types';
 import type { ToolEffect } from '../../core/tools/toolEffects';
-import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
+import { AGENT_INTERNAL_TOOLS, enforceSourceIsolation } from '../toolDefinitions';
 import { ToolExecutionPipeline } from '../../core/tool-execution/ToolExecutionPipeline';
+
+/**
+ * IMP-14-00-01: reserved operation name. It is answered by the dispatcher
+ * itself and never reaches the registry, so it stays available even when a
+ * tool of the same name is registered later.
+ */
+const DESCRIBE_OPERATION = 'describe_operation';
 
 export async function handleExecuteVaultOp(
     plugin: ObsidianAgentPlugin,
@@ -56,6 +69,13 @@ export async function handleExecuteVaultOp(
         };
     }
 
+    // IMP-14-00-01: schema lookup is answered here, before any dispatch. It has
+    // no side effect, so a model can ask for the shape of a write operation
+    // without tripping the consent gate first.
+    if (operation === DESCRIBE_OPERATION) {
+        return describeOperation(plugin, params);
+    }
+
     // Defense in depth: agent-internal tools are not part of the MCP
     // surface. The pipeline would auto-approve some of them (group=agent
     // is auto-approved by checkApproval), so we filter here before the
@@ -63,6 +83,25 @@ export async function handleExecuteVaultOp(
     if (AGENT_INTERNAL_TOOLS.has(operation)) {
         return {
             content: [{ type: 'text', text: `Operation "${operation}" is agent-internal and not callable via MCP.` }],
+            isError: true,
+        };
+    }
+
+    // FIX-23-09-08: strictSourceIsolation is checked BEFORE the dispatch, with
+    // the same function the recall_memory and search_history wrappers use. The
+    // guard used to sit in the wrappers alone, so the identical request was
+    // refused there and answered with memory content here. The dispatcher hands
+    // the call to the core tool, which knows no source_interface, so it cannot
+    // honour a filter -- scopesBySource is false and the answer is a refusal.
+    const isolation = enforceSourceIsolation({
+        operation,
+        args: params,
+        strictSourceIsolation: plugin.settings?.memory?.crossSurface?.strictSourceIsolation === true,
+        scopesBySource: false,
+    });
+    if (isolation.blocked) {
+        return {
+            content: [{ type: 'text', text: `Error: ${isolation.message}` }],
             isError: true,
         };
     }
@@ -79,7 +118,10 @@ export async function handleExecuteVaultOp(
         return {
             content: [{
                 type: 'text',
-                text: `Unknown operation: "${operation}". Available operations: ${available}`,
+                // IMP-14-00-01: the list of names alone is what made callers guess.
+                text: `Unknown operation: "${operation}". Available operations: ${available}. `
+                    + `For the parameters of one, call ${DESCRIBE_OPERATION} with `
+                    + `params.operation set to its name.`,
             }],
             isError: true,
         };
@@ -116,7 +158,16 @@ export async function handleExecuteVaultOp(
         input: params,
     };
 
-    const resultParts: string[] = [];
+    // FIX-14-00-01: the callback is the ERROR channel only. The pipeline
+    // forwards every pushToolResult here AND returns the same text in
+    // result.content, so collecting both and joining them shipped every
+    // dispatcher answer twice (get_vault_stats: 2545 chars, first half
+    // identical to the second). The return value is the authoritative
+    // channel -- it is also the one that carries the externalized or capped
+    // form of a large result. handleError stays, because tools like
+    // recall_memory report a failure through it and push nothing: there the
+    // callback is the only carrier the message has.
+    const errorParts: string[] = [];
     const logParts: string[] = [];
 
     let result;
@@ -124,20 +175,12 @@ export async function handleExecuteVaultOp(
         result = await pipeline.executeTool(
             toolCall,
             {
-                pushToolResult(content: unknown): void {
-                    if (typeof content === 'string') {
-                        resultParts.push(content);
-                    } else if (Array.isArray(content)) {
-                        for (const block of content) {
-                            if (typeof block === 'object' && block !== null && 'text' in block) {
-                                resultParts.push((block as { text: string }).text);
-                            }
-                        }
-                    }
+                pushToolResult(): void {
+                    // Intentionally empty, see FIX-14-00-01 above.
                 },
                 handleError(_toolName: string, error: unknown): Promise<void> {
                     const msg = error instanceof Error ? error.message : String(error);
-                    resultParts.push(`Error: ${msg}`);
+                    errorParts.push(`Error: ${msg}`);
                     return Promise.resolve();
                 },
                 log(message: string): void {
@@ -160,15 +203,27 @@ export async function handleExecuteVaultOp(
     // Pipeline returns content as a string OR a content-block array. Extract
     // text. For multimodal content blocks (rare here) only text is forwarded.
     const pipelineText = extractPipelineText(result.content);
-    if (pipelineText) resultParts.push(pipelineText);
-
-    const text = resultParts.join('\n') || `Operation "${operation}" completed (no output).`;
+    // The error channel only speaks when the pipeline returned nothing, so an
+    // error the pipeline already reports in its own result is not repeated.
+    const errorFallback = pipelineText.length === 0 && errorParts.length > 0;
+    let text = pipelineText
+        || errorParts.join('\n')
+        || `Operation "${operation}" completed (no output).`;
+    // IMP-14-00-01: a caller that guessed a parameter name gets the real schema
+    // in the same answer instead of a second round of guessing. The marker is
+    // the validation stage's own wording in ToolExecutionPipeline; the contract
+    // test in __tests__/executeVaultOp.test.ts fails if it ever moves.
+    if (result.is_error === true && pipelineText.includes('Input validation failed:')) {
+        text += `\n\n${JSON.stringify(schemaPayload(operation, tool.getDefinition()), null, 2)}`;
+    }
     if (logParts.length > 0) {
         console.debug(`[MCP:execute_vault_op] ${operation}: ${logParts.join('; ')}`);
     }
     return {
         content: [{ type: 'text', text }],
-        isError: result.is_error ?? false,
+        // A tool that only calls handleError leaves is_error unset, and an
+        // error text must not travel as a success.
+        isError: result.is_error === true || errorFallback,
     };
 }
 
@@ -181,4 +236,61 @@ function extractPipelineText(content: unknown): string {
             .join('\n');
     }
     return '';
+}
+
+/**
+ * IMP-14-00-01: the registry knows an inputSchema for every tool; this is the
+ * shape in which the MCP surface passes it on. `usage` exists because the
+ * envelope is the second thing callers get wrong after the field names: the
+ * object is called params, not args.
+ */
+function schemaPayload(
+    operation: string,
+    definition: ToolDefinition,
+): Record<string, unknown> {
+    return {
+        operation,
+        description: definition.description,
+        params: definition.input_schema ?? { type: 'object', properties: {}, required: [] },
+        usage: `execute_vault_op takes operation="${operation}" and passes these fields `
+            + 'inside its "params" object.',
+    };
+}
+
+function describeOperation(
+    plugin: ObsidianAgentPlugin,
+    params: Record<string, unknown>,
+): McpToolResult {
+    const target = typeof params.operation === 'string' ? params.operation.trim() : '';
+    const available = (): string => plugin.toolRegistry
+        .getAllTools()
+        .map((t) => t.name)
+        .filter((n) => !AGENT_INTERNAL_TOOLS.has(n))
+        .sort()
+        .join(', ');
+
+    if (!target) {
+        return errorResult(
+            `${DESCRIBE_OPERATION} needs the operation to describe in params.operation. `
+            + `Available operations: ${available()}`,
+        );
+    }
+    if (AGENT_INTERNAL_TOOLS.has(target)) {
+        return errorResult(`Operation "${target}" is agent-internal and not callable via MCP.`);
+    }
+    const tool = plugin.toolRegistry.getTool(target as ToolName);
+    if (!tool) {
+        return errorResult(`Unknown operation: "${target}". Available operations: ${available()}`);
+    }
+    return {
+        content: [{
+            type: 'text',
+            text: JSON.stringify(schemaPayload(target, tool.getDefinition()), null, 2),
+        }],
+        isError: false,
+    };
+}
+
+function errorResult(text: string): McpToolResult {
+    return { content: [{ type: 'text', text }], isError: true };
 }

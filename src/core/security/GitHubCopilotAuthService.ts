@@ -32,6 +32,13 @@ const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
 const COPILOT_API_BASE = 'https://api.githubcopilot.com';
 const MODELS_URL = `${COPILOT_API_BASE}/models`;
 
+/**
+ * FIX-45-03-01: the two chat routes Copilot serves. Path strings, matching the
+ * values GitHub puts in each model's `supported_endpoints`.
+ */
+export const CHAT_COMPLETIONS_ENDPOINT = '/chat/completions';
+export const RESPONSES_ENDPOINT = '/responses';
+
 /** Required headers for all Copilot API calls. */
 const COPILOT_HEADERS: Record<string, string> = {
     'User-Agent': 'GitHubCopilotChat/0.39.2',
@@ -69,10 +76,80 @@ interface CopilotTokenResponse {
     };
 }
 
-interface CopilotModel {
+export interface CopilotModel {
     id: string;
     name?: string;
-    capabilities?: Record<string, boolean>;
+    capabilities?: {
+        type?: string;
+        family?: string;
+        limits?: {
+            max_context_window_tokens?: number;
+            max_output_tokens?: number;
+            max_prompt_tokens?: number;
+        };
+        supports?: Record<string, boolean>;
+    };
+    /**
+     * FIX-45-03-01: the request routes this model answers on, e.g.
+     * ["/chat/completions"] or ["/responses"]. GitHub took the chat route away
+     * from the GPT-5.6 lineup (Terra, Sol, Luna); those ids serve only on
+     * /responses and reject /chat/completions with HTTP 400. Older entries omit
+     * the field entirely, which we treat as "unknown" rather than guessing.
+     *
+     * Field name and semantics verified against the Copilot Chat extension's
+     * own `useResponsesApi` getter, which reads exactly this array.
+     */
+    supported_endpoints?: string[];
+    /** Model-level terms the account may still have to accept. */
+    policy?: { state?: string; terms?: string };
+    model_picker_enabled?: boolean;
+    /**
+     * FIX-45-03-01: billing tiers. A `long_context` entry is what makes the larger
+     * context size selectable for a model (the GPT-5.6 lineup offers 1M this
+     * way); without it the account is held to the default tier's prompt limit.
+     * It is a pricing tier, not a request parameter — nothing extra is sent.
+     */
+    billing?: {
+        token_prices?: {
+            default?: Record<string, unknown>;
+            long_context?: Record<string, unknown>;
+        };
+    };
+}
+
+/**
+ * FIX-45-03-01: what we keep per model between sessions. Every field is optional
+ * because the model list only reports what it reports; absent means "unknown",
+ * which always resolves to the pre-fix behaviour rather than a guess.
+ */
+export interface CopilotModelMeta {
+    /** Request routes the model answers on, e.g. ['/responses']. */
+    endpoints?: string[];
+    /** Largest usable context window, see resolveCopilotContextWindow. */
+    contextWindow?: number;
+    /** Provider-reported output cap. */
+    maxOutputTokens?: number;
+}
+
+/**
+ * The context size the user can pick for the GPT-5.6 lineup (Terra, Sol, Luna)
+ * is a billing tier, not a request parameter. A model priced for long context
+ * (`billing.token_prices.long_context`) may use the full
+ * `max_context_window_tokens`; everything else is held to `max_prompt_tokens`.
+ * We always take the largest window the account is entitled to.
+ *
+ * This mirrors `_getMaxPromptTokensOverride` in the Copilot Chat extension,
+ * minus its 3-token safety subtraction — VO applies its own margin downstream
+ * in resolveOutputBudget (CONTEXT_SAFETY_MARGIN).
+ */
+export function resolveCopilotContextWindow(model: CopilotModel): number | undefined {
+    const limits = model.capabilities?.limits;
+    if (!limits) return undefined;
+    const hasLongContextTier = model.billing?.token_prices?.long_context !== undefined;
+    if (hasLongContextTier && limits.max_context_window_tokens !== undefined) {
+        return limits.max_context_window_tokens;
+    }
+    return limits.max_prompt_tokens ?? limits.max_context_window_tokens;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +164,19 @@ export class GitHubCopilotAuthService {
     private copilotToken = '';
     private copilotTokenExpiresAt = 0; // epoch seconds
     private customClientId = '';
+    /**
+     * FIX-45-03-01: modelId -> what the last /models response said about it.
+     * Feeds the provider's route decision and its context window. Persisted so
+     * the first request after a restart already goes to the right endpoint
+     * instead of paying a 400 to find out, and so a model entered by hand (a
+     * tier override, which never lands in discoveredModels) still gets its real
+     * window instead of the 128k fallback.
+     *
+     * A Map, not a plain object: the keys are model ids straight out of an API
+     * response, and `__proto__` as a key on a plain object is prototype
+     * pollution. A Map has no such key.
+     */
+    private modelMeta = new Map<string, CopilotModelMeta>();
 
     // Concurrency guards
     private refreshPromise: Promise<void> | null = null;
@@ -122,6 +212,10 @@ export class GitHubCopilotAuthService {
         this.copilotToken = settings.githubCopilotToken ?? '';
         this.copilotTokenExpiresAt = settings.githubCopilotTokenExpiresAt ?? 0;
         this.customClientId = settings.githubCopilotCustomClientId ?? '';
+        // Settings written before FIX-45-03-01 have no table; an empty one just
+        // means every model starts as "route and limits unknown". The next
+        // model-list refresh fills it in, so nothing has to be migrated.
+        this.modelMeta = new Map(Object.entries(settings.githubCopilotModelMeta ?? {}));
     }
 
     /**
@@ -132,6 +226,7 @@ export class GitHubCopilotAuthService {
         settings.githubCopilotToken = this.copilotToken;
         settings.githubCopilotTokenExpiresAt = this.copilotTokenExpiresAt;
         settings.githubCopilotCustomClientId = this.customClientId;
+        settings.githubCopilotModelMeta = Object.fromEntries(this.modelMeta);
     }
 
     /** Register a callback that persists settings to disk. */
@@ -369,7 +464,92 @@ export class GitHubCopilotAuthService {
         });
 
         const data = res.json as { data?: CopilotModel[] };
-        return (data.data ?? []).sort((a, b) => a.id.localeCompare(b.id));
+        // Copy before sorting: Array.sort mutates, and the caller's payload is
+        // not ours to reorder.
+        const models = [...(data.data ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+        this.rememberModelMeta(models);
+        return models;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Model routes (FIX-45-03-01)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Request routes the given model answers on, or undefined when the model
+     * list never said. Undefined means "unknown", not "chat only" -- the caller
+     * has to keep its current behaviour and let the server correct it.
+     */
+    getModelEndpoints(modelId: string): string[] | undefined {
+        const endpoints = this.modelMeta.get(modelId)?.endpoints;
+        return endpoints && endpoints.length > 0 ? [...endpoints] : undefined;
+    }
+
+    /**
+     * Context window and output cap the model list reported for this model, or
+     * undefined when it never mentioned it.
+     *
+     * Needed on top of the discovery path because a model can reach the
+     * provider without ever passing through discovery: a tier override typed
+     * into provider settings resolves to a bare id, and would otherwise run on
+     * the 128k default while the model actually serves 1M.
+     */
+    getModelLimits(modelId: string): { contextWindow?: number; maxOutputTokens?: number } | undefined {
+        const meta = this.modelMeta.get(modelId);
+        if (!meta) return undefined;
+        if (meta.contextWindow === undefined && meta.maxOutputTokens === undefined) return undefined;
+        return { contextWindow: meta.contextWindow, maxOutputTokens: meta.maxOutputTokens };
+    }
+
+    /**
+     * Pin a model the server just rejected on /chat/completions. Lets a model
+     * that was configured before FIX-45-03-01 (and therefore carries no route
+     * metadata) reach the right endpoint without the user re-fetching the list.
+     */
+    /**
+     * The mirror of noteResponsesOnly: the server rejected /responses for this
+     * model, so it is back on the chat route. A remembered route is a cache of
+     * something GitHub controls, and it has moved these models before.
+     */
+    noteChatCompletions(modelId: string): void {
+        const current = this.modelMeta.get(modelId);
+        if (current?.endpoints?.includes(CHAT_COMPLETIONS_ENDPOINT)) return;
+        this.modelMeta.set(modelId, { ...current, endpoints: [CHAT_COMPLETIONS_ENDPOINT] });
+        void this.persistTokens();
+    }
+
+    noteResponsesOnly(modelId: string): void {
+        const current = this.modelMeta.get(modelId);
+        if (current?.endpoints?.length === 1 && current.endpoints[0] === RESPONSES_ENDPOINT) {
+            return; // already pinned, no redundant write
+        }
+        // Keep whatever limits we know; only the route is being corrected.
+        this.modelMeta.set(modelId, { ...current, endpoints: [RESPONSES_ENDPOINT] });
+        void this.persistTokens();
+    }
+
+    /**
+     * Replace the table with what this /models response reported. A full
+     * replace (not a merge) so a model the account lost, or one whose routes
+     * GitHub changed, does not keep a stale entry forever. Fields the response
+     * omits stay absent, which is what makes them read back as "unknown".
+     */
+    private rememberModelMeta(models: CopilotModel[]): void {
+        const next = new Map<string, CopilotModelMeta>();
+        for (const model of models) {
+            const meta: CopilotModelMeta = {};
+            const endpoints = model.supported_endpoints;
+            if (Array.isArray(endpoints) && endpoints.length > 0) {
+                meta.endpoints = [...endpoints];
+            }
+            const contextWindow = resolveCopilotContextWindow(model);
+            if (contextWindow !== undefined) meta.contextWindow = contextWindow;
+            const maxOutput = model.capabilities?.limits?.max_output_tokens;
+            if (maxOutput !== undefined) meta.maxOutputTokens = maxOutput;
+            if (Object.keys(meta).length > 0) next.set(model.id, meta);
+        }
+        this.modelMeta = next;
+        void this.persistTokens();
     }
 
     // ---------------------------------------------------------------------------
@@ -413,6 +593,9 @@ export class GitHubCopilotAuthService {
         this.accessToken = '';
         this.copilotToken = '';
         this.copilotTokenExpiresAt = 0;
+        // FIX-45-03-01: the model table is account-scoped -- a different account
+        // may be served a different lineup, so it must not survive a logout.
+        this.modelMeta.clear();
         this.generation++;
         await this.persistTokens();
     }

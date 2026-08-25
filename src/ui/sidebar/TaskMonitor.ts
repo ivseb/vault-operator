@@ -18,8 +18,9 @@ import type ObsidianAgentPlugin from '../../main';
 import type { ApiHandler } from '../../api/types';
 import { getModelKey } from '../../types/settings';
 import { computeCost, computeCostForBuckets, type UsageByModel } from '../../core/pricing/ModelPricing';
-import { TaskTelemetry, formatTelemetryFooter } from '../../core/telemetry/TaskTelemetry';
+import { TaskTelemetry, formatTelemetryFooter, type RequestTelemetryEntry } from '../../core/telemetry/TaskTelemetry';
 import { VaultDataFileAdapter } from '../../core/storage/VaultDataFileAdapter';
+import { getAgentDataDir } from '../../core/utils/agentFolder';
 
 export interface TaskMonitorOptions {
     plugin: ObsidianAgentPlugin;
@@ -76,7 +77,39 @@ export class TaskMonitor {
      */
     private lastUsageByModel?: UsageByModel;
 
+    /**
+     * FEAT-24-11: task start, captured when the monitor is created (one
+     * monitor per task). TaskTelemetry is constructed at persist time, so
+     * its own start stamp would be the write time and every record would
+     * read 0 ms.
+     */
+    private readonly startedAt = Date.now();
+
     constructor(private opts: TaskMonitorOptions) {}
+
+    /**
+     * FEAT-24-11: telemetry lives under the agent data root
+     * (.vault-operator/data/telemetry), not the legacy .obsidian-agent
+     * folder. One place to compute it so all three JSONL files agree.
+     */
+    private telemetryDir(): string {
+        return `${getAgentDataDir(this.opts.plugin)}/telemetry`;
+    }
+
+    private makeTelemetry(): TaskTelemetry {
+        const fs = new VaultDataFileAdapter(this.opts.app.vault.adapter);
+        return new TaskTelemetry(fs, { dir: this.telemetryDir() });
+    }
+
+    /**
+     * FEAT-24-11: one line per API request. Appended as it arrives; the
+     * file is trimmed once when the task record is written.
+     */
+    onRequestTelemetry(entry: RequestTelemetryEntry): void {
+        void (async () => {
+            await this.makeTelemetry().recordRequest(entry);
+        })().catch((e) => console.warn('[Telemetry] request record failed (non-fatal):', e));
+    }
 
     /**
      * FIX-19-06-01: the footer to write into, resolved at call time. The
@@ -175,15 +208,12 @@ export class TaskMonitor {
      */
     onCondenseTelemetry(event: import('../../core/telemetry/TaskTelemetry').CondenseTelemetryEntry): void {
         void (async () => {
-            const fs = new VaultDataFileAdapter(this.opts.app.vault.adapter);
-            const telemetry = new TaskTelemetry(fs);
-            await telemetry.recordCondense(event);
+            await this.makeTelemetry().recordCondense(event);
         })().catch((e) => console.warn('[Telemetry] condense record failed (non-fatal):', e));
     }
 
     private async persist(data: TaskTelemetryData): Promise<void> {
-        const fs = new VaultDataFileAdapter(this.opts.app.vault.adapter);
-        const telemetry = new TaskTelemetry(fs);
+        const telemetry = this.makeTelemetry();
         // AUDIT-013 M-2: promptPreview is opt-in. Vault sync may share the
         // telemetry file, so user prompts only land on disk if the user
         // explicitly enables the flag.
@@ -201,7 +231,14 @@ export class TaskMonitor {
             errorMessage: data.errorMessage,
             // FIX-24-05-05: per-model breakdown for correct mixed-model pricing.
             usageByModel: this.lastUsageByModel,
+            // FEAT-24-11: the task facts the loop reported. Before this they
+            // were dropped here and every record read iterations 0.
+            iterations: data.iterations,
+            toolSequence: data.toolSequence,
+            startedAt: this.startedAt,
         });
+        // FEAT-24-11: keep the per-request log bounded, once per task.
+        await telemetry.trimRequestLog();
     }
 
     private modelIdForCost(): string {

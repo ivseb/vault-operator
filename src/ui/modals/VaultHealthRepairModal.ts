@@ -1050,7 +1050,7 @@ export class VaultHealthRepairModal extends Modal {
                 }
                 repairBtn.disabled = true;
                 repairBtn.setText(t('modal.vaultHealth.repairing'));
-                void this.runRepair();
+                this.runRepair();
             });
 
             // FEAT-19-05-01: Batch-Start. Nur wenn mehr weak-Paare hinter dem
@@ -1163,7 +1163,7 @@ export class VaultHealthRepairModal extends Modal {
             }
             btn.disabled = true;
             btn.setText(t('modal.vaultHealth.repairing'));
-            void this.runRepair();
+            this.runRepair();
         });
     }
 
@@ -1461,10 +1461,14 @@ export class VaultHealthRepairModal extends Modal {
             new Notice(t('notice.vaultHealth.noRepairSelection'));
             return;
         }
-        await this.runRepair();
+        this.runRepair();
     }
 
-    private async runRepair(): Promise<void> {
+    // Baut nur die Freigabe-Liste und rendert sie; das eigentliche Schreiben
+    // haengt an doRepair hinter der Freigabe. Das urspruengliche `async` kam
+    // aus der Erstfassung, die hier noch selbst geschrieben hat, und blieb
+    // nach dem Umbau auf den Freigabe-Zyklus ohne await zurueck.
+    private runRepair(): void {
         const healthService = this.plugin.vaultHealthService;
         if (!healthService) return;
 

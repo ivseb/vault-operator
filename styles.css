@@ -9901,6 +9901,14 @@ h4.agent-settings-section {
     font-size: var(--font-ui-small);
 }
 
+/* The summary line only when it carries something to do. Same size as the
+   muted line it replaces, so nothing below it shifts, and the colour is the
+   whole difference. */
+.agent-registry-modal__summary--action {
+    color: var(--text-warning, var(--color-orange));
+    font-weight: 600;
+}
+
 .agent-registry-error {
     color: var(--text-error);
     font-size: var(--font-ui-small);
@@ -10158,6 +10166,22 @@ h4.agent-settings-section {
 
 .agent-registry-chip--out {
     color: var(--text-accent);
+}
+
+/* The one chip that asks for an action. Warning orange rather than the accent,
+   because the accent is already spoken for by "Not installed", and the state
+   the user is meant to act on must not read as a state they can ignore. The
+   base chip draws its border from currentColor, so the colour carries the ring
+   with it and the weight does the rest. */
+.agent-registry-chip--update {
+    color: var(--text-warning, var(--color-orange));
+    font-weight: 600;
+}
+
+/* Not an action, a caveat: this copy is not the published one. Muted on
+   purpose, so it sits beside the update chip without competing with it. */
+.agent-registry-chip--changed {
+    color: var(--text-muted);
 }
 
 .agent-registry-back {

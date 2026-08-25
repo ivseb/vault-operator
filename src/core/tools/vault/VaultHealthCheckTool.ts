@@ -10,6 +10,7 @@
  * FEATURE-1901: Vault Health Check
  */
 
+import { TFile } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -137,8 +138,24 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 properties: {
                     action: {
                         type: 'string',
-                        enum: ['check', 'fix_backlinks', 'cleanup', 'fix_categories', 'cleanup_edges', 'refresh'],
-                        description: 'Action to perform. "check" (default): run health checks. "fix_backlinks": fix missing backlinks. "cleanup": remove invalid backlinks. "fix_categories": move values from wrong property to correct (e.g. Thema in Konzepte → Themen). "refresh": re-extract graph + ontology before checking.',
+                        enum: ['check', 'fix_backlinks', 'cleanup', 'fix_categories', 'cleanup_edges', 'refresh', 'record_freshness'],
+                        description: 'Action to perform. "check" (default): run health checks. "fix_backlinks": fix missing backlinks. "cleanup": remove invalid backlinks. "fix_categories": move values from wrong property to correct (e.g. Thema in Konzepte → Themen). "refresh": re-extract graph + ontology before checking. "record_freshness": persist content-level freshness verdicts (e.g. from the daily-briefing skill) into the knowledge review.',
+                    },
+                    verdicts: {
+                        type: 'array',
+                        description: 'record_freshness only: one entry per judged note. verdict is one of matches, extends, contradicts, outdated.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                path: { type: 'string', description: 'Vault-relative note path.' },
+                                verdict: { type: 'string', enum: ['matches', 'extends', 'contradicts', 'outdated'] },
+                                summary: { type: 'string', description: 'One sentence: what the source changes for this note.' },
+                                confidence: { type: 'number', description: '0..1, default 0.7.' },
+                                source_url: { type: 'string', description: 'The read source backing the verdict.' },
+                                published: { type: 'string', description: 'Source publication date, YYYY-MM-DD.' },
+                            },
+                            required: ['path', 'verdict', 'summary'],
+                        },
                     },
                 },
             },
@@ -297,10 +314,94 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                     `Run vault_health_check with action "check" to verify.`,
                 );
                 callbacks.log(`cleanup_edges: ${result.edgesRemoved} removed`);
+            } else if (action === 'record_freshness') {
+                // FEAT-19-16-11: the hand-over lane for content-level verdicts
+                // from a skill (daily-briefing records per-note verdicts in its
+                // day file). knowledge.db is a deny-zone for skills and sandbox
+                // code (FIX-44-22/44-24), so this action is the only door.
+                // Writes DB rows only, never vault files; no snapshot needed.
+                this.recordFreshness(input, callbacks);
             }
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
         }
+    }
+
+    /**
+     * FEAT-19-16-11: validate and persist skill-provided verdicts. Unknown
+     * paths and unknown verdict literals are rejected INDIVIDUALLY and named
+     * in the result; the rest is written. Rejecting the whole call for one
+     * bad row would teach the agent to retry blindly.
+     */
+    private recordFreshness(input: Record<string, unknown>, callbacks: ToolExecutionContext['callbacks']): void {
+        const ALLOWED = ['matches', 'extends', 'contradicts', 'outdated'];
+        const raw = Array.isArray(input.verdicts) ? input.verdicts : [];
+        const kdb = this.plugin.knowledgeDB;
+        if (!kdb?.isOpen?.()) {
+            callbacks.pushToolResult(this.formatError('knowledge.db is not open; build the semantic index first.'));
+            return;
+        }
+        if (raw.length === 0) {
+            callbacks.pushToolResult(this.formatError('record_freshness needs verdicts: [{path, verdict, summary, confidence?, source_url?, published?}].'));
+            return;
+        }
+        const db = kdb.getDB();
+        const nowIso = new Date().toISOString();
+        let recorded = 0;
+        const rejected: string[] = [];
+        for (const entry of raw as Array<Record<string, unknown>>) {
+            const path = typeof entry?.path === 'string' ? entry.path : '';
+            const verdict = typeof entry?.verdict === 'string' ? entry.verdict : '';
+            const summary = typeof entry?.summary === 'string' ? entry.summary : '';
+            const confidence = Math.min(1, Math.max(0, Number(entry?.confidence ?? 0.7)));
+            const sourceUrl = typeof entry?.source_url === 'string' ? entry.source_url : '';
+            if (!path || path.includes('..') || path.startsWith('/')) {
+                rejected.push(`${path || '(empty path)'}: invalid path`);
+                continue;
+            }
+            if (!ALLOWED.includes(verdict)) {
+                rejected.push(`${path}: unknown verdict "${verdict}" (use ${ALLOWED.join(', ')})`);
+                continue;
+            }
+            const file = this.plugin.app.vault.getAbstractFileByPath(path);
+            if (!(file instanceof TFile)) {
+                rejected.push(`${path}: not a note in this vault`);
+                continue;
+            }
+            const sourcesJson = JSON.stringify(sourceUrl ? [sourceUrl] : []);
+            // Verdict columns only; an existing classification (class +
+            // classified_at) stays untouched -- the FIX-19-16-02 contract
+            // from the other direction. An unclassified note gets a neutral
+            // 'evolving' so the row satisfies NOT NULL without pretending a
+            // vote happened.
+            db.run(
+                `INSERT INTO note_freshness (path, freshness_class, temporal_marker_count, classified_at,
+                    last_verdict, last_confidence, last_summary, last_sources_json, last_checked_at, last_verifier_tier)
+                 VALUES (?, 'evolving', 0, ?, ?, ?, ?, ?, ?, 'skill')
+                 ON CONFLICT(path) DO UPDATE SET
+                    last_verdict = excluded.last_verdict,
+                    last_confidence = excluded.last_confidence,
+                    last_summary = excluded.last_summary,
+                    last_sources_json = excluded.last_sources_json,
+                    last_checked_at = excluded.last_checked_at,
+                    last_verifier_tier = excluded.last_verifier_tier`,
+                [path, nowIso, verdict, confidence, summary, sourcesJson, nowIso],
+            );
+            db.run(
+                `INSERT INTO note_freshness_history (path, run_at, verdict, confidence, summary, sources_json, verifier_tier, model_id, tokens_used)
+                 VALUES (?, ?, ?, ?, ?, ?, 'skill', 'daily-briefing', 0)`,
+                [path, nowIso, verdict, confidence, summary, sourcesJson],
+            );
+            recorded++;
+        }
+        kdb.markDirty?.();
+        const lines = [`Recorded ${recorded} freshness verdict(s).`];
+        if (rejected.length) {
+            lines.push(`Rejected ${rejected.length}:`);
+            for (const r of rejected) lines.push(`- ${r}`);
+        }
+        callbacks.pushToolResult(lines.join('\n'));
+        callbacks.log(`record_freshness: ${recorded} recorded, ${rejected.length} rejected`);
     }
 }
 

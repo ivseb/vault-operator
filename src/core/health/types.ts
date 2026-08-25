@@ -28,7 +28,10 @@ export type VerdictLiteral =
     | 'outdated'
     | 'no_external_source';
 
-export type VerifierTier = 'mid' | 'frontier';
+// FEAT-19-16-11: 'skill' marks verdicts handed over by a skill through
+// vault_health_check record_freshness (daily-briefing), as opposed to the
+// built-in web verifier tiers.
+export type VerifierTier = 'mid' | 'frontier' | 'skill';
 
 /**
  * Result of a single note verification run. Persisted into

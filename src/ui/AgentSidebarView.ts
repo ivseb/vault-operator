@@ -16,6 +16,7 @@ import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools
 import { resolveAllowedMcpServers } from '../core/mcp/mcpActivation';
 import { sanitizeHistoryForApi } from '../core/utils/sanitizeHistoryForApi';
 import { sanitizeDirectoryEntry } from '../core/tools/BaseTool';
+import { SKILL_DESCRIPTION_PROMPT_CAP } from '../core/skills/descriptionCaps';
 import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
@@ -94,6 +95,7 @@ import { selectResumeSnapshot } from './sidebar/selectResumeSnapshot';
 import { pickTabTitle, TITLE_SETTLES_AFTER } from './sidebar/deriveTabTitle';
 import { isUnnamedTitle } from '../core/history/ConversationStore';
 import { resolveSkillChatTitle } from '../core/skills/resolveSkillChatTitle';
+import { buildExplicitSkillInstructions } from '../core/skills/skillInventoryRenderer';
 import { resolveRunTeardown } from './sidebar/runOwnership';
 import { repairUiMessages } from '../core/history/repairUiMessages';
 import { computeEditResendCut } from '../core/history/editResendCut';
@@ -2292,7 +2294,7 @@ export class AgentSidebarView extends ItemView {
             // AUDIT 2026-07-14 (Codex) M-1: user/imported skill names and
             // descriptions are untrusted; sanitise before they enter the cached
             // <available_skills> prompt block (defang boundary tags + one line).
-            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
+            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, SKILL_DESCRIPTION_PROMPT_CAP)}`);
 
         const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
         if (blocks.length === 0) return undefined;
@@ -2749,13 +2751,11 @@ export class AgentSidebarView extends ItemView {
                     (sk) => AutocompleteHandler.slugifySkillName(sk.name) === slug,
                 );
                 if (matchedSkill) {
-                    const parts = [
-                        `<explicit_instructions skill="${matchedSkill.name}">`,
-                        matchedSkill.body,
-                        '</explicit_instructions>',
-                    ];
-                    if (rest) parts.push('', rest);
-                    expandedText = parts.join('\n') + activeFileTail;
+                    // IMP-29-03-01: derselbe Renderer wie im Inline-Composer
+                    // und derselbe Wortlaut wie bei read_skill. Vorher stand
+                    // hier nur der Body, also fielen scripts/ und references/
+                    // unter den Tisch und der Agent erfand den Weg neu.
+                    expandedText = buildExplicitSkillInstructions(matchedSkill, rest) + activeFileTail;
                     // FIX-03-20-02: a skill may declare a deterministic chat
                     // title (chatTitle frontmatter, e.g. "Plaud {date}"). Set it
                     // NOW, not at task end: the task-end title block reads
@@ -4208,6 +4208,10 @@ export class AgentSidebarView extends ItemView {
                 onTaskTelemetry: (data) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onTaskTelemetry
                     taskMonitor.onTaskTelemetry(data);
+                },
+                onRequestTelemetry: (data) => {
+                    // FEAT-24-11: per-request cache picture -> requests.jsonl
+                    taskMonitor.onRequestTelemetry(data);
                 },
                 onCondenseTelemetry: (event) => {
                     // FIX-COMPACT-07: per-condense JSONL for threshold tuning
@@ -5746,7 +5750,7 @@ export class AgentSidebarView extends ItemView {
     }
 
     private switchMode(modeSlug: string): void {
-        void this.modeService.switchMode(modeSlug); // saves settings
+        this.modeService.switchMode(modeSlug);
         this.updateModelButton(); // model may differ per agent
     }
 

@@ -15,6 +15,7 @@
 import { TFile, type App } from 'obsidian';
 import type { ClusterMetadataStore } from '../knowledge/ClusterMetadataStore';
 import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
+import { clusterFreshnessScore } from './clusterFreshnessScore';
 
 export type StufeHintCallback = (info: {
     cluster: string;
@@ -121,13 +122,16 @@ export class Stufe2ActivityTrigger {
                 if (daysSinceCheck < this.opts.minDaysSinceCheck) return false;
             }
 
-            // Score berechnen (vereinfacht inline, analog FreshnessScorer)
+            // FIX-19-16-05: geteilte Formel statt der dritten Inline-Kopie.
+            // Die alte hier (`0.6*(1-ratio) + 0.3 + 0.1`) hatte zwei konstante
+            // Terme und konnte nie unter 40 fallen -- die Schwelle 70 war erst
+            // ab halber Halbwertszeit erreichbar, und der Hint feuerte auf dem
+            // Live-Vault kein einziges Mal (last_hint_at ueberall NULL).
             const halfLife = meta.halfLifeDays;
             if (halfLife <= 0) return false; // Personal-Cluster, statisch
             const memberPaths = this.fetchClusterMembers(cluster);
-            const avgAge = this.computeAvgAge(memberPaths);
-            const ageRatio = Math.min(1, avgAge / halfLife);
-            const score = Math.round(100 * (0.6 * (1 - ageRatio) + 0.3 + 0.1));
+            const { avgAge, coverageDrift } = this.computeAgeStats(memberPaths, halfLife);
+            const score = clusterFreshnessScore(avgAge, halfLife, coverageDrift);
 
             if (score >= this.opts.hintThresholdScore) return false;
 
@@ -153,18 +157,39 @@ export class Stufe2ActivityTrigger {
     }
 
     private computeAvgAge(paths: string[]): number {
-        if (paths.length === 0) return 0;
+        return this.computeAgeStats(paths, Number.POSITIVE_INFINITY).avgAge;
+    }
+
+    /**
+     * FIX-19-16-05: liefert neben dem Durchschnittsalter auch den
+     * Coverage-Drift (Anteil der Notizen ueber der Halbwertszeit), den die
+     * geteilte Score-Formel als zweiten Term braucht. Eine Query, Zaehlung
+     * in JS -- die per-Pfad-Maxima sind dieselbe Datenmenge, die die alte
+     * AVG-Query intern schon bildete.
+     */
+    private computeAgeStats(paths: string[], halfLifeDays: number): { avgAge: number; coverageDrift: number } {
+        if (paths.length === 0) return { avgAge: 0, coverageDrift: 0 };
         const db = this.knowledgeDB.getDB();
         const placeholders = paths.map(() => '?').join(',');
-        // FIX-19-19-01: AVG(MAX(mtime)) on the outer query is a nested aggregate
-        // that sql.js rejects with "misuse of aggregate function MAX()". The
-        // inner subquery already collapses to one max-mtime row per path via
-        // GROUP BY path, so the outer aggregate just averages those.
-        // eslint-disable-next-line no-restricted-syntax -- reason: ADR-137 exception, nested aggregate AVG(MAX(mtime)) needs raw SQL, refactor tracked separately
-        const r = db.exec(`SELECT AVG(mtime) FROM (SELECT path, MAX(mtime) AS mtime FROM vectors WHERE path IN (${placeholders}) GROUP BY path)`,
+        // FIX-19-19-01: MAX(mtime) pro Pfad via GROUP BY (kein verschachteltes
+        // Aggregat, sql.js lehnt AVG(MAX(...)) ab).
+        // eslint-disable-next-line no-restricted-syntax -- reason: ADR-137 exception, per-path MAX(mtime) needs raw SQL, refactor tracked separately
+        const r = db.exec(`SELECT path, MAX(mtime) AS mtime FROM vectors WHERE path IN (${placeholders}) GROUP BY path`,
             paths);
-        const avgMtime = r[0]?.values?.[0]?.[0] as number | null;
-        if (!avgMtime) return 0;
-        return (Date.now() - avgMtime) / 86_400_000;
+        const rows = r[0]?.values ?? [];
+        const now = Date.now();
+        let totalAge = 0;
+        let stale = 0;
+        let counted = 0;
+        for (const row of rows) {
+            const mtime = row[1] as number | null;
+            if (!mtime) continue;
+            const ageDays = (now - mtime) / 86_400_000;
+            totalAge += ageDays;
+            if (ageDays > halfLifeDays) stale++;
+            counted++;
+        }
+        if (counted === 0) return { avgAge: 0, coverageDrift: 0 };
+        return { avgAge: totalAge / counted, coverageDrift: stale / counted };
     }
 }

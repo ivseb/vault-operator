@@ -20,6 +20,12 @@
 interface AdapterLike {
     write: (path: string, content: string) => Promise<void>;
     writeBinary?: (path: string, content: ArrayBuffer) => Promise<void>;
+    /**
+     * FIX-31-01-02: used to tell an install from an edit. Optional, because
+     * the contract predates it; without it the interceptor keeps its former
+     * behaviour and snapshots every write.
+     */
+    exists?: (path: string) => Promise<boolean>;
 }
 
 interface SnapshotServiceLike {
@@ -102,6 +108,20 @@ export class SkillWriteInterceptor {
         const lastAt = this.lastSnapshotAt.get(skillName);
         if (lastAt !== undefined && now - lastAt < this.debounceMs) {
             return; // debounced
+        }
+
+        // FIX-31-01-02: a write into a skill that is not there yet is an
+        // INSTALL, and there is nothing to protect. Snapshotting it anyway
+        // wrote `.versions/{id}/snapshot.json` with fileCount 0 -- which
+        // recreated a folder the user had just deleted, and the importer then
+        // refused every later install as "already exists". Live vault,
+        // 2026-08-22: that empty snapshot was the only thing left in the
+        // folder. A skill exists when its SKILL.md does.
+        if (this.adapter.exists) {
+            const installed = await this.adapter
+                .exists(`${this.skillsRoot}/${skillName}/SKILL.md`)
+                .catch(() => true); // unreadable: snapshot rather than risk history
+            if (!installed) return;
         }
 
         try {
