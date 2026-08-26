@@ -30,6 +30,7 @@ import { sanitizeWithDetails } from '../memory/sanitizeVaultContentForLLM';
 import { Semaphore, mapWithConcurrency } from '../utils/asyncPool';
 import { stripAllAutoBlocks } from '../ingest/MOCMaintainer';
 import { createNodeFetch } from '../../api/providers/openai';
+import { GitHubCopilotAuthService } from '../security/GitHubCopilotAuthService';
 import { normalizeKeepAlive, parseOllamaNativeEmbeddings } from './ollamaKeepAlive';
 
 /**
@@ -1848,11 +1849,21 @@ export class SemanticIndexService {
     private async embedBatchViaSdk(texts: string[], model: CustomModel): Promise<Float32Array[]> {
         const OpenAI = (await import('openai')).default;
 
+        const copilotAuth = model.provider === 'github-copilot'
+            ? GitHubCopilotAuthService.getInstance()
+            : null;
+
         let baseURL: string;
         if (model.provider === 'openai') {
             baseURL = 'https://api.openai.com/v1';
         } else if (model.provider === 'openrouter') {
             baseURL = 'https://openrouter.ai/api/v1';
+        } else if (copilotAuth) {
+            // Same host resolution as the chat provider: read from the Copilot
+            // token, which is the only thing that knows whether this account is
+            // Individual, Business or Enterprise. No /v1 segment -- the gateway
+            // serves /embeddings off the root.
+            baseURL = copilotAuth.getApiBaseUrl();
         } else if (model.provider === 'ollama' || model.provider === 'lmstudio') {
             const base = (
                 model.baseUrl ||
@@ -1881,6 +1892,10 @@ export class SemanticIndexService {
             ...((['custom', 'ollama', 'lmstudio'] as const).includes(model.provider as never)
                 ? { fetch: createNodeFetch() }
                 : {}),
+            // Copilot has no API key to send: getCopilotFetch mints and
+            // refreshes the token per request and adds the editor headers the
+            // gateway requires. Node transport for the same CORS reason.
+            ...(copilotAuth ? { fetch: copilotAuth.getCopilotFetch(createNodeFetch()) } : {}),
         });
 
         console.debug(`[SemanticIndex] Embedding via SDK: ${model.provider} ${baseURL} model=${model.name} texts=${texts.length}`);

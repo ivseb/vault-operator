@@ -390,11 +390,21 @@ async function testEmbeddingConnection(model: CustomModel): Promise<TestResult> 
 async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
     const OpenAI = (await import('openai')).default;
 
+    const copilotAuth = model.provider === 'github-copilot'
+        ? GitHubCopilotAuthService.getInstance()
+        : null;
+
     let baseURL: string;
     if (model.provider === 'openai') {
         baseURL = 'https://api.openai.com/v1';
     } else if (model.provider === 'openrouter') {
         baseURL = 'https://openrouter.ai/api/v1';
+    } else if (copilotAuth) {
+        // Resolved from the Copilot token, so Individual, Business and
+        // Enterprise each reach their own host. No /v1 segment: the Copilot
+        // gateway serves /embeddings directly off the root, the way it serves
+        // /chat/completions.
+        baseURL = copilotAuth.getApiBaseUrl();
     } else if (model.provider === 'ollama' || model.provider === 'lmstudio') {
         const base = (model.baseUrl || (model.provider === 'lmstudio' ? 'http://localhost:1234' : 'http://localhost:11434'))
             .replace(/\/v1\/?$/, '').replace(/\/+$/, '');
@@ -416,6 +426,10 @@ async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
         ...((['custom', 'ollama', 'lmstudio'] as const).includes(model.provider as never)
             ? { fetch: createNodeFetch() }
             : {}),
+        // Copilot carries no API key: the token is minted per request and the
+        // gateway also wants the editor headers. Same wrapper the chat provider
+        // uses, over the same Node transport.
+        ...(copilotAuth ? { fetch: copilotAuth.getCopilotFetch(createNodeFetch()) } : {}),
     });
 
     const response = await client.embeddings.create({
@@ -882,6 +896,20 @@ async function fetchEmbeddingModels(
         return ((res.json.data ?? []) as ApiModelEntry[])
             .map((m) => ({ id: m.id as string, label: m.id as string }))
             .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
+    if (provider === 'github-copilot') {
+        // Same /models call the chat side uses; the embedding entries are the
+        // ones whose capabilities.type says so. capabilities.type is dropped by
+        // fetchProviderModels (chat path), which is why this cannot just reuse it.
+        const authService = GitHubCopilotAuthService.getInstance();
+        if (!authService.isAuthenticated()) throw new Error('Not authenticated. Sign in with GitHub first.');
+        const models = await authService.listModels();
+        const embeds = models.filter((m) => m.capabilities?.type === 'embeddings');
+        // No type field at all is possible on older instances: fall back to the
+        // id, rather than returning an empty list the user cannot act on.
+        const list = embeds.length > 0 ? embeds : models.filter((m) => /embed/i.test(m.id));
+        return list.map((m) => ({ id: m.id, label: m.name ?? m.id }));
     }
 
     if (provider === 'openrouter') {
