@@ -140,9 +140,14 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
 };
 
 // Providers that support embedding APIs (Anthropic has none)
-// Note: github-copilot excluded — Copilot API does not support /embeddings endpoint (FEATURE-1204 open question)
+// FEATURE-1204 answered: github-copilot DOES serve /embeddings. Verified
+// against a GHE.com tenant on 2026-08-26 -- the catalogue lists embedding
+// models and the endpoint returns vectors. The earlier 400 that presumably
+// motivated the exclusion is reproducible, but its cause is the request, not
+// the route: the gateway rejects `input` as a bare string and accepts it as an
+// array (see testEmbeddingViaSdk).
 // Note: kilo-gateway excluded — embedding contract not yet verified (ADR-043, FEATURE-1306)
-const EMBEDDING_PROVIDERS: ProviderType[] = ['openai', 'openrouter', 'azure', 'ollama', 'lmstudio', 'custom'];
+const EMBEDDING_PROVIDERS: ProviderType[] = ['openai', 'openrouter', 'azure', 'ollama', 'lmstudio', 'custom', 'github-copilot'];
 
 // Embedding model suggestions per provider (exact API IDs)
 const EMBEDDING_SUGGESTIONS: Record<string, { group: string; id: string; label: string }[]> = {
@@ -168,7 +173,10 @@ const EMBEDDING_SUGGESTIONS: Record<string, { group: string; id: string; label: 
         { group: 'OpenAI',  id: 'openai/text-embedding-3-large', label: 'text-embedding-3-large  (3 072 dims)' },
         { group: 'OpenAI',  id: 'openai/text-embedding-ada-002', label: 'text-embedding-ada-002  (1 536 dims, legacy)' },
     ],
-    // github-copilot: excluded — Copilot API does not support /embeddings endpoint
+    // github-copilot: no static Quick Pick on purpose. The ids differ per
+    // tenant, so guessing them would send the diagnostic at a model that does
+    // not exist and blame the endpoint for it. Use Fetch, which reads the real
+    // catalogue.
 };
 
 // Human-readable labels and descriptions for individual tools
