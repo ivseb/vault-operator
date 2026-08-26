@@ -133,7 +133,10 @@ export class GitHubCopilotProvider implements ApiHandler {
 
         this.client = new OpenAI({
             apiKey: 'copilot', // Placeholder — real auth injected via custom fetch
-            baseURL: 'https://api.githubcopilot.com',
+            // Resolved from the Copilot token (Individual, Business and
+            // Enterprise land on different hosts) with the configured
+            // deployment as fallback, instead of pinning the dotcom host.
+            baseURL: this.authService.getApiBaseUrl(),
             dangerouslyAllowBrowser: true,
             // Side finding (2026-08-14): route through the Node transport
             // instead of the renderer's fetch, so Copilot does not depend on

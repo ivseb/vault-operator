@@ -1341,6 +1341,13 @@ export interface ObsidianAgentSettings {
     /** Custom OAuth Client ID — escape hatch if the default stops working */
     githubCopilotCustomClientId: string;
     /**
+     * Hostname of a GitHub Enterprise deployment, e.g. `github.acme.com` (GitHub
+     * Enterprise Server) or `acme.ghe.com` (Enterprise Cloud with data
+     * residency). Empty means github.com. Device-flow and token-exchange URLs
+     * are derived from it; the inference host still comes from the token.
+     */
+    githubCopilotEnterpriseDomain: string;
+    /**
      * FIX-45-03-01: modelId -> what the last Copilot model list reported, e.g.
      * { 'gpt-5.6-sol': { endpoints: ['/responses'], contextWindow: 1000000 } }.
      * Copilot serves the GPT-5.6 lineup only on /responses; without the route
@@ -2295,6 +2302,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     githubCopilotToken: '',
     githubCopilotTokenExpiresAt: 0,
     githubCopilotCustomClientId: '',
+    githubCopilotEnterpriseDomain: '',
     githubCopilotModelMeta: {},
     kiloToken: '',
     kiloAuthMode: '',

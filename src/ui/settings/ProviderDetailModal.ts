@@ -821,6 +821,18 @@ export class ProviderDetailModal extends Modal {
                     })(); },
                 }),
             });
+            this.compactRow(parent, {
+                label: t('settings.providers.copilotEnterpriseDomain'),
+                desc: t('settings.providers.copilotEnterpriseDomainDesc'),
+                build: (ctrl) => this.compactInput(ctrl, {
+                    value: this.plugin.settings.githubCopilotEnterpriseDomain ?? '',
+                    placeholder: t('settings.providers.copilotEnterpriseDomainPlaceholder'),
+                    onInput: (v) => { void (async () => {
+                        this.plugin.settings.githubCopilotEnterpriseDomain = v.trim();
+                        await this.plugin.saveSettings();
+                    })(); },
+                }),
+            });
         }
         this.renderTestConnectionRow(parent);
     }

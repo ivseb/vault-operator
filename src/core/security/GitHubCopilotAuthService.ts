@@ -26,11 +26,103 @@ import { safeOAuthErrorDetail } from './safeOAuthError';
 
 const DEFAULT_CLIENT_ID = 'Iv1.b507a08c87ecfe98';
 
-const DEVICE_CODE_URL = 'https://github.com/login/device/code';
-const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
-const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
-const COPILOT_API_BASE = 'https://api.githubcopilot.com';
-const MODELS_URL = `${COPILOT_API_BASE}/models`;
+// Public github.com endpoints — used when no enterprise domain is configured.
+const DOTCOM_DEVICE_CODE_URL = 'https://github.com/login/device/code';
+const DOTCOM_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
+const DOTCOM_COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
+const DEFAULT_COPILOT_API_BASE = 'https://api.githubcopilot.com';
+
+/** Endpoint set for one GitHub deployment (dotcom, GHE.com, or GHES). */
+interface CopilotEndpoints {
+    deviceCodeUrl: string;
+    accessTokenUrl: string;
+    copilotTokenUrl: string;
+    /** Fallback inference host; `proxy-ep` from the token wins when present. */
+    apiBase: string;
+}
+
+/**
+ * Accept what a user is likely to paste ("https://github.acme.com/", with or
+ * without scheme or trailing slash) and reduce it to a bare hostname.
+ * Returns null for empty or unparseable input, which means "use github.com".
+ */
+export function normalizeEnterpriseDomain(input: string | undefined | null): string | null {
+    const trimmed = (input ?? '').trim();
+    if (!trimmed) return null;
+    try {
+        const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+        return url.hostname || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * GHE.com (Enterprise Cloud with data residency) serves the REST API from the
+ * `api.` subdomain, the same shape as dotcom. GitHub Enterprise Server
+ * (self-hosted) instead serves it under `/api/v3` on the instance host, so the
+ * two need different URL construction.
+ */
+function isGheCom(domain: string): boolean {
+    return domain === 'ghe.com' || domain.endsWith('.ghe.com');
+}
+
+/** Build the endpoint set for the configured deployment. */
+export function copilotEndpoints(domain: string | null): CopilotEndpoints {
+    if (!domain) {
+        return {
+            deviceCodeUrl: DOTCOM_DEVICE_CODE_URL,
+            accessTokenUrl: DOTCOM_ACCESS_TOKEN_URL,
+            copilotTokenUrl: DOTCOM_COPILOT_TOKEN_URL,
+            apiBase: DEFAULT_COPILOT_API_BASE,
+        };
+    }
+    // OAuth device flow always lives on the instance host itself.
+    const deviceCodeUrl = `https://${domain}/login/device/code`;
+    const accessTokenUrl = `https://${domain}/login/oauth/access_token`;
+    if (isGheCom(domain)) {
+        return {
+            deviceCodeUrl,
+            accessTokenUrl,
+            copilotTokenUrl: `https://api.${domain}/copilot_internal/v2/token`,
+            apiBase: `https://copilot-api.${domain}`,
+        };
+    }
+    return {
+        deviceCodeUrl,
+        accessTokenUrl,
+        copilotTokenUrl: `https://${domain}/api/v3/copilot_internal/v2/token`,
+        apiBase: `https://copilot-api.${domain}`,
+    };
+}
+
+/**
+ * The Copilot token embeds the tenant's inference host as `proxy-ep=<host>`
+ * (e.g. `tid=...;exp=...;proxy-ep=proxy.individual.githubcopilot.com;...`).
+ * That value is authoritative — it is how Copilot routes Individual, Business
+ * and Enterprise subscribers to different hosts — so prefer it over any
+ * configured or default base. The proxy host maps to the API host by swapping
+ * the leading `proxy.` for `api.`.
+ */
+/** Reduce an API host or URL from the token response to a bare `https://host` origin. */
+export function normalizeApiBase(input: string | undefined | null): string | null {
+    const trimmed = (input ?? '').trim();
+    if (!trimmed) return null;
+    try {
+        const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+        return url.origin;
+    } catch {
+        return null;
+    }
+}
+
+export function apiBaseFromCopilotToken(copilotToken: string): string | null {
+    const match = /(?:^|;)proxy-ep=([^;]+)/.exec(copilotToken);
+    if (!match) return null;
+    const host = match[1].trim();
+    if (!host) return null;
+    return `https://${host.replace(/^proxy\./, 'api.')}`;
+}
 
 /**
  * FIX-45-03-01: the two chat routes Copilot serves. Path strings, matching the
@@ -164,6 +256,10 @@ export class GitHubCopilotAuthService {
     private copilotToken = '';
     private copilotTokenExpiresAt = 0; // epoch seconds
     private customClientId = '';
+    /** Hostname of a GHE.com or GitHub Enterprise Server instance; '' = github.com. */
+    private enterpriseDomain = '';
+    /** Inference host named by the last token response, when it provided one. */
+    private apiBaseFromResponse = '';
     /**
      * FIX-45-03-01: modelId -> what the last /models response said about it.
      * Feeds the provider's route decision and its context window. Persisted so
@@ -199,6 +295,28 @@ export class GitHubCopilotAuthService {
         return { ...COPILOT_HEADERS };
     }
 
+    /** Endpoints for the configured deployment (github.com, GHE.com or GHES). */
+    private endpoints(): CopilotEndpoints {
+        return copilotEndpoints(normalizeEnterpriseDomain(this.enterpriseDomain));
+    }
+
+    /**
+     * Base URL for Copilot inference and `/models`.
+     *
+     * Order matters: the `proxy-ep` field inside the current Copilot token is
+     * authoritative — Copilot routes Individual, Business and Enterprise
+     * subscribers to different hosts, and only the token knows which one. The
+     * configured deployment is the fallback for the window before a token
+     * exists (and for instances that omit `proxy-ep`).
+     */
+    getApiBaseUrl(): string {
+        return (
+            this.apiBaseFromResponse ||
+            apiBaseFromCopilotToken(this.copilotToken) ||
+            this.endpoints().apiBase
+        );
+    }
+
     // ---------------------------------------------------------------------------
     // State management
     // ---------------------------------------------------------------------------
@@ -212,6 +330,7 @@ export class GitHubCopilotAuthService {
         this.copilotToken = settings.githubCopilotToken ?? '';
         this.copilotTokenExpiresAt = settings.githubCopilotTokenExpiresAt ?? 0;
         this.customClientId = settings.githubCopilotCustomClientId ?? '';
+        this.enterpriseDomain = settings.githubCopilotEnterpriseDomain ?? '';
         // Settings written before FIX-45-03-01 have no table; an empty one just
         // means every model starts as "route and limits unknown". The next
         // model-list refresh fills it in, so nothing has to be migrated.
@@ -259,7 +378,7 @@ export class GitHubCopilotAuthService {
         const body = `client_id=${encodeURIComponent(clientId)}&scope=read%3Auser`;
 
         const res = await requestUrl({
-            url: DEVICE_CODE_URL,
+            url: this.endpoints().deviceCodeUrl,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -311,7 +430,7 @@ export class GitHubCopilotAuthService {
             }
 
             const res = await requestUrl({
-                url: ACCESS_TOKEN_URL,
+                url: this.endpoints().accessTokenUrl,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -401,7 +520,7 @@ export class GitHubCopilotAuthService {
 
             try {
                 const res = await requestUrl({
-                    url: COPILOT_TOKEN_URL,
+                    url: this.endpoints().copilotTokenUrl,
                     method: 'GET',
                     headers: {
                         'Authorization': `Bearer ${this.accessToken}`,
@@ -424,6 +543,11 @@ export class GitHubCopilotAuthService {
 
                 this.copilotToken = data.token;
                 this.copilotTokenExpiresAt = data.expires_at;
+                // The token response may name the inference host outright. It is
+                // the most authoritative source there is, so keep it for
+                // getApiBaseUrl(); `proxy-ep` inside the token covers the case
+                // where the field is absent, and survives a restart.
+                this.apiBaseFromResponse = normalizeApiBase(data.endpoints?.api) ?? '';
                 await this.persistTokens();
                 return;
 
@@ -454,7 +578,7 @@ export class GitHubCopilotAuthService {
         const token = await this.getCopilotToken();
 
         const res = await requestUrl({
-            url: MODELS_URL,
+            url: `${this.getApiBaseUrl()}/models`,
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -641,8 +765,29 @@ export class GitHubCopilotAuthService {
                 }
             }
 
-            return baseFetch(input, { ...init, headers });
+            // The SDK pins baseURL at construction, before any token exists, so
+            // point each request at the host this token actually belongs to.
+            return baseFetch(this.retargetToApiBase(input), { ...init, headers });
         };
+    }
+
+    /**
+     * Rewrite the origin of an outgoing request to the resolved Copilot API
+     * host, leaving path, query and body untouched. A no-op when the request
+     * already targets that host, or when the URL cannot be parsed.
+     */
+    private retargetToApiBase(input: RequestInfo | URL): RequestInfo | URL {
+        try {
+            const target = new URL(this.getApiBaseUrl());
+            const isRequest = typeof input !== 'string' && !(input instanceof URL);
+            const url = new URL(isRequest ? input.url : input.toString());
+            if (url.origin === target.origin) return input;
+            url.protocol = target.protocol;
+            url.host = target.host;
+            return isRequest ? new Request(url.toString(), input) : url.toString();
+        } catch {
+            return input;
+        }
     }
 
     // ---------------------------------------------------------------------------
