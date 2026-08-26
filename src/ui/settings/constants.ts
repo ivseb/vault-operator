@@ -140,10 +140,12 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
 };
 
 // Providers that support embedding APIs (Anthropic has none)
-// DIAGNOSTIC BRANCH: github-copilot added back to answer the FEATURE-1204 open
-// question empirically. An Enterprise tenant lists embedding models in
-// /models, so the premise of the old exclusion note is at least incomplete;
-// whether /embeddings accepts a request is what this branch measures.
+// FEATURE-1204 answered: github-copilot DOES serve /embeddings. Verified
+// against a GHE.com tenant on 2026-08-26 -- the catalogue lists embedding
+// models and the endpoint returns vectors. The earlier 400 that presumably
+// motivated the exclusion is reproducible, but its cause is the request, not
+// the route: the gateway rejects `input` as a bare string and accepts it as an
+// array (see testEmbeddingViaSdk).
 // Note: kilo-gateway excluded — embedding contract not yet verified (ADR-043, FEATURE-1306)
 const EMBEDDING_PROVIDERS: ProviderType[] = ['openai', 'openrouter', 'azure', 'ollama', 'lmstudio', 'custom', 'github-copilot'];
 

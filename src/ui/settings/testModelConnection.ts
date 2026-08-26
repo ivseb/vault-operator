@@ -380,98 +380,11 @@ async function testEmbeddingConnection(model: CustomModel): Promise<TestResult> 
         if (model.provider === 'azure') {
             return await testEmbeddingViaRequestUrl(model);
         }
-        if (model.provider === 'github-copilot') {
-            return await testCopilotEmbeddingDiagnostic(model);
-        }
         return await testEmbeddingViaSdk(model);
     } catch (err: unknown) {
         const msg: string = (err as { message?: string })?.message ?? String(err);
         return { ok: false, message: t('notice.testConnection.failed'), detail: msg };
     }
-}
-
-/**
- * DIAGNOSTIC (FEATURE-1204): probe the Copilot /embeddings endpoint directly.
- *
- * The SDK path hides the thing we actually need to read -- the server's own
- * words. Copilot answers a request it understands but will not serve with a
- * 400 that says why, in plain text: the chat provider already pattern-matches
- * exactly that shape ("model X is not accessible via the /chat/completions
- * endpoint"). A 400 therefore does NOT mean "no embeddings"; it means the
- * route parsed the request and objected to something in it. So try the shapes
- * that differ in the ways that plausibly matter, and report what each one said.
- *
- * Ordered cheapest-hypothesis-first:
- *  1. array input -- the indexing path sends an array, the Test button sends a
- *     bare string. If only this one passes, the endpoint was fine all along and
- *     it was the test that was malformed.
- *  2. bare string -- what the shared SDK helper sends today.
- *  3. array + an embeddings-flavoured intent header -- COPILOT_HEADERS pins
- *     Openai-Intent to 'conversation-panel', which is a chat value.
- *  4. /v1/embeddings -- in case this gateway mounts the OpenAI-compatible
- *     prefix rather than serving off the root.
- */
-async function testCopilotEmbeddingDiagnostic(model: CustomModel): Promise<TestResult> {
-    const auth = GitHubCopilotAuthService.getInstance();
-    if (!auth.isAuthenticated()) {
-        return { ok: false, message: t('notice.testConnection.failed'), detail: 'Not signed in to GitHub Copilot.' };
-    }
-
-    const doFetch = auth.getCopilotFetch(createNodeFetch());
-    const base = auth.getApiBaseUrl();
-
-    const variants: { label: string; url: string; headers?: Record<string, string>; body: Record<string, unknown> }[] = [
-        { label: 'array input', url: `${base}/embeddings`, body: { model: model.name, input: ['test'] } },
-        { label: 'string input', url: `${base}/embeddings`, body: { model: model.name, input: 'test' } },
-        {
-            label: 'array input + embeddings intent',
-            url: `${base}/embeddings`,
-            headers: { 'Openai-Intent': 'embeddings' },
-            body: { model: model.name, input: ['test'] },
-        },
-        { label: 'v1 prefix', url: `${base}/v1/embeddings`, body: { model: model.name, input: ['test'] } },
-    ];
-
-    console.debug(`[CopilotEmbedDiag] base=${base} model=${model.name}`);
-
-    const failures: string[] = [];
-    for (const v of variants) {
-        try {
-            const res = await doFetch(v.url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(v.headers ?? {}) },
-                body: JSON.stringify(v.body),
-            });
-            const text = await res.text();
-            console.debug(`[CopilotEmbedDiag] ${v.label} -> HTTP ${res.status}\n${text.slice(0, 1500)}`);
-
-            if (res.ok) {
-                let dims: number | undefined;
-                try {
-                    const parsed = JSON.parse(text) as { data?: { embedding?: number[] }[] };
-                    dims = parsed.data?.[0]?.embedding?.length;
-                } catch { /* shape reported below regardless */ }
-                return {
-                    ok: true,
-                    message: dims
-                        ? t('notice.testConnection.embeddingOkDims', { dims })
-                        : t('notice.testConnection.embeddingOk'),
-                    detail: `Accepted with: ${v.label} (${v.url})`,
-                };
-            }
-            failures.push(`${v.label}: HTTP ${res.status} — ${text.slice(0, 400)}`);
-        } catch (e: unknown) {
-            const msg: string = (e as { message?: string })?.message ?? String(e);
-            console.debug(`[CopilotEmbedDiag] ${v.label} -> threw: ${msg}`);
-            failures.push(`${v.label}: ${msg}`);
-        }
-    }
-
-    return {
-        ok: false,
-        message: t('notice.testConnection.failed'),
-        detail: `base=${base} model=${model.name}\n${failures.join('\n')}`,
-    };
 }
 
 async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
@@ -520,8 +433,14 @@ async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
     });
 
     const response = await client.embeddings.create({
+        // Array, not a bare string. OpenAI accepts either, so this read as a
+        // style choice; the Copilot gateway rejects the bare string with a 400
+        // (verified against a GHE.com tenant, 2026-08-26). The indexing path
+        // has always sent an array, so the Test button was failing on requests
+        // the indexer would have got right -- for any strict OpenAI-compatible
+        // gateway, a 'custom' provider included, not just Copilot.
         model: model.name,
-        input: 'test',
+        input: ['test'],
     });
 
     const dims = response.data?.[0]?.embedding?.length;
