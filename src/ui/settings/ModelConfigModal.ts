@@ -141,6 +141,8 @@ export class ModelConfigModal extends Modal {
     private maxTokensRecBtnEl: HTMLButtonElement | null = null;
     private maxTokensNoteEl: HTMLElement | null = null;
     private copilotAuthRow: HTMLElement | null = null;
+    /** Inline, persistent device-code panel (a Notice is too easy to dismiss). */
+    private copilotDeviceEl: HTMLElement | null = null;
     private kiloAuthRow: HTMLElement | null = null;
     private bedrockAuthRow: HTMLElement | null = null;
     private chatgptOAuthRow: HTMLElement | null = null;
@@ -1166,6 +1168,11 @@ export class ModelConfigModal extends Modal {
         });
         signInBtn.addEventListener('click', () => { void this.startCopilotAuth(signInBtn); });
 
+        // Device-code panel, filled while the flow runs. Inline rather than only
+        // in a Notice: the code has to be transcribed into a browser, and a
+        // Notice disappears on the first stray click.
+        this.copilotDeviceEl = container.createDiv({ cls: 'mcm-copilot-device agent-u-hidden' });
+
         // Sign out button
         const signOutBtn = controls.createEl('button', {
             cls: 'mcm-copilot-signout',
@@ -1198,6 +1205,36 @@ export class ModelConfigModal extends Modal {
         if (signOutBtn) signOutBtn.classList.toggle('agent-u-hidden', !isAuth);
     }
 
+    /** Show the device code where it can be read and copied, until the flow ends. */
+    private showDeviceCode(code: string, url: string): void {
+        const el = this.copilotDeviceEl;
+        if (!el) return;
+        el.empty();
+        el.classList.remove('agent-u-hidden');
+        el.createDiv({ cls: 'mcm-desc', text: t('copilot.deviceCodeNotice') });
+        const row = el.createDiv({ cls: 'mcm-copilot-device-row' });
+        const codeEl = row.createEl('code', { cls: 'mcm-copilot-device-code', text: code });
+        // Also selectable by hand, for when the clipboard is unavailable.
+        codeEl.setAttr('style', 'user-select: all');
+        const copyBtn = row.createEl('button', { text: t('copilot.deviceCodeCopy') });
+        copyBtn.addEventListener('click', () => { void (async () => {
+            try {
+                await navigator.clipboard.writeText(code);
+                copyBtn.setText(t('copilot.deviceCodeCopied'));
+            } catch {
+                new Notice(code, 0);
+            }
+        })(); });
+        const reopenBtn = row.createEl('button', { text: t('copilot.deviceCodeReopen') });
+        reopenBtn.addEventListener('click', () => { window.open(url); });
+        el.createDiv({ cls: 'mcm-desc', text: t('copilot.deviceCodeWaiting') });
+    }
+
+    private hideDeviceCode(): void {
+        this.copilotDeviceEl?.empty();
+        this.copilotDeviceEl?.classList.add('agent-u-hidden');
+    }
+
     private async startCopilotAuth(btn: HTMLButtonElement): Promise<void> {
         const authService = GitHubCopilotAuthService.getInstance();
         btn.disabled = true;
@@ -1206,7 +1243,9 @@ export class ModelConfigModal extends Modal {
         try {
             const flow = await authService.startDeviceFlow();
 
-            // Show device code in a Notice
+            this.showDeviceCode(flow.userCode, flow.verificationUri);
+
+            // Kept as a secondary cue; the inline panel above is the durable one.
             new Notice(
                 `${t('copilot.deviceCodeNotice')}\n\n${flow.userCode}\n\n${flow.verificationUri}`,
                 0, // persistent until dismissed
@@ -1219,6 +1258,7 @@ export class ModelConfigModal extends Modal {
             await authService.pollForAccessToken(flow.deviceCode, flow.interval);
 
             new Notice(t('copilot.authSuccess'));
+            this.hideDeviceCode();
             this.updateCopilotAuthStatus();
 
         } catch (e) {
