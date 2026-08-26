@@ -1139,6 +1139,23 @@ export class ModelConfigModal extends Modal {
 
         const controls = container.createDiv('mcm-copilot-controls');
 
+        // Enterprise host. Must be settable BEFORE signing in: it decides which
+        // instance the device flow talks to, and this modal is the onboarding
+        // path, so an Enterprise user never passes through provider settings.
+        const copilotAuth = GitHubCopilotAuthService.getInstance();
+        const domainInput = controls.createEl('input', {
+            cls: 'mcm-input mcm-copilot-enterprise',
+            attr: {
+                type: 'text',
+                placeholder: t('settings.providers.copilotEnterpriseDomainPlaceholder'),
+                title: t('settings.providers.copilotEnterpriseDomainDesc'),
+            },
+        });
+        domainInput.value = copilotAuth.getEnterpriseDomain();
+        domainInput.addEventListener('input', () => {
+            copilotAuth.setEnterpriseDomain(domainInput.value.trim());
+        });
+
         // Status badge
         controls.createDiv({ cls: 'mcm-copilot-status' });
 

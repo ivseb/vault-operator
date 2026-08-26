@@ -817,6 +817,7 @@ export class ProviderDetailModal extends Modal {
                     placeholder: t('settings.providers.copilotClientIdPlaceholder'),
                     onInput: (v) => { void (async () => {
                         this.plugin.settings.githubCopilotCustomClientId = v.trim();
+                        GitHubCopilotAuthService.getInstance().setCustomClientId(v.trim());
                         await this.plugin.saveSettings();
                     })(); },
                 }),
@@ -829,6 +830,7 @@ export class ProviderDetailModal extends Modal {
                     placeholder: t('settings.providers.copilotEnterpriseDomainPlaceholder'),
                     onInput: (v) => { void (async () => {
                         this.plugin.settings.githubCopilotEnterpriseDomain = v.trim();
+                        GitHubCopilotAuthService.getInstance().setEnterpriseDomain(v.trim());
                         await this.plugin.saveSettings();
                     })(); },
                 }),

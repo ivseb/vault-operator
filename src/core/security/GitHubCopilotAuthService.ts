@@ -96,14 +96,6 @@ export function copilotEndpoints(domain: string | null): CopilotEndpoints {
     };
 }
 
-/**
- * The Copilot token embeds the tenant's inference host as `proxy-ep=<host>`
- * (e.g. `tid=...;exp=...;proxy-ep=proxy.individual.githubcopilot.com;...`).
- * That value is authoritative — it is how Copilot routes Individual, Business
- * and Enterprise subscribers to different hosts — so prefer it over any
- * configured or default base. The proxy host maps to the API host by swapping
- * the leading `proxy.` for `api.`.
- */
 /** Reduce an API host or URL from the token response to a bare `https://host` origin. */
 export function normalizeApiBase(input: string | undefined | null): string | null {
     const trimmed = (input ?? '').trim();
@@ -116,6 +108,14 @@ export function normalizeApiBase(input: string | undefined | null): string | nul
     }
 }
 
+/**
+ * The Copilot token embeds the tenant's inference host as `proxy-ep=<host>`
+ * (e.g. `tid=...;exp=...;proxy-ep=proxy.individual.githubcopilot.com;...`).
+ * That value is authoritative — it is how Copilot routes Individual, Business
+ * and Enterprise subscribers to different hosts — so prefer it over any
+ * configured or default base. The proxy host maps to the API host by swapping
+ * the leading `proxy.` for `api.`.
+ */
 export function apiBaseFromCopilotToken(copilotToken: string): string | null {
     const match = /(?:^|;)proxy-ep=([^;]+)/.exec(copilotToken);
     if (!match) return null;
@@ -345,6 +345,7 @@ export class GitHubCopilotAuthService {
         settings.githubCopilotToken = this.copilotToken;
         settings.githubCopilotTokenExpiresAt = this.copilotTokenExpiresAt;
         settings.githubCopilotCustomClientId = this.customClientId;
+        settings.githubCopilotEnterpriseDomain = this.enterpriseDomain;
         settings.githubCopilotModelMeta = Object.fromEntries(this.modelMeta);
     }
 
@@ -363,6 +364,22 @@ export class GitHubCopilotAuthService {
 
     setCustomClientId(clientId: string): void {
         this.customClientId = clientId;
+    }
+
+    getEnterpriseDomain(): string {
+        return this.enterpriseDomain;
+    }
+
+    /**
+     * Settings are pushed in rather than re-read: loadFromSettings() runs once
+     * at plugin load, so a value typed in the UI would otherwise not reach the
+     * device flow until the next restart.
+     */
+    setEnterpriseDomain(domain: string): void {
+        this.enterpriseDomain = domain;
+        // Persist through the service own callback: ModelConfigModal (the
+        // onboarding path) has no plugin reference to save settings itself.
+        void this.persistTokens();
     }
 
     // ---------------------------------------------------------------------------
