@@ -419,8 +419,18 @@ async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
     });
 
     const response = await client.embeddings.create({
+        // Array, not a bare string. OpenAI accepts either, so this read as a
+        // style choice rather than a contract -- but a strict OpenAI-compatible
+        // gateway rejects the bare string with a 400. The indexing path
+        // (embedBatchViaSdk) has always sent an array, so the Test button was
+        // failing on requests the indexer would have got right, and reporting a
+        // broken endpoint to a user whose setup was fine.
+        //
+        // Verified against the Copilot gateway on a GHE.com tenant
+        // (2026-08-26): bare string 400s, array returns vectors. A 'custom'
+        // provider pointed at any similarly strict gateway hits the same wall.
         model: model.name,
-        input: 'test',
+        input: ['test'],
     });
 
     const dims = response.data?.[0]?.embedding?.length;
