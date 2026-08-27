@@ -43,6 +43,12 @@ const PER_TOOL_THRESHOLDS: Record<string, number> = {
      * problem and externalization is the right answer.
      */
     run_skill_script: 25_000,
+    /**
+     * Cintura oltre alle bretelle: read_skill è già in SKIP_EXTERNALIZATION,
+     * ma se un domani qualcuno lo toglie di lì una skill fino a 25k resta
+     * comunque intera. Sopra quella soglia la skill ha un problema suo.
+     */
+    read_skill: 25_000,
 };
 
 /**
@@ -96,6 +102,17 @@ const SKIP_EXTERNALIZATION = new Set([
     // the decision caused a 5+ minute regression on summarization tasks.
     // MAX_CONTENT_CHARS in ReadFileTool already caps oversized files.
     'read_file', 'read_document',
+    // read_skill: una skill sono ISTRUZIONI da seguire alla lettera, non un
+    // risultato da riassumere. Sopra i 2000 caratteri il modello ne riceveva
+    // un'anteprima che si ferma prima dell'elenco dei metodi, e da lì in poi
+    // inventa: incidente del 27/08/2026 con la skill mail-archive (8244
+    // caratteri), dove l'agent ha chiamato `getLatestEmail`, un metodo che non
+    // esiste. RE_READ_CAP_CHARS poi limita ogni rilettura a 2000, quindi il
+    // testo completo resta irraggiungibile per costruzione.
+    //
+    // È la stessa ragione già scritta qui sopra per investigate, recall_memory
+    // e find_notes_by_type: output che l'agent deve VEDERE per intero.
+    'read_skill',
 ]);
 
 // ---------------------------------------------------------------------------
