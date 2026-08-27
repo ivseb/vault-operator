@@ -62,10 +62,20 @@ const PER_TOOL_THRESHOLDS: Record<string, number> = {
      *
      * Soglia alta invece di SKIP_EXTERNALIZATION: un plugin può restituire
      * anche una pagina Confluence da 200k, e per quella l'esternalizzazione è
-     * la risposta giusta. Sotto i 50k il dato passa intero; sopra, il
+     * la risposta giusta. Sotto la soglia il dato passa intero; sopra, il
      * riferimento al file resta -- ed è una scelta, non una dimenticanza.
+     *
+     * PERCHÉ 60k E NON 50k: CallPluginApiTool ha un suo tetto interno
+     * (DEFAULT_MAX_RETURN_SIZE = 50_000) che taglia il JSON PRIMA di arrivare
+     * qui, appendendo "... [truncated, N total bytes]". Il risultato tagliato
+     * è ~50.035 caratteri: con la soglia a 50k superava di 35 caratteri e
+     * finiva comunque esternalizzato a 12 righe -- e il file su disco
+     * conteneva SOLO i primi 50k, l'eccedenza non esisteva da nessuna parte.
+     * A 60k il risultato tagliato passa inline, col marcatore di troncamento
+     * ben visibile che dichiara i byte totali. Le due costanti vanno tenute
+     * coerenti: questa DEVE restare sopra DEFAULT_MAX_RETURN_SIZE + 100.
      */
-    call_plugin_api: 50_000,
+    call_plugin_api: 60_000,
 };
 
 /**

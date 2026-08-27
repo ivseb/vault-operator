@@ -15,6 +15,11 @@ on:
 permissions:
   contents: write
 
+# Due push ravvicinati correvano sugli stessi asset della release scorrevole.
+concurrency:
+  group: ivseb-build
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -50,6 +55,20 @@ jobs:
             || { echo "manca Copilot fra i provider di embedding"; exit 1; }
           echo "tutte e tre le modifiche presenti"
 
+      - name: Il wasm impacchettato corrisponde all'hash pinnato nel codice
+        # RERANKER_WASM_SHA256 è scritto a mano nel sorgente, ma il wasm arriva
+        # da una dipendenza transitiva: un bump di @huggingface/transformers lo
+        # cambia, il sidecar (auto-generato) resta coerente con i byte nuovi, e
+        # OptionalAssetManager vede l'hash pinnato diverso -> reranker "non
+        # installato", in silenzio. Qui la deriva diventa una build rossa.
+        run: |
+          PINNED=$(grep -oE "RERANKER_WASM_SHA256 = '[0-9a-f]{64}'" src/core/assets/assetHashes.ts | grep -oE "[0-9a-f]{64}")
+          ACTUAL=$(shasum -a 256 node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm | cut -d' ' -f1)
+          [ -n "$PINNED" ] || { echo "hash pinnato non trovato nel sorgente"; exit 1; }
+          [ "$PINNED" = "$ACTUAL" ] \
+            || { echo "wasm cambiato: pinnato $PINNED, reale $ACTUAL. Aggiorna assetHashes.ts."; exit 1; }
+          echo "wasm coerente con l'hash pinnato"
+
       - name: Componi il pacchetto
         run: |
           ROOT=dist/vault-operator-ivseb
@@ -57,14 +76,32 @@ jobs:
 
           cp main.js manifest.json styles.css "$ROOT/plugin/"
 
-          # Asset opzionali: senza questi restano disabilitati gli strumenti
-          # Office, la lettura dei PDF, il reranker locale e l'italiano.
-          for f in locale-*.json office-bundle.js pdfjs-bundle.js \
-                   reranker-bundle.js plugin-source.json; do
-            [ -f "$f" ] && cp "$f" "$ROOT/assets/"
+          # La versione del pacchetto personale si fissa a 99.0.0: upstream È
+          # nel catalogo community con lo stesso id, e un "Aggiorna tutto" in
+          # Obsidian sovrascriverebbe questa build con la 3.7.x ufficiale
+          # perdendo italiano, GHE ed embedding senza dirlo. Con 99.0.0
+          # l'updater non vede mai niente di "più nuovo" da proporre.
+          node -e "
+            const fs = require('fs');
+            const m = JSON.parse(fs.readFileSync('$ROOT/plugin/manifest.json', 'utf8'));
+            m.version = '99.0.0';
+            fs.writeFileSync('$ROOT/plugin/manifest.json', JSON.stringify(m, null, '\t'));
+          "
+
+          # Copie DURE con elenco atteso: '[ -f ] && cp' sotto bash -e NON fa
+          # fallire il passo quando il file manca -- è esattamente così che una
+          # build verde può uscire senza un asset (la classe del difetto che ha
+          # già prodotto il pacchetto senza sidecar).
+          for f in locale-it.json office-bundle.js pdfjs-bundle.js \
+                   reranker-bundle.js plugin-source.json \
+                   node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm; do
+            [ -f "$f" ] || { echo "asset atteso mancante: $f"; exit 1; }
+            cp "$f" "$ROOT/assets/"
           done
-          [ -f node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm ] \
-            && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm "$ROOT/assets/"
+          # Altri pacchetti lingua eventualmente generati (non obbligatori).
+          for f in locale-*.json; do
+            [ -f "$f" ] && cp -n "$f" "$ROOT/assets/" || true
+          done
 
           # Sidecar .sha256 accanto a ogni asset. NON è opzionale:
           # OptionalAssetManager.load() restituisce null se il sidecar manca o
@@ -76,25 +113,41 @@ jobs:
             [ -f "$f" ] || continue
             shasum -a 256 "$f" | cut -d' ' -f1 > "$f.sha256"
           done
-          echo "=== sidecar generati ==="
-          ls "$ROOT"/assets/*.sha256 | wc -l
+          N_ASSETS=$(find "$ROOT/assets" -type f ! -name '*.sha256' | wc -l)
+          N_SIDE=$(find "$ROOT/assets" -type f -name '*.sha256' | wc -l)
+          echo "=== $N_ASSETS asset, $N_SIDE sidecar ==="
+          [ "$N_ASSETS" -ge 6 ] || { echo "troppo pochi asset: qualcosa non è stato copiato"; exit 1; }
+          [ "$N_ASSETS" -eq "$N_SIDE" ] || { echo "asset e sidecar non combaciano"; exit 1; }
 
           cat > "$ROOT/installa.sh" <<'SH'
           #!/bin/bash
-          # Uso: ./installa.sh /percorso/del/vault
+          # Uso: ./installa.sh /percorso/del/vault [cartella-config]
+          # cartella-config: solo se hai cambiato la "Config directory" di
+          # Obsidian (default: .obsidian).
           set -e
           VAULT="${1:?Indica il percorso del vault}"
-          [ -d "$VAULT/.obsidian" ] || { echo "Non sembra un vault: $VAULT"; exit 1; }
+          CONFDIR="${2:-.obsidian}"
+          [ -d "$VAULT/$CONFDIR" ] || { echo "Non sembra un vault: manca $VAULT/$CONFDIR"; exit 1; }
+          # shasum (macOS) o sha256sum (Linux minimale): morire DOPO aver
+          # copiato gli asset ma PRIMA dei sidecar lasciava un'installazione
+          # a metà in cui il plugin considera tutto "non installato".
+          if command -v shasum >/dev/null 2>&1; then
+            sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+          elif command -v sha256sum >/dev/null 2>&1; then
+            sha() { sha256sum "$1" | cut -d' ' -f1; }
+          else
+            echo "Serve shasum o sha256sum: senza sidecar il plugin rifiuta gli asset."; exit 1
+          fi
           HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          mkdir -p "$VAULT/.obsidian/plugins/vault-operator" "$VAULT/.vault-operator/assets"
-          cp "$HERE"/plugin/* "$VAULT/.obsidian/plugins/vault-operator/"
+          mkdir -p "$VAULT/$CONFDIR/plugins/vault-operator" "$VAULT/.vault-operator/assets"
+          cp "$HERE"/plugin/* "$VAULT/$CONFDIR/plugins/vault-operator/"
           cp "$HERE"/assets/* "$VAULT/.vault-operator/assets/"
           # Rigenera i sidecar sul posto: se qualcuno ha copiato a mano solo i
           # file principali, senza questi il plugin li considera non installati.
           for f in "$VAULT"/.vault-operator/assets/*; do
             case "$f" in *.sha256) continue;; esac
             [ -f "$f" ] || continue
-            shasum -a 256 "$f" | cut -d' ' -f1 > "$f.sha256"
+            sha "$f" > "$f.sha256"
           done
           echo "Fatto. Ricarica Obsidian (Cmd+R)."
           echo "I token e le impostazioni in data.json non sono stati toccati."
@@ -120,6 +173,12 @@ jobs:
 
           Poi ricarica Obsidian. **`data.json` non viene toccato**: token e
           impostazioni restano dove sono, non devi rifare il login a Copilot.
+
+          La versione dichiarata è **99.0.0**, di proposito: Vault Operator è
+          nel catalogo community di Obsidian, e con la versione vera un
+          «Aggiorna tutto» sovrascriverebbe questa build con quella upstream,
+          perdendo italiano, GHE ed embedding senza avvisare. Gli aggiornamenti
+          di questa build arrivano solo dal tag `ivseb-latest`.
 
           ## A mano, se preferisci
 
@@ -154,6 +213,14 @@ jobs:
           name: vault-operator-ivseb
           path: dist/vault-operator-ivseb/
           retention-days: 90
+
+      - name: Sposta il tag scorrevole su questo commit
+        # action-gh-release sostituisce gli ASSET ma non muove il TAG: la
+        # release restava puntata per sempre al primo commit pubblicato, con
+        # "Source code" e data fuorvianti.
+        run: |
+          git tag -f ivseb-latest
+          git push -f origin ivseb-latest
 
       - name: Release scorrevole
         # Un tag mobile invece di uno nuovo a ogni push: serve un posto stabile
