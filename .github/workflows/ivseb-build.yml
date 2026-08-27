@@ -25,11 +25,15 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - name: Controllo dei tipi
-        run: npm run typecheck
-
+      # La build PRIMA del typecheck: esbuild genera src/_generated/ (hash degli
+      # asset, skill e template inlineati, pacchetti lingua) e senza quei file
+      # tsc non risolve una dozzina di import. In locale non si vede, perché
+      # sono già sul disco da una build precedente.
       - name: Build
         run: node esbuild.config.mjs production
+
+      - name: Controllo dei tipi
+        run: npm run typecheck
 
       - name: Verifica che le mie modifiche ci siano davvero
         # Un pacchetto che compila ma senza l'italiano o senza il supporto
