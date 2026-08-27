@@ -1,0 +1,144 @@
+name: Build personale (ivseb)
+
+# Build del ramo con le mie modifiche — italiano, Copilot Enterprise, embedding
+# via Copilot — in attesa che finiscano upstream.
+#
+# Produce UN pacchetto solo con dentro sia il plugin sia gli asset opzionali:
+# quelli si scaricherebbero dalle release di pssah4, che ovviamente non hanno
+# il pacchetto lingua italiano.
+
+on:
+  push:
+    branches: [ivseb-build]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm }
+
+      - run: npm ci --ignore-scripts
+
+      - name: Controllo dei tipi
+        run: npm run typecheck
+
+      - name: Build
+        run: node esbuild.config.mjs production
+
+      - name: Verifica che le mie modifiche ci siano davvero
+        # Un pacchetto che compila ma senza l'italiano o senza il supporto
+        # Enterprise sarebbe indistinguibile da quello upstream, e me ne
+        # accorgerei solo dopo averlo installato.
+        run: |
+          grep -q "'it'" src/i18n/index.ts \
+            || { echo "manca l'italiano fra le lingue supportate"; exit 1; }
+          test -f locale-it.json \
+            || { echo "il pacchetto lingua italiano non è stato generato"; exit 1; }
+          grep -q "copilot_internal" src/core/security/GitHubCopilotAuthService.ts \
+            || { echo "manca il supporto Copilot Enterprise"; exit 1; }
+          grep -q "github-copilot" src/ui/settings/constants.ts \
+            || { echo "manca Copilot fra i provider di embedding"; exit 1; }
+          echo "tutte e tre le modifiche presenti"
+
+      - name: Componi il pacchetto
+        run: |
+          ROOT=dist/vault-operator-ivseb
+          mkdir -p "$ROOT/plugin" "$ROOT/assets"
+
+          cp main.js manifest.json styles.css "$ROOT/plugin/"
+
+          # Asset opzionali: senza questi restano disabilitati gli strumenti
+          # Office, la lettura dei PDF, il reranker locale e l'italiano.
+          for f in locale-*.json office-bundle.js pdfjs-bundle.js \
+                   reranker-bundle.js plugin-source.json; do
+            [ -f "$f" ] && cp "$f" "$ROOT/assets/"
+          done
+          [ -f node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm ] \
+            && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm "$ROOT/assets/"
+
+          cat > "$ROOT/installa.sh" <<'SH'
+          #!/bin/bash
+          # Uso: ./installa.sh /percorso/del/vault
+          set -e
+          VAULT="${1:?Indica il percorso del vault}"
+          [ -d "$VAULT/.obsidian" ] || { echo "Non sembra un vault: $VAULT"; exit 1; }
+          HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          mkdir -p "$VAULT/.obsidian/plugins/vault-operator" "$VAULT/.vault-operator/assets"
+          cp "$HERE"/plugin/* "$VAULT/.obsidian/plugins/vault-operator/"
+          cp "$HERE"/assets/* "$VAULT/.vault-operator/assets/"
+          echo "Fatto. Ricarica Obsidian (Cmd+R)."
+          echo "I token e le impostazioni in data.json non sono stati toccati."
+          SH
+          chmod +x "$ROOT/installa.sh"
+
+          cat > "$ROOT/INSTALLA.md" <<'MD'
+          # Vault Operator — build personale
+
+          Contiene tre modifiche non ancora accettate a monte:
+
+          - **interfaccia in italiano** (issue #78)
+          - **GitHub Copilot Enterprise**: login su host `.ghe.com` o GHES, e host
+            di inferenza risolto dal token invece che fisso (issue #79)
+          - **Copilot come provider di embedding**, più la correzione che manda
+            `input` come array: il gateway rifiuta la stringa singola
+
+          ## Installazione
+
+          ```bash
+          ./installa.sh /percorso/del/tuo/vault
+          ```
+
+          Poi ricarica Obsidian. **`data.json` non viene toccato**: token e
+          impostazioni restano dove sono, non devi rifare il login a Copilot.
+
+          ## A mano, se preferisci
+
+          | Da | A |
+          |---|---|
+          | `plugin/*` | `<vault>/.obsidian/plugins/vault-operator/` |
+          | `assets/*` | `<vault>/.vault-operator/assets/` |
+
+          Gli asset vanno messi a mano perché il plugin li scaricherebbe dalle
+          release di `pssah4/vault-operator`, che il pacchetto lingua italiano
+          non ce l'hanno.
+
+          ## Per avere l'interfaccia in italiano
+
+          Obsidian dev'essere impostato su italiano. Poi **Impostazioni → Vault
+          Operator → Optional assets**: il pacchetto risulta già installato,
+          perché `installa.sh` l'ha messo al posto giusto.
+          MD
+
+          cd dist && zip -qr vault-operator-ivseb.zip vault-operator-ivseb
+          echo "=== contenuto ==="
+          unzip -l vault-operator-ivseb.zip | tail -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vault-operator-ivseb
+          path: dist/vault-operator-ivseb/
+          retention-days: 90
+
+      - name: Release scorrevole
+        # Un tag mobile invece di uno nuovo a ogni push: serve un posto stabile
+        # da cui scaricare l'ultima build, non uno storico di versioni.
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ivseb-latest
+          name: Build personale (ultima)
+          prerelease: true
+          files: dist/vault-operator-ivseb.zip
+          body: |
+            Build del ramo `ivseb-build`: italiano, Copilot Enterprise, embedding
+            via Copilot.
+
+            Scompatta e lancia `./installa.sh /percorso/del/vault`.
+            `data.json` non viene toccato: non devi rifare il login.
+
+            Ricostruita a ogni push sul ramo.
