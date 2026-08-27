@@ -24,6 +24,7 @@ export const LOCALE_LABELS: Record<Exclude<SupportedLocale, 'en'>, string> = {
     ko: '한국어 (Korean)',
     es: 'Español (Spanish)',
     fr: 'Français (French)',
+    it: 'Italiano (Italian)',
     ru: 'Русский (Russian)',
 };
 
