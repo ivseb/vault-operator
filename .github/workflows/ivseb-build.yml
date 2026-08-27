@@ -66,6 +66,19 @@ jobs:
           [ -f node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm ] \
             && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm "$ROOT/assets/"
 
+          # Sidecar .sha256 accanto a ogni asset. NON è opzionale:
+          # OptionalAssetManager.load() restituisce null se il sidecar manca o
+          # non corrisponde, quindi senza di essi il plugin considera l'asset
+          # "non installato" e prova a scaricarlo dalle release upstream -- dove
+          # locale-it.json non esiste, e l'utente vede un errore di download.
+          for f in "$ROOT"/assets/*; do
+            case "$f" in *.sha256) continue;; esac
+            [ -f "$f" ] || continue
+            shasum -a 256 "$f" | cut -d' ' -f1 > "$f.sha256"
+          done
+          echo "=== sidecar generati ==="
+          ls "$ROOT"/assets/*.sha256 | wc -l
+
           cat > "$ROOT/installa.sh" <<'SH'
           #!/bin/bash
           # Uso: ./installa.sh /percorso/del/vault
@@ -76,6 +89,13 @@ jobs:
           mkdir -p "$VAULT/.obsidian/plugins/vault-operator" "$VAULT/.vault-operator/assets"
           cp "$HERE"/plugin/* "$VAULT/.obsidian/plugins/vault-operator/"
           cp "$HERE"/assets/* "$VAULT/.vault-operator/assets/"
+          # Rigenera i sidecar sul posto: se qualcuno ha copiato a mano solo i
+          # file principali, senza questi il plugin li considera non installati.
+          for f in "$VAULT"/.vault-operator/assets/*; do
+            case "$f" in *.sha256) continue;; esac
+            [ -f "$f" ] || continue
+            shasum -a 256 "$f" | cut -d' ' -f1 > "$f.sha256"
+          done
           echo "Fatto. Ricarica Obsidian (Cmd+R)."
           echo "I token e le impostazioni in data.json non sono stati toccati."
           SH
@@ -118,6 +138,12 @@ jobs:
           Operator → Optional assets**: il pacchetto risulta già installato,
           perché `installa.sh` l'ha messo al posto giusto.
           MD
+
+          # Un asset senza il suo sidecar è un asset che il plugin rifiuterà.
+          for f in "$ROOT"/assets/*; do
+            case "$f" in *.sha256) continue;; esac
+            [ -f "$f.sha256" ] || { echo "manca il sidecar per $(basename "$f")"; exit 1; }
+          done
 
           cd dist && zip -qr vault-operator-ivseb.zip vault-operator-ivseb
           echo "=== contenuto ==="

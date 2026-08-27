@@ -49,6 +49,23 @@ const PER_TOOL_THRESHOLDS: Record<string, number> = {
      * comunque intera. Sopra quella soglia la skill ha un problema suo.
      */
     read_skill: 25_000,
+    /**
+     * call_plugin_api: il risultato di un plugin è DATO, non prosa da
+     * riassumere, e arriva come JSON indentato -- quindi le 12 righe di
+     * formatDefaultRef sono un elemento solo di un elenco.
+     *
+     * Incidente del 27/08/2026: `listMailRecent(20)` ha restituito 9 messaggi
+     * (5485 caratteri). L'agent ne ha visto uno, doveva elencarne venti, e ha
+     * INVENTATO i restanti -- mittenti e oggetti che non esistono. È il
+     * fallimento peggiore possibile: non un errore, una risposta plausibile e
+     * falsa.
+     *
+     * Soglia alta invece di SKIP_EXTERNALIZATION: un plugin può restituire
+     * anche una pagina Confluence da 200k, e per quella l'esternalizzazione è
+     * la risposta giusta. Sotto i 50k il dato passa intero; sopra, il
+     * riferimento al file resta -- ed è una scelta, non una dimenticanza.
+     */
+    call_plugin_api: 50_000,
 };
 
 /**
